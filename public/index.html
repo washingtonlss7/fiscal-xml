@@ -109,6 +109,29 @@
           <button id="aud-refazer" type="button" class="botao pequeno">Refazer auditoria do mês</button>
         </div>
         <div id="aud-resumo" class="numeros"></div>
+        <section id="st-bloco" class="grupo-regra bloco-st" aria-labelledby="st-titulo">
+          <div class="grupo-topo">
+            <div>
+              <h3 id="st-titulo">ICMS-ST nas compras de outros estados</h3>
+              <p>Itens de notas de fora do ES, sem ST retido pelo fornecedor, que estão na tabela de ST do ES. Base ST = (mercadoria + frete + seguro + IPI + outras − desconto) × (1 + MVA), ou PMPF × quantidade; ICMS-ST = Base ST × alíquota interna − ICMS próprio.</p>
+            </div>
+            <div class="grupo-acoes">
+              <button id="st-planilha" type="button" class="botao primario pequeno">Baixar planilha de ST (Excel)</button>
+            </div>
+          </div>
+          <div class="st-corpo">
+            <div id="st-numeros" class="numeros"></div>
+            <p id="st-aviso" class="st-aviso" hidden></p>
+            <div class="st-opcoes">
+              <label class="checar st-checar"><input id="st-ajustada" type="checkbox" /><span>Usar MVA ajustada<small>Convênio ICMS 142/2018: ajusta a MVA pela diferença entre a alíquota interestadual e a interna.</small></span></label>
+              <div class="grupo-acoes">
+                <button id="st-tabela-baixar" type="button" class="botao fantasma pequeno">Baixar tabela de ST do ES (CSV)</button>
+                <button id="st-tabela-enviar" type="button" class="botao pequeno">Enviar tabela (CSV)</button>
+                <input id="st-tabela-arquivo" type="file" accept=".csv,text/csv" hidden />
+              </div>
+            </div>
+          </div>
+        </section>
         <div id="aud-lista" class="pilha"></div>
         <p id="aud-vazio" class="vazio" hidden></p>
       </div>

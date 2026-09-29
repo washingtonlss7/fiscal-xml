@@ -608,6 +608,90 @@ function trocarAba(aba) {
 function recarregarAba() {
   if (abaAtual === 'notas') carregarNotas();
   carregarAuditoria();
+  if (abaAtual === 'auditoria') carregarST();
+}
+
+/* ---------- ICMS-ST nas entradas de outros estados ---------- */
+function stQuery() {
+  return `mes=${mesSelecionado()}${$('st-ajustada').checked ? '&mva=ajustada' : ''}`;
+}
+
+async function carregarST() {
+  if (!empresaNotas) return;
+  const numeros = $('st-numeros');
+  const aviso = $('st-aviso');
+  numeros.replaceChildren(cartao('ST a recolher', '…'));
+  try {
+    const d = await chamar(`/api/empresas/${empresaNotas.id}/st?${stQuery()}`);
+    if (d.uf !== 'ES') {
+      numeros.replaceChildren();
+      aviso.className = 'st-aviso neutro';
+      aviso.textContent = `Esta empresa está cadastrada em ${d.uf}. O cálculo considera destinatário no ES.`;
+      aviso.hidden = false;
+      $('st-planilha').disabled = true;
+      return;
+    }
+    $('st-planilha').disabled = false;
+    numeros.replaceChildren(
+      cartao('ST a recolher', moeda(d.total), `${d.itensCalculados} ite${d.itensCalculados === 1 ? 'm' : 'ns'} calculado${d.itensCalculados === 1 ? '' : 's'}`),
+      cartao('Notas de fora do ES', String(d.notasForaDoEstado), `${d.notasComST} com ST a recolher`),
+      cartao('Com CEST sem regra', String(d.itensSemRegra), d.itensSemRegra ? `${moeda(d.valorSemRegra)} em mercadoria` : 'nenhum pendente'),
+      cartao('Já com ST retido', String(d.jaRetidos), 'itens cobrados pelo fornecedor'),
+    );
+    if (!d.regrasCadastradas) {
+      aviso.className = 'st-aviso';
+      aviso.textContent = 'A tabela de ST do ES está vazia. Baixe o modelo, preencha CEST ou NCM com a MVA (ou o PMPF) e a alíquota interna, salve como CSV e envie.';
+      aviso.hidden = false;
+    } else if (d.itensSemRegra) {
+      aviso.className = 'st-aviso';
+      aviso.textContent = `${d.itensSemRegra} item(ns) com CEST não estão na tabela (${d.regrasCadastradas} regra(s) cadastrada(s)). Eles aparecem na aba "Sem regra na tabela" da planilha.`;
+      aviso.hidden = false;
+    } else {
+      aviso.hidden = true;
+    }
+  } catch (e) {
+    numeros.replaceChildren();
+    aviso.className = 'st-aviso';
+    aviso.textContent = e.message;
+    aviso.hidden = false;
+  }
+}
+
+async function baixarPlanilhaST() {
+  const botao = $('st-planilha');
+  botao.disabled = true;
+  botao.textContent = 'Gerando planilha…';
+  try {
+    await baixarArquivo(`/api/empresas/${empresaNotas.id}/st?${stQuery()}&formato=xlsx`, 'st.xlsx');
+  } catch (e) {
+    avisar(e.message);
+  } finally {
+    botao.disabled = false;
+    botao.textContent = 'Baixar planilha de ST (Excel)';
+  }
+}
+
+async function enviarTabelaST(arquivo) {
+  if (!arquivo) return;
+  const botao = $('st-tabela-enviar');
+  botao.disabled = true;
+  botao.textContent = 'Enviando…';
+  try {
+    const bytes = new Uint8Array(await arquivo.arrayBuffer());
+    // O Excel costuma salvar CSV em Windows-1252; se não for UTF-8 válido, lê nesse formato.
+    let texto;
+    try { texto = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+    catch { texto = new TextDecoder('windows-1252').decode(bytes); }
+    const r = await chamar('/api/st-es/tabela', { method: 'POST', body: { csv: texto } });
+    avisar(`Tabela de ST do ES atualizada: ${r.regras} regra(s).`);
+    carregarST();
+  } catch (e) {
+    avisar(e.message);
+  } finally {
+    botao.disabled = false;
+    botao.textContent = 'Enviar tabela (CSV)';
+    $('st-tabela-arquivo').value = '';
+  }
 }
 
 function mesSelecionado() { return $('notas-mes').value || mesAtual(); }
@@ -809,6 +893,11 @@ function ligarEventos() {
   $('aba-notas').addEventListener('click', () => trocarAba('notas'));
   $('aba-auditoria').addEventListener('click', () => trocarAba('auditoria'));
   $('aud-refazer').addEventListener('click', refazerAuditoria);
+  $('st-planilha').addEventListener('click', baixarPlanilhaST);
+  $('st-ajustada').addEventListener('change', carregarST);
+  $('st-tabela-baixar').addEventListener('click', () => baixarArquivo('/api/st-es/tabela', 'tabela_st_es.csv').catch((e) => avisar(e.message)));
+  $('st-tabela-enviar').addEventListener('click', () => $('st-tabela-arquivo').click());
+  $('st-tabela-arquivo').addEventListener('change', (e) => enviarTabelaST(e.target.files[0]));
   $('aud-abertos').addEventListener('click', () => { audMostrar = 'abertos'; marcarSegmento(); renderAuditoria(); });
   $('aud-todos').addEventListener('click', () => { audMostrar = 'todos'; marcarSegmento(); renderAuditoria(); });
 

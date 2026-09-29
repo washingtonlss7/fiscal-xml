@@ -292,3 +292,11 @@ tr.cancelada .valor-nota { text-decoration: line-through; }
 .apontamento.resolvido .texto { color: var(--tinta-2); }
 .mais-itens { padding: 10px 16px; border-top: 1px solid var(--linha); font-size: 13px; color: var(--tinta-2); }
 @media (max-width: 700px) { .apontamento { grid-template-columns: 1fr; } .apontamento .acoes-ap { justify-content: flex-start; } }
+
+/* ICMS-ST */
+.bloco-st { border-left: 3px solid var(--destaque); }
+.st-corpo { padding: 0 16px 16px; display: flex; flex-direction: column; gap: 12px; }
+.st-opcoes { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.st-checar { max-width: 60ch; }
+.st-aviso { margin: 0; padding: 10px 12px; border-radius: 8px; font-size: 13px; background: var(--atencao-fundo); color: var(--atencao); }
+.st-aviso.neutro { background: var(--neutro-fundo); color: var(--tinta-2); }

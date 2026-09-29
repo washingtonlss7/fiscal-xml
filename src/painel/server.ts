@@ -7,6 +7,9 @@ import { buscarTodos, criarDb, ok } from '../db';
 import { ErroValidacao, salvarEmpresaComCertificado } from '../empresas';
 import { log } from '../log';
 import { Zip } from './zip';
+import { escreverXlsx } from './xlsx';
+import { abasST, lerRegrasST, relatorioST } from '../fiscal/relatorioST';
+import { lerTabelaCsv, tabelaParaCsv } from '../fiscal/st';
 import { Armazenamento, configArmazenamento } from '../armazenamento';
 import { auditarMes } from '../auditoria/motor';
 import { REGRAS } from '../auditoria/regras';
@@ -253,6 +256,53 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
     if (!a) throw new ErroHttp(404, 'Apontamento não encontrado.');
     await resolverApontamento(a, String(c.acao), c.observacao ? String(c.observacao) : null, c.valor ? String(c.valor) : null, email);
     return responder(res, 200, { ok: true });
+  }
+
+  // ICMS-ST nas entradas de outros estados (planilha ou resumo)
+  const st = rota.match(/^\/api\/empresas\/([0-9a-f-]{36})\/st$/);
+  if (metodo === 'GET' && st) {
+    const f = filtroNotas(url);
+    const ajustar = url.searchParams.get('mva') === 'ajustada';
+    const r = await relatorioST(db, st[1], f.de, f.ate, ajustar);
+    if (url.searchParams.get('formato') === 'xlsx') {
+      res.writeHead(200, {
+        ...CABECALHOS_SEGURANCA,
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': `attachment; filename="ST_${r.empresa.cnpj}_${f.mes}.xlsx"`,
+        'Cache-Control': 'no-store',
+      });
+      await escreverXlsx(new Zip(res), abasST(r, f.mes, ajustar));
+      return void res.end();
+    }
+    const notasComST = new Set(r.linhas.map((l) => l.nota.chave)).size;
+    return responder(res, 200, {
+      uf: r.empresa.uf, total: r.total, notasForaDoEstado: r.notasForaDoEstado, notasComST, itensCalculados: r.linhas.length,
+      itensSemRegra: r.semRegra.length, valorSemRegra: Math.round(r.semRegra.reduce((t, x) => t + x.item.v_prod, 0) * 100) / 100,
+      jaRetidos: r.jaRetidos, regrasCadastradas: r.regrasCadastradas,
+    });
+  }
+
+  // Tabela de ST do ES (CSV): baixar e substituir
+  if (rota === '/api/st-es/tabela') {
+    if (metodo === 'GET') {
+      const regras = await lerRegrasST(db);
+      res.writeHead(200, {
+        ...CABECALHOS_SEGURANCA,
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="tabela_st_es.csv"',
+        'Cache-Control': 'no-store',
+      });
+      return void res.end(tabelaParaCsv(regras));
+    }
+    if (metodo === 'POST') {
+      const { csv } = await lerCorpo(req, 5_000_000);
+      const { regras, erros } = lerTabelaCsv(String(csv ?? ''));
+      if (erros.length) throw new ErroHttp(422, `A tabela não foi importada. ${erros.slice(0, 8).join(' ')}${erros.length > 8 ? ` (e mais ${erros.length - 8} erros)` : ''}`);
+      if (!regras.length) throw new ErroHttp(422, 'Nenhuma regra encontrada no arquivo.');
+      const n = ok(await db.rpc('substituir_regras_st', { p_regras: regras, p_por: email }), 'gravar tabela de ST') as number;
+      log.info('tabela de ST do ES importada', { regras: n, por: email });
+      return responder(res, 200, { regras: n });
+    }
   }
 
   const notas = rota.match(/^\/api\/empresas\/([0-9a-f-]{36})\/(notas|xml|zip)$/);
