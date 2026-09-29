@@ -56,7 +56,7 @@ export async function auditarMes(db: Db, empresaId: string, competencia: string)
   const linhas = resultado.apontamentos.map((a) => ({ empresa_id: empresaId, competencia: inicio, ...a, atualizado_em: agora }));
   for (let i = 0; i < linhas.length; i += 500) {
     ok(
-      await db.from('apontamentos').upsert(linhas.slice(i, i + 500), { onConflict: 'empresa_id,regra,referencia' }),
+      await db.from('apontamentos').upsert(linhas.slice(i, i + 500), { onConflict: 'empresa_id,competencia,regra,referencia' }),
       'gravar apontamentos',
     );
   }

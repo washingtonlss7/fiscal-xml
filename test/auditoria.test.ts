@@ -91,4 +91,6 @@ assert.equal(monofasico('30049046'), null, 'exceção da Lei 10.147');
 assert.ok(monofasico('33049910'));
 assert.equal(monofasico('96190000'), null);
 console.log('ok  tabelas: conversão de CFOP e lista monofásica com exceções');
+// Apontamentos agregados usam referência 'mes'; a unicidade no banco inclui a competência (migração 0008).
+assert.equal(regras('CTE_SEM_TOMADOR')[0].referencia, 'mes');
 console.log('\nTestes da auditoria passaram.');
