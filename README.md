@@ -1,4 +1,4 @@
-# fiscal-xml
+# Appura (fiscal-xml)
 
 Coletor de **NF-e** e **CT-e** direto da SEFAZ (Ambiente Nacional, serviço *DistribuicaoDFe*) usando o certificado A1 de cada cliente do escritório. Guarda os XMLs no Supabase Storage e os dados das notas no Postgres.
 

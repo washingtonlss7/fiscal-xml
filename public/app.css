@@ -300,3 +300,5 @@ tr.cancelada .valor-nota { text-decoration: line-through; }
 .st-checar { max-width: 60ch; }
 .st-aviso { margin: 0; padding: 10px 12px; border-radius: 8px; font-size: 13px; background: var(--atencao-fundo); color: var(--atencao); }
 .st-aviso.neutro { background: var(--neutro-fundo); color: var(--tinta-2); }
+
+.slogan { margin: -6px 0 4px; font-size: 14px; color: var(--tinta-2); }

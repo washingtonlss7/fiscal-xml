@@ -68,7 +68,7 @@ const cnpjFmt = (c: string | null) => (c ?? '').replace(/^(\d{2})(\d{3})(\d{3})(
 export function abasST(r: RelatorioST, mes: string, ajustarMva: boolean): Aba[] {
   const [a, m] = mes.split('-');
   const cab = [
-    `ICMS-ST a recolher nas entradas de outros estados — ${m}/${a}`,
+    `Appura · ICMS-ST a recolher nas entradas de outros estados — ${m}/${a}`,
     `${r.empresa.razao_social} — CNPJ ${cnpjFmt(r.empresa.cnpj)}`,
     `Base ST = (mercadoria + frete + seguro + IPI + outras − desconto) × (1 + MVA${ajustarMva ? ' ajustada' : ''}), ou PMPF × quantidade. ` +
       'ICMS-ST = Base ST × alíquota interna − ICMS próprio (base da operação × alíquota interestadual).',
