@@ -20,6 +20,10 @@ export interface ContextoSync {
   arm: Armazenamento;
   tpAmb: 1 | 2;
   maxChamadasPorRodada: number;
+  /** Espera depois que a empresa fica em dia (137, ou 138 no fim da fila). Nunca menos de 1 hora. */
+  intervaloMs: number;
+  /** Pedido manual do painel: pode consultar antes do intervalo, desde que já tenha passado 1 hora. */
+  manual?: boolean;
   /** CNPJ -> empresa cadastrada, para distribuir as notas recebidas pelo escritório (autXML). */
   clientes?: Map<string, { id: string; cnpj: string }>;
 }
@@ -34,6 +38,24 @@ export interface ResultadoSync {
 
 /** Espera após erro: 15 min, 30, 60... até 6 h. */
 const backoff = (erros: number) => minutos(Math.min(15 * 2 ** Math.max(0, erros - 1), 360));
+
+/** Intervalo até a próxima consulta de uma empresa em dia: o configurado, mas nunca menos de 61 minutos. */
+const intervalo = (ctx: ContextoSync) => Math.max(minutos(61), ctx.intervaloMs);
+
+/**
+ * Quando a empresa/modelo pode consultar de novo. Num pedido manual, uma empresa em dia (137/138)
+ * não precisa esperar o intervalo configurado: basta ter passado 1 hora da última consulta.
+ * Bloqueio 656 e espera após erro valem sempre.
+ */
+export function liberadoEm(
+  estado: { proxima_consulta_em: string; ultima_consulta_em?: string | null; ultimo_cstat?: string | null; erros_consecutivos?: number | null },
+  manual: boolean,
+): number {
+  const proxima = new Date(estado.proxima_consulta_em).getTime();
+  if (!manual || !estado.ultima_consulta_em || (estado.erros_consecutivos ?? 0) > 0) return proxima;
+  if (estado.ultimo_cstat !== '137' && estado.ultimo_cstat !== '138') return proxima;
+  return Math.min(proxima, new Date(estado.ultima_consulta_em).getTime() + minutos(61));
+}
 
 /** consNSU (recuperação de lacunas): a SEFAZ aceita 20 por hora; usamos no máximo 15, uma vez por hora. */
 const LACUNAS_POR_HORA = 15;
@@ -203,18 +225,16 @@ async function processarFila(ctx: ContextoSync, empresa: EmpresaSync, modelo: Mo
     });
     for (const d of docs.filter(ehEvento)) chaves.set(d.nsu, await processarDoc(ctx, empresa, modelo, d));
 
-    // Marca como processado e descarta o XML da fila (ele já está no Storage).
-    await emParalelo(pendentes, 6, async (p) => {
-      ok(
-        await db
-          .from('dfe_recebidos')
-          .update({ processado: true, xml: null, chave: chaves.get(p.nsu) ?? null })
-          .eq('empresa_id', empresa.id)
-          .eq('modelo', modelo)
-          .eq('nsu', p.nsu),
-        'marcar processado',
-      );
-    });
+    // Marca como processado e descarta o XML da fila (ele já está no Storage), numa única operação.
+    ok(
+      await db.from('dfe_recebidos').upsert(
+        pendentes.map((p) => ({
+          empresa_id: empresa.id, modelo, nsu: p.nsu, schema: p.schema, processado: true, xml: null, chave: chaves.get(p.nsu) ?? null,
+        })),
+        { onConflict: 'empresa_id,modelo,nsu' },
+      ),
+      'marcar processado',
+    );
     total += docs.length;
   }
 }
@@ -315,8 +335,9 @@ export async function sincronizarModelo(
   ) as any;
   if (!estado) throw new Error(`sync_state ausente para ${empresa.cnpj}/${modelo}`);
 
-  if (new Date(estado.proxima_consulta_em).getTime() > Date.now()) {
-    return { modelo, status: 'aguardando', chamadas: 0, documentos, mensagem: `liberado em ${estado.proxima_consulta_em}` };
+  const liberado = liberadoEm(estado, !!ctx.manual);
+  if (liberado > Date.now()) {
+    return { modelo, status: 'aguardando', chamadas: 0, documentos, mensagem: `liberado em ${new Date(liberado).toISOString()}` };
   }
 
   let ultNSU: string = estado.ult_nsu;
@@ -380,7 +401,7 @@ export async function sincronizarModelo(
         max_nsu: ret.maxNSU,
         erros_consecutivos: 0,
         ultima_sync_ok_em: new Date().toISOString(),
-        proxima_consulta_em: chegouAoFim ? daquiA(minutos(61)) : daquiA(minutos(3)),
+        proxima_consulta_em: chegouAoFim ? daquiA(intervalo(ctx)) : daquiA(minutos(3)),
       });
       documentos += await processarFila(ctx, empresa, modelo);
       if (chegouAoFim) return finalizar('ok');
@@ -389,7 +410,7 @@ export async function sincronizarModelo(
     }
 
     if (ret.cStat === '137') {
-      // Nenhum documento novo. A NT exige aguardar 1 hora antes de consultar de novo.
+      // Nenhum documento novo. A NT exige aguardar pelo menos 1 hora antes de consultar de novo.
       if (ret.ultNSU > ultNSU) ultNSU = ret.ultNSU;
       await atualizarEstado(db, empresa.id, modelo, {
         ...base,
@@ -397,7 +418,7 @@ export async function sincronizarModelo(
         max_nsu: ret.maxNSU,
         erros_consecutivos: 0,
         ultima_sync_ok_em: new Date().toISOString(),
-        proxima_consulta_em: daquiA(minutos(61)),
+        proxima_consulta_em: daquiA(intervalo(ctx)),
       });
       return finalizar('ok');
     }

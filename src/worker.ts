@@ -6,28 +6,75 @@ import { auditarPendentes, reauditarRecentes } from './auditoria/motor';
 import { extrairPendentes } from './extrator';
 import { fazerBackup, migrarParaR2 } from './migracao';
 import { log } from './log';
-import { executarRodada } from './rodada';
+import { Agendador } from './agendador';
+import { carregarEmpresas, emAndamento, executarRodada, garantirSyncState, mapaClientes, novoContexto, sincronizarEmpresa } from './rodada';
 
 const cfg = configWorker();
 const db = criarDb(cfg.supabaseUrl, cfg.supabaseServiceKey);
 const arm = new Armazenamento(db, configArmazenamento(cfg.masterKey, cfg.bucket));
 
-let rodadaAtiva: Promise<unknown> | null = null;
-let ocupadoComPedidos = false;
 let encerrando = false;
+let ocupadoComPedidos = false;
 
-async function rodadaCompleta(origem: string, somenteEmpresas?: string[]) {
-  if (rodadaAtiva) {
-    log.warn('rodada anterior ainda em andamento; pulando', { origem });
-    return;
-  }
-  log.info('disparando rodada', { origem, empresas: somenteEmpresas?.length });
-  rodadaAtiva = executarRodada(db, cfg, arm, somenteEmpresas)
-    .catch((e) => log.error('erro na rodada', { erro: (e as Error).message }))
-    .finally(() => {
-      rodadaAtiva = null;
+/** Contadores para o resumo periódico no log. */
+const estat = { empresas: 0, documentos: 0, erros: 0, desde: Date.now() };
+
+/** Empresa que falhou antes de atualizar o controle de NSU (ex.: senha do certificado): tenta de novo em 15 min. */
+async function adiar(empresaId: string) {
+  await db
+    .from('sync_state')
+    .update({ proxima_consulta_em: new Date(Date.now() + 15 * 60_000).toISOString() })
+    .eq('empresa_id', empresaId)
+    .lte('proxima_consulta_em', new Date().toISOString());
+}
+
+const agendador = new Agendador(
+  cfg.concorrencia,
+  async (limite, excluir) => {
+    const devidas = ok(
+      await db.rpc('empresas_para_sincronizar', { p_limite: limite, p_excluir: excluir }),
+      'empresas para sincronizar',
+    ) as { empresa_id: string }[];
+    if (!devidas?.length) return [];
+    const { empresas, certs } = await carregarEmpresas(db, devidas.map((d) => d.empresa_id));
+    const ctx = novoContexto(db, cfg, arm, await mapaClientes(db));
+    return empresas.map((e) => ({
+      id: e.id,
+      rodar: async () => {
+        const r = await sincronizarEmpresa(ctx, cfg, e, certs.get(e.id));
+        estat.empresas++;
+        if (r.situacao === 'ok') {
+          estat.documentos += r.documentos;
+          estat.erros += r.resultados.filter((x) => x.status === 'erro').length;
+        } else if (r.situacao !== 'ocupada') {
+          estat.erros++;
+          await adiar(e.id);
+        }
+      },
+    }));
+  },
+  (e) => log.error('erro no agendador', { erro: (e as Error).message }),
+  60_000,
+  () => emAndamento,
+);
+
+/** A cada 10 minutos: garante o controle de NSU de empresas novas e registra um resumo no log. */
+async function manutencao() {
+  try {
+    const { empresas } = await carregarEmpresas(db);
+    await garantirSyncState(db, empresas);
+    const fila = (ok(await db.rpc('fila_sincronizacao'), 'fila') as { vencidas: number; mais_antiga: string | null }[])?.[0];
+    log.info('resumo do coletor', {
+      empresas_ativas: empresas.length,
+      sincronizando_agora: agendador.ativos,
+      aguardando_vaga: Number(fila?.vencidas ?? 0),
+      atraso_max_min: fila?.mais_antiga ? Math.round((Date.now() - new Date(fila.mais_antiga).getTime()) / 60_000) : 0,
+      ultimos_10min: { empresas: estat.empresas, documentos: estat.documentos, erros: estat.erros },
     });
-  await rodadaAtiva;
+    Object.assign(estat, { empresas: 0, documentos: 0, erros: 0, desde: Date.now() });
+  } catch (e) {
+    log.error('erro na manutenção', { erro: (e as Error).message });
+  }
 }
 
 /** Atende o botão "Sincronizar agora" do painel (tabela sync_requests). */
@@ -44,23 +91,35 @@ async function atenderPedidosManuais() {
   try {
     const r = await executarRodada(db, cfg, arm, [...new Set(pedidos.map((p) => p.empresa_id))]);
     for (const p of pedidos) {
-      const res = r.resultados[p.empresa_id] ?? [];
-      const docs = res.reduce((s, x) => s + x.documentos, 0);
-      const aguardando = res.find((x) => x.status === 'aguardando');
-      const parcial = res.some((x) => x.status === 'parcial');
-      const erro = res.find((x) => x.status === 'erro' || x.status === 'bloqueado_656');
-      await db
-        .from('sync_requests')
-        .update({
-          status: erro ? 'erro' : 'concluido',
-          processado_em: new Date().toISOString(),
-          mensagem: erro
-            ? erro.mensagem
-            : aguardando && docs === 0
-              ? `A SEFAZ só permite nova consulta após 1 hora (${aguardando.mensagem}).`
-              : `${docs} documento(s) recebido(s)${parcial ? '; o restante continua automaticamente' : ''}.`,
-        })
-        .eq('id', p.id);
+      const res = r[p.empresa_id];
+      let status = 'concluido';
+      let mensagem = '';
+      if (!res) {
+        status = 'erro';
+        mensagem = 'Empresa inativa ou não encontrada.';
+      } else if (res.situacao === 'ocupada') {
+        mensagem = 'A sincronização automática desta empresa já está em andamento; os documentos aparecem em instantes.';
+      } else if (res.situacao === 'sem_certificado' || res.situacao === 'vencido') {
+        status = 'erro';
+        mensagem = res.situacao === 'vencido' ? 'Certificado vencido.' : 'Empresa sem certificado ativo.';
+      } else if (res.situacao === 'erro') {
+        status = 'erro';
+        mensagem = res.mensagem;
+      } else if (res.situacao === 'ok') {
+        const docs = res.documentos;
+        const aguardando = res.resultados.find((x) => x.status === 'aguardando');
+        const parcial = res.resultados.some((x) => x.status === 'parcial');
+        const erro = res.resultados.find((x) => x.status === 'erro' || x.status === 'bloqueado_656');
+        if (erro) {
+          status = 'erro';
+          mensagem = erro.mensagem ?? 'Falha na consulta.';
+        } else if (aguardando && docs === 0) {
+          mensagem = `A SEFAZ só permite nova consulta 1 hora depois da anterior (${aguardando.mensagem}).`;
+        } else {
+          mensagem = `${docs} documento(s) recebido(s)${parcial ? '; o restante continua automaticamente' : ''}.`;
+        }
+      }
+      await db.from('sync_requests').update({ status, processado_em: new Date().toISOString(), mensagem }).eq('id', p.id);
     }
   } catch (e) {
     await db
@@ -70,25 +129,6 @@ async function atenderPedidosManuais() {
   }
 }
 
-/**
- * Empresas que ainda têm documentos na fila da SEFAZ (ultNSU < maxNSU) e já podem consultar de novo.
- * Acontece quando a rodada atinge o limite de chamadas ou quando o serviço é reiniciado no meio.
- */
-async function empresasComFila(): Promise<string[]> {
-  const linhas = ok(
-    await db
-      .from('sync_state')
-      .select('empresa_id,ult_nsu,max_nsu')
-      .in('ultimo_cstat', ['138', '656'])
-      .lt('erros_consecutivos', 3)
-      .lte('proxima_consulta_em', new Date().toISOString())
-      .limit(1000),
-    'listar filas pendentes',
-  ) as { empresa_id: string; ult_nsu: string; max_nsu: string | null }[];
-  return [...new Set(linhas.filter((l) => l.max_nsu && l.ult_nsu < l.max_nsu).map((l) => l.empresa_id))];
-}
-
-let ciclo = 0;
 async function tique() {
   if (encerrando || ocupadoComPedidos) return;
   ocupadoComPedidos = true;
@@ -97,15 +137,10 @@ async function tique() {
     // Detalha (itens e tributos) notas completas ainda não extraídas, inclusive o histórico.
     const extraidas = await extrairPendentes(db, arm, 150);
     if (extraidas) log.info('notas detalhadas', { quantidade: extraidas });
-    // Audita os meses com notas novas ou alteradas.
-    await auditarPendentes(db, 5);
+    // Audita os meses com notas novas ou alteradas (vários meses em paralelo).
+    await auditarPendentes(db, 12, 3);
     // Move os XMLs antigos (Supabase Storage) para o R2 criptografado, aos poucos.
     await migrarParaR2(db, arm, 200);
-    // A cada 3 minutos, continua filas que ficaram pela metade (sem esperar a próxima rodada agendada).
-    if (ciclo++ % 3 === 0 && !rodadaAtiva) {
-      const ids = await empresasComFila();
-      if (ids.length) void rodadaCompleta('continuação da fila', ids);
-    }
   } catch (e) {
     log.error('erro no ciclo do coletor', { erro: (e as Error).message });
   } finally {
@@ -116,39 +151,46 @@ async function tique() {
 async function iniciar() {
   log.info('coletor iniciado', {
     ambiente: cfg.tpAmb === 1 ? 'produção' : 'homologação',
-    rodadas: cfg.cronRodadas,
-    concorrencia: cfg.concorrencia,
+    empresas_simultaneas: cfg.concorrencia,
+    intervalo_horas: cfg.intervaloHoras,
     armazenamento: arm.usaR2 ? 'Cloudflare R2 (criptografado)' : 'Supabase Storage',
   });
+  if (process.env.CRON_RODADAS) log.warn('CRON_RODADAS não é mais usada: o coletor agenda cada empresa pelo INTERVALO_HORAS.');
 
   // Pedidos que estavam em andamento quando o serviço reiniciou voltam para a fila.
   await db.from('sync_requests').update({ status: 'pendente' }).eq('status', 'processando');
 
-  for (const expr of cfg.cronRodadas) {
-    if (!cron.validate(expr)) throw new Error(`Expressão cron inválida em CRON_RODADAS: ${expr}`);
-    cron.schedule(expr, () => void rodadaCompleta(`cron ${expr}`), { timezone: 'America/Sao_Paulo' });
-  }
+  // Consultas à SEFAZ: vagas liberadas são preenchidas na hora; a cada 15 s confere se venceu alguma.
+  const abastecer = setInterval(() => void agendador.abastecer(), 15_000);
+  const manut = setInterval(() => void manutencao(), 10 * 60_000);
+  void manutencao().then(() => agendador.abastecer());
 
   // Backup semanal dos XMLs (criptografados) no disco da VPS.
   const pastaBackup = process.env.BACKUP_DIR?.trim() || '/app/backup';
   cron.schedule(process.env.BACKUP_CRON?.trim() || '30 3 * * 0', () => void fazerBackup(db, arm, pastaBackup)
     .catch((e) => log.error('erro no backup', { erro: (e as Error).message })), { timezone: 'America/Sao_Paulo' });
 
-  // Todo dia às 6h reaudita o mês atual e o anterior (regras que dependem do tempo).
-  cron.schedule('0 6 * * *', () => void reauditarRecentes(db).catch((e) => log.error('erro ao reabrir auditoria', { erro: (e as Error).message })), { timezone: 'America/Sao_Paulo' });
+  // Todo dia às 6h reaudita o mês atual e o anterior (regras que dependem do tempo) e limpa o histórico antigo de chamadas.
+  cron.schedule('0 6 * * *', () => {
+    void reauditarRecentes(db).catch((e) => log.error('erro ao reabrir auditoria', { erro: (e as Error).message }));
+    void db.rpc('limpar_logs_sefaz', { p_dias: 60 }).then((r) => {
+      if (r.error) log.error('erro ao limpar logs_sefaz', { erro: r.error.message });
+      else if (Number(r.data)) log.info('histórico de chamadas antigo removido', { linhas: Number(r.data) });
+    });
+  }, { timezone: 'America/Sao_Paulo' });
 
   const intervalo = setInterval(() => void tique(), 60_000);
   setTimeout(() => void tique(), 5_000);
-
-  if (cfg.rodarAoIniciar) void rodadaCompleta('início');
 
   const parar = async (sinal: string) => {
     if (encerrando) return;
     encerrando = true;
     log.info('encerrando', { sinal });
     clearInterval(intervalo);
+    clearInterval(abastecer);
+    clearInterval(manut);
     for (const t of cron.getTasks().values()) t.stop();
-    if (rodadaAtiva) await rodadaAtiva;
+    await agendador.parar();
     process.exit(0);
   };
   process.on('SIGTERM', () => void parar('SIGTERM'));

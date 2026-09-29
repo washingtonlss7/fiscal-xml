@@ -1,5 +1,6 @@
 import { buscarTodos, Db, ok } from '../db';
 import { log } from '../log';
+import { emParalelo } from '../util';
 import { auditar, EmpresaAuditoria, ItemAuditoria, NotaAuditoria, ResultadoAuditoria } from './regras';
 
 const COLUNAS_NOTA =
@@ -80,19 +81,19 @@ export async function auditarMes(db: Db, empresaId: string, competencia: string)
 }
 
 /** Processa os meses com notas novas ou alteradas. Chamado pelo coletor em segundo plano. */
-export async function auditarPendentes(db: Db, limite = 5): Promise<number> {
+export async function auditarPendentes(db: Db, limite = 5, paralelo = 1): Promise<number> {
   const meses = ok(await db.rpc('meses_para_auditar', { p_limite: limite }), 'listar meses para auditar') as {
     empresa_id: string;
     competencia: string;
   }[];
-  for (const m of meses ?? []) {
+  await emParalelo(meses ?? [], paralelo, async (m) => {
     try {
       const r = await auditarMes(db, m.empresa_id, m.competencia);
       log.info('auditoria', { empresa: m.empresa_id, competencia: m.competencia, apontamentos: r.apontamentos.length, itens: r.resumo.itens });
     } catch (e) {
       log.error('falha na auditoria', { empresa: m.empresa_id, competencia: m.competencia, erro: (e as Error).message });
     }
-  }
+  });
   return meses?.length ?? 0;
 }
 

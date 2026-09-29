@@ -30,10 +30,11 @@ export function configWorker() {
     supabaseServiceKey: obrigatorio('SUPABASE_SERVICE_ROLE_KEY'),
     masterKey: obrigatorio('MASTER_KEY'),
     bucket: opcional('XML_BUCKET', 'xmls'),
-    concorrencia: Math.max(1, Number(opcional('CONCORRENCIA', '10'))),
-    // Horários das rodadas (cron, fuso de São Paulo). Separados por ";".
-    cronRodadas: opcional('CRON_RODADAS', '0 2 * * *;0 14 * * *').split(';').map((s) => s.trim()).filter(Boolean),
-    rodarAoIniciar: opcional('RODAR_AO_INICIAR', 'false') === 'true',
+    // Quantas empresas são sincronizadas ao mesmo tempo (cada uma com seu próprio certificado).
+    concorrencia: Math.max(1, Number(opcional('CONCORRENCIA', '30'))),
+    // De quanto em quanto tempo cada empresa volta a consultar a SEFAZ depois de ficar em dia.
+    // A SEFAZ exige no mínimo 1 hora; abaixo disso o valor é ignorado.
+    intervaloHoras: Math.max(1.02, Number(opcional('INTERVALO_HORAS', '3'))),
     // Máximo de chamadas seguidas por empresa/modelo numa rodada (cada uma traz até 50 docs).
     maxChamadasPorRodada: Math.max(1, Number(opcional('MAX_CHAMADAS_POR_RODADA', '40'))),
     tpAmb: tpAmb(),

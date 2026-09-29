@@ -8,7 +8,7 @@ Esta é a **Fase 1** (captação). Manifestação do destinatário, exportação
 
 - Para cada empresa ativa, o coletor consulta o `distNSU` a partir do último NSU salvo, em lotes de até 50 documentos, até alcançar o `maxNSU`.
 - Segue as regras da NT 2014.002: depois de chegar ao fim ou receber **137** (nenhum documento), só consulta de novo após **1 hora**. Se receber **656** (consumo indevido), o CNPJ fica bloqueado por 1 hora e o coletor espera.
-- Rodadas agendadas às **2h e 14h** (horário de Brasília), configuráveis em `CRON_RODADAS`.
+- Agendamento contínuo: até `CONCORRENCIA` empresas (padrão 30) sincronizando ao mesmo tempo; cada empresa volta a consultar a cada `INTERVALO_HORAS` (padrão 3 h, mínimo 1 h exigido pela SEFAZ).
 - Pedidos manuais entram pela tabela `sync_requests` (o botão "Sincronizar agora" do painel vai gravar ali).
 - Os certificados ficam no banco **cifrados com AES-256-GCM**. A chave (`MASTER_KEY`) fica só no servidor.
 
@@ -89,7 +89,7 @@ Com o `.env` preenchido (mesma `MASTER_KEY` do servidor):
 CERT_PATH=certificados/cliente.pfx UF=ES REGIME=simples npm run cadastrar-empresa
 ```
 
-O script lê o CNPJ e a validade do próprio certificado, cifra o PFX e a senha e grava no banco. A empresa entra na próxima rodada. Para testar sem esperar o horário, reinicie o serviço com `RODAR_AO_INICIAR=true`.
+O script lê o CNPJ e a validade do próprio certificado, cifra o PFX e a senha e grava no banco. A empresa entra na fila do coletor em até 15 segundos.
 
 Se você já rodou o teste da etapa 1 com o mesmo CNPJ, espere 1 hora antes da primeira rodada do coletor para não repetir a consulta.
 
