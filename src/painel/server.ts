@@ -106,6 +106,18 @@ function limitarTentativas(ip: string) {
 const ipDe = (req: http.IncomingMessage) =>
   String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim() || req.socket.remoteAddress || '';
 
+/** E-mails liberados: os fixos de PAINEL_EMAILS e os ativos na tabela painel_usuarios (lida a cada 1 min). */
+let cacheUsuarios: { em: number; emails: Set<string> } = { em: 0, emails: new Set() };
+async function autorizado(email: string): Promise<boolean> {
+  if (!email) return false;
+  if (cfg.emails.has(email)) return true;
+  if (Date.now() - cacheUsuarios.em > 60_000) {
+    const r = await db.from('painel_usuarios').select('email').eq('ativo', true);
+    if (!r.error) cacheUsuarios = { em: Date.now(), emails: new Set((r.data ?? []).map((u: { email: string }) => u.email.toLowerCase())) };
+  }
+  return cacheUsuarios.emails.has(email);
+}
+
 // Cache curto de tokens válidos para não consultar o Auth a cada requisição.
 const cacheTokens = new Map<string, { email: string; ate: number }>();
 async function usuarioAutenticado(req: http.IncomingMessage): Promise<string> {
@@ -116,7 +128,7 @@ async function usuarioAutenticado(req: http.IncomingMessage): Promise<string> {
   const { data, error } = await db.auth.getUser(token);
   const email = data?.user?.email?.toLowerCase();
   if (error || !email) throw new ErroHttp(401, 'Sessão expirada. Entre de novo.');
-  if (!cfg.emails.has(email)) throw new ErroHttp(403, 'Este e-mail não tem acesso ao painel.');
+  if (!(await autorizado(email))) throw new ErroHttp(403, 'Este e-mail não tem acesso ao painel.');
   cacheTokens.set(token, { email, ate: Date.now() + 60_000 });
   return email;
 }
@@ -134,7 +146,7 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
     limitarTentativas(ipDe(req));
     const { email, senha } = await lerCorpo(req);
     const e = String(email ?? '').trim().toLowerCase();
-    if (!cfg.emails.has(e)) throw new ErroHttp(403, 'Este e-mail não tem acesso ao painel.');
+    if (!(await autorizado(e))) throw new ErroHttp(403, 'Este e-mail não tem acesso ao painel.');
     const { data, error } = await clienteAuth().auth.signInWithPassword({ email: e, password: String(senha ?? '') });
     if (error) throw new ErroHttp(401, 'E-mail ou senha incorretos.');
     return responder(res, 200, sessao(data.session, e));
@@ -145,7 +157,7 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
     const { email, senha } = await lerCorpo(req);
     const e = String(email ?? '').trim().toLowerCase();
     const s = String(senha ?? '');
-    if (!cfg.emails.has(e)) throw new ErroHttp(403, 'Este e-mail não tem acesso ao painel.');
+    if (!(await autorizado(e))) throw new ErroHttp(403, 'Este e-mail não tem acesso ao painel.');
     if (s.length < 10) throw new ErroHttp(400, 'A senha precisa ter pelo menos 10 caracteres.');
     const criado = await db.auth.admin.createUser({ email: e, password: s, email_confirm: true });
     if (criado.error) {
@@ -163,7 +175,7 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
     const { refreshToken } = await lerCorpo(req);
     const { data, error } = await clienteAuth().auth.refreshSession({ refresh_token: String(refreshToken ?? '') });
     const email = data?.user?.email?.toLowerCase() ?? '';
-    if (error || !cfg.emails.has(email)) throw new ErroHttp(401, 'Sessão expirada. Entre de novo.');
+    if (error || !(await autorizado(email))) throw new ErroHttp(401, 'Sessão expirada. Entre de novo.');
     return responder(res, 200, sessao(data.session, email));
   }
 
