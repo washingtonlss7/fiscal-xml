@@ -67,7 +67,13 @@ function anoMes(data?: string): string {
 }
 
 /** Grava um documento já recebido (nota, resumo ou evento). Idempotente: pode ser reprocessado. */
-async function processarDoc(ctx: ContextoSync, empresa: EmpresaSync, modelo: Modelo, doc: DocZip): Promise<string | null> {
+export async function processarDoc(
+  ctx: Pick<ContextoSync, 'db' | 'arm' | 'clientes'>,
+  empresa: EmpresaSync,
+  modelo: Modelo,
+  doc: DocZip,
+  origem?: 'importacao',
+): Promise<string | null> {
   const { db, arm } = ctx;
   const info = interpretar(doc.schema, doc.xml);
 
@@ -75,8 +81,8 @@ async function processarDoc(ctx: ContextoSync, empresa: EmpresaSync, modelo: Mod
     // Nota recebida pelo escritório via autXML: pertence ao cliente emitente (saída) ou destinatário (entrada).
     let alvo: { id: string; cnpj: string } = empresa;
     let direcao: 'entrada' | 'saida' = info.emitCnpj === empresa.cnpj ? 'saida' : 'entrada';
-    let via: 'proprio' | 'autxml' = 'proprio';
-    if (empresa.escritorio && ctx.clientes) {
+    let via: 'proprio' | 'autxml' | 'importacao' = origem ?? 'proprio';
+    if (!origem && empresa.escritorio && ctx.clientes) {
       const porEmit = info.emitCnpj ? ctx.clientes.get(info.emitCnpj) : undefined;
       const porDest = info.destDoc ? ctx.clientes.get(info.destDoc) : undefined;
       if (porEmit && porEmit.id !== empresa.id) { alvo = porEmit; direcao = 'saida'; via = 'autxml'; }
@@ -103,7 +109,7 @@ async function processarDoc(ctx: ContextoSync, empresa: EmpresaSync, modelo: Mod
       valor: info.valor ?? null,
       situacao: info.situacao,
       protocolo: info.protocolo ?? null,
-      nsu: doc.nsu,
+      nsu: doc.nsu || null,
       atualizado_em: new Date().toISOString(),
     };
 
@@ -158,7 +164,7 @@ async function processarDoc(ctx: ContextoSync, empresa: EmpresaSync, modelo: Mod
           descricao: info.descricao ?? null,
           ocorrido_em: info.ocorridoEm ?? null,
           protocolo: info.protocolo ?? null,
-          nsu: doc.nsu,
+          nsu: doc.nsu || null,
           xml_path: caminho,
         },
         { onConflict: 'empresa_id,chave,tp_evento,n_seq' },

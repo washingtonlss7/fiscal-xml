@@ -7,6 +7,7 @@ import { buscarTodos, criarDb, ok } from '../db';
 import { ErroValidacao, salvarEmpresaComCertificado } from '../empresas';
 import { log } from '../log';
 import { Zip } from './zip';
+import { abrirEnvio, importarXmls } from '../importacao/importar';
 import { escreverXlsx } from './xlsx';
 import { abasST, lerRegrasST, relatorioST } from '../fiscal/relatorioST';
 import { lerTabelaCsv, tabelaParaCsv } from '../fiscal/st';
@@ -66,6 +67,23 @@ class ErroHttp extends Error {
 function responder(res: http.ServerResponse, status: number, corpo: unknown) {
   res.writeHead(status, { ...CABECALHOS_SEGURANCA, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify(corpo));
+}
+
+/** Lê o corpo bruto (upload de arquivo), com limite de tamanho. */
+function lerBruto(req: http.IncomingMessage, limite: number): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    let tamanho = 0;
+    const partes: Buffer[] = [];
+    req.on('data', (p: Buffer) => {
+      tamanho += p.length;
+      if (tamanho > limite) {
+        reject(new ErroHttp(413, `Arquivo grande demais (máximo ${Math.round(limite / 1024 / 1024)} MB). Divida em partes menores.`));
+        req.destroy();
+      } else partes.push(p);
+    });
+    req.on('end', () => resolve(Buffer.concat(partes)));
+    req.on('error', reject);
+  });
 }
 
 function lerCorpo(req: http.IncomingMessage, limite = 1_000_000): Promise<any> {
@@ -268,6 +286,28 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
     if (!a) throw new ErroHttp(404, 'Apontamento não encontrado.');
     await resolverApontamento(a, String(c.acao), c.observacao ? String(c.observacao) : null, c.valor ? String(c.valor) : null, email);
     return responder(res, 200, { ok: true });
+  }
+
+  // Importação de XML/ZIP (NF-e e NFC-e de saída, ou qualquer nota que falte)
+  const imp = rota.match(/^\/api\/empresas\/([0-9a-f-]{36})\/importar$/);
+  if (metodo === 'POST' && imp) {
+    const empresa = ok(await db.from('empresas').select('id,cnpj,c_uf').eq('id', imp[1]).maybeSingle(), 'ler empresa') as
+      { id: string; cnpj: string; c_uf: number } | null;
+    if (!empresa) throw new ErroHttp(404, 'Empresa não encontrada.');
+    const nome = (url.searchParams.get('nome') || 'arquivo.xml').slice(0, 200);
+    const corpo = await lerBruto(req, 80 * 1024 * 1024);
+    if (!corpo.length) throw new ErroHttp(400, 'Arquivo vazio.');
+    let arquivos;
+    try {
+      arquivos = abrirEnvio(nome, corpo);
+    } catch (e) {
+      throw new ErroHttp(422, `${nome}: ${(e as Error).message}`);
+    }
+    if (!arquivos.length) throw new ErroHttp(422, `${nome}: nenhum XML encontrado.`);
+    const r = await importarXmls(db, arm, empresa, arquivos);
+    log.info('importação de XML', { empresa: empresa.cnpj, arquivo: nome, por: email, importadas: r.importadas, completou: r.completouResumo, repetidas: r.jaExistiam, rejeitadas: r.rejeitadas });
+    // Devolve só as rejeitadas em detalhe (o resto vai resumido)
+    return responder(res, 200, { ...r, resultados: r.resultados.filter((x) => x.situacao === 'rejeitada').slice(0, 200) });
   }
 
   // ICMS-ST nas entradas de outros estados (planilha ou resumo)

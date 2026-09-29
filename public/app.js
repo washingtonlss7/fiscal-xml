@@ -570,6 +570,68 @@ async function baixarXml(n) {
   catch (e) { avisar(e.message); }
 }
 
+/* ---------- importação de XML/ZIP ---------- */
+async function enviarArquivo(caminho, arquivo) {
+  const faz = () => fetch(caminho, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${sessao.accessToken}`, 'Content-Type': 'application/octet-stream' },
+    body: arquivo,
+  });
+  let resp = await faz();
+  if (resp.status === 401) { await chamar('/api/eu').catch(() => {}); resp = await faz(); }
+  let dados = {};
+  try { dados = await resp.json(); } catch { /* sem corpo */ }
+  if (!resp.ok) throw new Error(dados.erro || `Erro ${resp.status}`);
+  return dados;
+}
+
+async function importarArquivos(lista) {
+  const arquivos = [...lista].filter((f) => /\.(xml|zip)$/i.test(f.name));
+  if (!arquivos.length) { avisar('Escolha arquivos .xml ou .zip.'); return; }
+  const caixa = $('importacao');
+  const botao = $('notas-importar');
+  botao.disabled = true;
+  const total = { importadas: 0, completouResumo: 0, jaExistiam: 0, rejeitadas: 0, porModelo: {} };
+  const rejeitadas = [];
+  const barra = h('span', { style: 'width:0%' });
+  const status = h('span', { class: 'meta', text: '' });
+  caixa.replaceChildren(h('h3', { text: 'Importando XMLs…' }), h('div', { class: 'barra' }, barra), status);
+  caixa.hidden = false;
+
+  for (const [i, f] of arquivos.entries()) {
+    status.textContent = `${i + 1} de ${arquivos.length}: ${f.name}`;
+    try {
+      const r = await enviarArquivo(`/api/empresas/${empresaNotas.id}/importar?nome=${encodeURIComponent(f.name)}`, f);
+      total.importadas += r.importadas; total.completouResumo += r.completouResumo;
+      total.jaExistiam += r.jaExistiam; total.rejeitadas += r.rejeitadas;
+      for (const [k, v] of Object.entries(r.porModelo || {})) total.porModelo[k] = (total.porModelo[k] || 0) + v;
+      for (const x of r.resultados || []) rejeitadas.push(`${x.arquivo}: ${x.motivo}`);
+    } catch (e) {
+      total.rejeitadas++;
+      rejeitadas.push(`${f.name}: ${e.message}`);
+    }
+    barra.style.width = `${Math.round(((i + 1) / arquivos.length) * 100)}%`;
+  }
+
+  const novas = total.importadas + total.completouResumo;
+  const detalhe = Object.entries(total.porModelo).map(([k, v]) => `${v} ${k}`).join(' · ');
+  caixa.replaceChildren(
+    h('div', { class: 'linha-imp' },
+      h('h3', { text: novas ? `${novas} documento${novas === 1 ? '' : 's'} importado${novas === 1 ? '' : 's'}` : 'Nenhum documento novo' }),
+      h('button', { type: 'button', class: 'botao fantasma pequeno', onclick: () => { caixa.hidden = true; } }, 'Fechar')),
+    detalhe ? h('span', { class: 'meta', text: detalhe }) : null,
+    h('span', { class: 'meta', text: [
+      total.completouResumo ? `${total.completouResumo} completaram notas que só tinham resumo` : '',
+      total.jaExistiam ? `${total.jaExistiam} já estavam no sistema` : '',
+      total.rejeitadas ? `${total.rejeitadas} recusado${total.rejeitadas === 1 ? '' : 's'}` : '',
+    ].filter(Boolean).join(' · ') || 'Itens e impostos já foram extraídos para a auditoria.' }),
+    rejeitadas.length ? h('ul', {}, ...rejeitadas.slice(0, 200).map((t) => h('li', { text: t }))) : null,
+  );
+  botao.disabled = false;
+  $('notas-importar-arquivos').value = '';
+  if (novas) recarregarAba();
+}
+
 async function baixarZip() {
   const botao = $('notas-zip');
   botao.disabled = true;
@@ -603,6 +665,7 @@ function trocarAba(aba) {
   $('painel-notas').hidden = aba !== 'notas';
   $('painel-auditoria').hidden = aba !== 'auditoria';
   $('notas-zip').hidden = aba !== 'notas';
+  $('notas-importar').hidden = aba !== 'notas';
   for (const el of document.querySelectorAll('.so-notas')) el.hidden = aba !== 'notas';
   recarregarAba();
 }
@@ -891,6 +954,8 @@ function ligarEventos() {
 
   $('notas-voltar').addEventListener('click', fecharNotas);
   $('notas-zip').addEventListener('click', baixarZip);
+  $('notas-importar').addEventListener('click', () => $('notas-importar-arquivos').click());
+  $('notas-importar-arquivos').addEventListener('change', (e) => importarArquivos(e.target.files));
   $('notas-mes').addEventListener('change', recarregarAba);
   for (const id of ['notas-modelo', 'notas-direcao']) $(id).addEventListener('change', carregarNotas);
   $('aba-notas').addEventListener('click', () => trocarAba('notas'));

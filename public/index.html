@@ -82,12 +82,16 @@
           <h1 id="notas-titulo"></h1>
           <p id="notas-sub" class="subtitulo"></p>
         </div>
-        <button id="notas-zip" type="button" class="botao primario">Baixar XMLs do mês (ZIP)</button>
+        <div class="acoes-cabecalho">
+          <button id="notas-importar" type="button" class="botao">Importar XMLs</button>
+          <input id="notas-importar-arquivos" type="file" accept=".xml,.zip,text/xml,application/zip" multiple hidden>
+          <button id="notas-zip" type="button" class="botao primario">Baixar XMLs do mês (ZIP)</button>
+        </div>
       </div>
       <div class="filtros">
         <label class="campo"><span>Mês</span><input id="notas-mes" type="month"></label>
         <label class="campo so-notas"><span>Documento</span>
-          <select id="notas-modelo"><option value="">NF-e e CT-e</option><option value="55">NF-e</option><option value="57">CT-e</option></select>
+          <select id="notas-modelo"><option value="">Todos</option><option value="55">NF-e</option><option value="65">NFC-e</option><option value="57">CT-e</option></select>
         </label>
         <label class="campo so-notas"><span>Direção</span>
           <select id="notas-direcao"><option value="">Entradas e saídas</option><option value="entrada">Entradas</option><option value="saida">Saídas</option></select>
@@ -97,6 +101,7 @@
         <button id="aba-notas" type="button" role="tab" class="aba-tela ativa" aria-selected="true">Notas</button>
         <button id="aba-auditoria" type="button" role="tab" class="aba-tela" aria-selected="false">Auditoria <span id="aba-auditoria-qtd" class="contador" hidden></span></button>
       </div>
+      <section id="importacao" class="importacao" hidden aria-live="polite"></section>
       <div id="painel-notas" class="pilha">
         <div id="notas-resumo" class="numeros"></div>
         <div id="notas-lista" class="rolagem"></div>

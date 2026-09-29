@@ -302,3 +302,13 @@ tr.cancelada .valor-nota { text-decoration: line-through; }
 .st-aviso.neutro { background: var(--neutro-fundo); color: var(--tinta-2); }
 
 .slogan { margin: -6px 0 4px; font-size: 14px; color: var(--tinta-2); }
+
+/* Importação de XML */
+.acoes-cabecalho { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.importacao { background: var(--superficie); border: 1px solid var(--linha); border-left: 3px solid var(--destaque); border-radius: var(--raio); padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.importacao h3 { margin: 0; font-size: 16px; }
+.importacao .linha-imp { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; }
+.importacao .barra { height: 6px; background: var(--neutro-fundo); border-radius: 999px; overflow: hidden; }
+.importacao .barra span { display: block; height: 100%; background: var(--destaque); transition: width .2s; }
+.importacao ul { margin: 0; padding-left: 18px; font-size: 13px; color: var(--tinta-2); max-height: 220px; overflow: auto; overflow-wrap: anywhere; }
+.importacao .meta { font-size: 13px; }
