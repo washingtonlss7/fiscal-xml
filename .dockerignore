@@ -1,0 +1,10 @@
+node_modules
+dist
+saida
+certificados
+.env
+.env.*
+*.pfx
+*.p12
+.git
+test

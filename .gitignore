@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+saida/
+certificados/
+*.pfx
+*.p12
+*.pem
+*.log
