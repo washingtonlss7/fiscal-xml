@@ -29,17 +29,19 @@ export interface ResultadoSync {
 /** Espera após erro: 15 min, 30, 60... até 6 h. */
 const backoff = (erros: number) => minutos(Math.min(15 * 2 ** Math.max(0, erros - 1), 360));
 
+/** consNSU (recuperação de lacunas): a SEFAZ aceita 20 por hora; usamos no máximo 15, uma vez por hora. */
+const LACUNAS_POR_HORA = 15;
+
 function anoMes(data?: string): string {
   return data && /^\d{4}-\d{2}/.test(data) ? `${data.slice(0, 4)}/${data.slice(5, 7)}` : 'sem-data';
 }
 
-async function processarDoc(ctx: ContextoSync, empresa: EmpresaSync, modelo: Modelo, doc: DocZip): Promise<void> {
+/** Grava um documento já recebido (nota, resumo ou evento). Idempotente: pode ser reprocessado. */
+async function processarDoc(ctx: ContextoSync, empresa: EmpresaSync, modelo: Modelo, doc: DocZip): Promise<string | null> {
   const { db, bucket } = ctx;
   const info = interpretar(doc.schema, doc.xml);
-  let chave: string | null = null;
 
   if (info.tipo === 'documento') {
-    chave = info.chave;
     const sufixo = info.completo ? 'completo' : 'resumo';
     const caminho = `${empresa.cnpj}/${anoMes(info.emitidaEm)}/${info.modelo}/${info.chave}-${sufixo}.xml.gz`;
     await salvarXml(db, bucket, caminho, doc.xml);
@@ -95,8 +97,10 @@ async function processarDoc(ctx: ContextoSync, empresa: EmpresaSync, modelo: Mod
         'insert resumo',
       );
     }
-  } else if (info.tipo === 'evento') {
-    chave = info.chave;
+    return info.chave;
+  }
+
+  if (info.tipo === 'evento') {
     const caminho = `${empresa.cnpj}/${anoMes(info.ocorridoEm)}/eventos/${info.chave}-${info.tpEvento}-${info.nSeq}.xml.gz`;
     await salvarXml(db, bucket, caminho, doc.xml);
     ok(
@@ -126,28 +130,133 @@ async function processarDoc(ctx: ContextoSync, empresa: EmpresaSync, modelo: Mod
         'aplicar cancelamento',
       );
     }
-  } else {
-    await salvarXml(db, bucket, `${empresa.cnpj}/outros/${modelo}-${doc.nsu}.xml.gz`, doc.xml);
-    log.warn('schema não reconhecido', { cnpj: empresa.cnpj, schema: doc.schema, nsu: doc.nsu });
+    return info.chave;
   }
 
+  await salvarXml(db, bucket, `${empresa.cnpj}/outros/${modelo}-${doc.nsu}.xml.gz`, doc.xml);
+  log.warn('schema não reconhecido', { cnpj: empresa.cnpj, schema: doc.schema, nsu: doc.nsu });
+  return null;
+}
+
+/**
+ * Passo 1 de cada lote: grava os documentos brutos na fila (dfe_recebidos) numa única operação.
+ * Só depois disso o ultNSU é salvo, e o processamento pode falhar/reiniciar sem perder nada.
+ */
+async function enfileirar(db: Db, empresa: EmpresaSync, modelo: Modelo, docs: DocZip[]): Promise<void> {
+  if (!docs.length) return;
   ok(
     await db.from('dfe_recebidos').upsert(
-      { empresa_id: empresa.id, modelo, nsu: doc.nsu, schema: doc.schema, chave },
+      docs.map((d) => ({ empresa_id: empresa.id, modelo, nsu: d.nsu, schema: d.schema, xml: d.xml, processado: false })),
       { onConflict: 'empresa_id,modelo,nsu', ignoreDuplicates: true },
     ),
-    'registrar NSU',
+    'enfileirar documentos',
   );
 }
 
 /**
- * Grava um lote do distNSU. Notas e resumos vão em paralelo (são independentes entre si);
- * os eventos vêm depois, em ordem, para o cancelamento sempre encontrar a nota já gravada.
+ * Passo 2: processa o que estiver na fila desta empresa/modelo (inclusive sobras de uma execução interrompida).
+ * Notas e resumos vão em paralelo; eventos depois, em ordem, para o cancelamento encontrar a nota já gravada.
  */
-async function processarLote(ctx: ContextoSync, empresa: EmpresaSync, modelo: Modelo, docs: DocZip[]): Promise<void> {
-  const ehEvento = (d: DocZip) => /^(resEvento|procEvento)/.test(d.schema);
-  await emParalelo(docs.filter((d) => !ehEvento(d)), 6, (d) => processarDoc(ctx, empresa, modelo, d));
-  for (const d of docs.filter(ehEvento)) await processarDoc(ctx, empresa, modelo, d);
+async function processarFila(ctx: ContextoSync, empresa: EmpresaSync, modelo: Modelo): Promise<number> {
+  const { db } = ctx;
+  let total = 0;
+  for (;;) {
+    const pendentes = ok(
+      await db
+        .from('dfe_recebidos')
+        .select('nsu,schema,xml')
+        .eq('empresa_id', empresa.id)
+        .eq('modelo', modelo)
+        .eq('processado', false)
+        .order('nsu')
+        .limit(200),
+      'ler fila',
+    ) as { nsu: string; schema: string; xml: string | null }[];
+    if (!pendentes.length) return total;
+
+    const docs: DocZip[] = pendentes.filter((p) => p.xml).map((p) => ({ nsu: p.nsu, schema: p.schema, xml: p.xml as string }));
+    const chaves = new Map<string, string | null>();
+    const ehEvento = (d: DocZip) => /^(resEvento|procEvento)/.test(d.schema);
+    await emParalelo(docs.filter((d) => !ehEvento(d)), 6, async (d) => {
+      chaves.set(d.nsu, await processarDoc(ctx, empresa, modelo, d));
+    });
+    for (const d of docs.filter(ehEvento)) chaves.set(d.nsu, await processarDoc(ctx, empresa, modelo, d));
+
+    // Marca como processado e descarta o XML da fila (ele já está no Storage).
+    await emParalelo(pendentes, 6, async (p) => {
+      ok(
+        await db
+          .from('dfe_recebidos')
+          .update({ processado: true, xml: null, chave: chaves.get(p.nsu) ?? null })
+          .eq('empresa_id', empresa.id)
+          .eq('modelo', modelo)
+          .eq('nsu', p.nsu),
+        'marcar processado',
+      );
+    });
+    total += docs.length;
+  }
+}
+
+/**
+ * Recupera NSUs que ficaram faltando na sequência (consNSU), no máximo uma vez por hora.
+ * Um NSU sem documento (cStat 137) é registrado como "vazio" para não ser consultado de novo.
+ */
+async function recuperarLacunas(
+  ctx: ContextoSync,
+  empresa: EmpresaSync,
+  modelo: Modelo,
+  agent: https.Agent,
+  ultNSU: string,
+  verificadasEm: string | null,
+): Promise<number> {
+  const { db } = ctx;
+  if (verificadasEm && Date.now() - new Date(verificadasEm).getTime() < minutos(61)) return 0;
+
+  const lacunas = ok(
+    await db.rpc('lacunas_nsu', { p_empresa: empresa.id, p_modelo: modelo, p_ate: ultNSU, p_limite: LACUNAS_POR_HORA }),
+    'listar lacunas',
+  ) as { nsu: string }[];
+  await db
+    .from('sync_state')
+    .update({ lacunas_verificadas_em: new Date().toISOString() })
+    .eq('empresa_id', empresa.id)
+    .eq('modelo', modelo);
+  if (!lacunas?.length) return 0;
+
+  log.info('recuperando lacunas de NSU', { cnpj: empresa.cnpj, modelo, qtd: lacunas.length });
+  let recuperados = 0;
+  for (const { nsu } of lacunas) {
+    const t0 = Date.now();
+    let ret: RetornoDist;
+    try {
+      ret = await consultarDistNSU(modelo, agent, { tpAmb: ctx.tpAmb, cUF: empresa.c_uf, cnpj: empresa.cnpj, nsu });
+    } catch (e) {
+      log.warn('falha ao recuperar NSU', { cnpj: empresa.cnpj, modelo, nsu, erro: (e as Error).message });
+      break;
+    }
+    await registrarLog(db, {
+      empresa_id: empresa.id, modelo, cstat: ret.cStat, motivo: `consNSU: ${ret.xMotivo}`,
+      ult_nsu_enviado: nsu, qtd_docs: ret.docs.length, duracao_ms: Date.now() - t0,
+    });
+    if (ret.cStat === '138' && ret.docs.length) {
+      await enfileirar(db, empresa, modelo, ret.docs);
+      recuperados += ret.docs.length;
+    } else if (ret.cStat === '137') {
+      ok(
+        await db.from('dfe_recebidos').upsert(
+          { empresa_id: empresa.id, modelo, nsu, schema: 'vazio', processado: true },
+          { onConflict: 'empresa_id,modelo,nsu', ignoreDuplicates: true },
+        ),
+        'registrar NSU vazio',
+      );
+    } else {
+      break; // 656 ou outra rejeição: para e tenta na próxima hora
+    }
+    await esperar(500);
+  }
+  if (recuperados) await processarFila(ctx, empresa, modelo);
+  return recuperados;
 }
 
 async function atualizarEstado(db: Db, empresaId: string, modelo: Modelo, campos: Record<string, unknown>) {
@@ -164,7 +273,7 @@ async function registrarLog(db: Db, reg: Record<string, unknown>) {
 
 /**
  * Sincroniza um modelo (NF-e ou CT-e) de uma empresa, respeitando as regras da NT 2014.002:
- * - consulta em sequência enquanto ultNSU < maxNSU;
+ * - consulta em sequência enquanto ultNSU < maxNSU, sempre com o último ultNSU devolvido;
  * - ao chegar no fim (ultNSU = maxNSU) ou receber 137, só volta a consultar após 1 hora;
  * - 656 (consumo indevido) bloqueia o CNPJ por 1 hora.
  */
@@ -175,6 +284,10 @@ export async function sincronizarModelo(
   agent: https.Agent,
 ): Promise<ResultadoSync> {
   const { db } = ctx;
+
+  // Sobras de uma execução interrompida são processadas antes de qualquer consulta.
+  let documentos = await processarFila(ctx, empresa, modelo);
+
   const estado = ok(
     await db.from('sync_state').select('*').eq('empresa_id', empresa.id).eq('modelo', modelo).maybeSingle(),
     'ler sync_state',
@@ -182,13 +295,18 @@ export async function sincronizarModelo(
   if (!estado) throw new Error(`sync_state ausente para ${empresa.cnpj}/${modelo}`);
 
   if (new Date(estado.proxima_consulta_em).getTime() > Date.now()) {
-    return { modelo, status: 'aguardando', chamadas: 0, documentos: 0, mensagem: `liberado em ${estado.proxima_consulta_em}` };
+    return { modelo, status: 'aguardando', chamadas: 0, documentos, mensagem: `liberado em ${estado.proxima_consulta_em}` };
   }
 
   let ultNSU: string = estado.ult_nsu;
   let erros: number = estado.erros_consecutivos ?? 0;
   let chamadas = 0;
-  let documentos = 0;
+
+  const finalizar = async (status: ResultadoSync['status']) => {
+    // Fila em dia: aproveita para recuperar NSUs que ficaram faltando.
+    documentos += await recuperarLacunas(ctx, empresa, modelo, agent, ultNSU, estado.lacunas_verificadas_em ?? null);
+    return { modelo, status, chamadas, documentos };
+  };
 
   while (chamadas < ctx.maxChamadasPorRodada) {
     chamadas++;
@@ -229,9 +347,8 @@ export async function sincronizarModelo(
     };
 
     if (ret.cStat === '138') {
-      await processarLote(ctx, empresa, modelo, ret.docs);
-      documentos += ret.docs.length;
-      // Se o NSU não avançou, trata como fim para não repetir a mesma consulta (evita 656).
+      // 1) guarda o lote bruto, 2) salva o NSU devolvido, 3) processa. Nessa ordem, um reinício não quebra a sequência.
+      await enfileirar(db, empresa, modelo, ret.docs);
       const naoAvancou = ret.ultNSU <= ultNSU;
       if (!naoAvancou) ultNSU = ret.ultNSU;
       erros = 0;
@@ -242,33 +359,40 @@ export async function sincronizarModelo(
         max_nsu: ret.maxNSU,
         erros_consecutivos: 0,
         ultima_sync_ok_em: new Date().toISOString(),
-        proxima_consulta_em: chegouAoFim ? daquiA(minutos(61)) : daquiA(minutos(5)),
+        proxima_consulta_em: chegouAoFim ? daquiA(minutos(61)) : daquiA(minutos(3)),
       });
-      if (chegouAoFim) return { modelo, status: 'ok', chamadas, documentos };
+      documentos += await processarFila(ctx, empresa, modelo);
+      if (chegouAoFim) return finalizar('ok');
       await esperar(1500);
       continue;
     }
 
     if (ret.cStat === '137') {
       // Nenhum documento novo. A NT exige aguardar 1 hora antes de consultar de novo.
+      if (ret.ultNSU > ultNSU) ultNSU = ret.ultNSU;
       await atualizarEstado(db, empresa.id, modelo, {
         ...base,
-        ult_nsu: ret.ultNSU > ultNSU ? ret.ultNSU : ultNSU,
+        ult_nsu: ultNSU,
         max_nsu: ret.maxNSU,
         erros_consecutivos: 0,
         ultima_sync_ok_em: new Date().toISOString(),
         proxima_consulta_em: daquiA(minutos(61)),
       });
-      return { modelo, status: 'ok', chamadas, documentos };
+      return finalizar('ok');
     }
 
     if (ret.cStat === '656') {
+      // Se a SEFAZ acusar NSU desatualizado, ela devolve o ultNSU correto: adota esse valor
+      // e as notas que ficaram para trás entram na recuperação de lacunas.
+      const corrigiu = /ultNSU/i.test(ret.xMotivo) && ret.ultNSU > ultNSU;
+      if (corrigiu) ultNSU = ret.ultNSU;
       await atualizarEstado(db, empresa.id, modelo, {
         ...base,
+        ...(corrigiu ? { ult_nsu: ultNSU } : {}),
         erros_consecutivos: erros + 1,
         proxima_consulta_em: daquiA(minutos(65)),
       });
-      log.warn('consumo indevido (656): CNPJ bloqueado por 1 hora', { cnpj: empresa.cnpj, modelo, motivo: ret.xMotivo });
+      log.warn('consumo indevido (656): CNPJ bloqueado por 1 hora', { cnpj: empresa.cnpj, modelo, motivo: ret.xMotivo, corrigiu });
       return { modelo, status: 'bloqueado_656', chamadas, documentos, mensagem: ret.xMotivo };
     }
 

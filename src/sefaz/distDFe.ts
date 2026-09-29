@@ -57,8 +57,21 @@ export interface RetornoDist {
 
 export const nsu15 = (n: string | number) => String(n).replace(/\D/g, '').padStart(15, '0').slice(-15);
 
-export function montarEnvelope(modelo: Modelo, p: { tpAmb: 1 | 2; cUF: number; cnpj: string; ultNSU: string }): string {
+export interface ParametrosConsulta {
+  tpAmb: 1 | 2;
+  cUF: number;
+  cnpj: string;
+  /** distNSU: continua a partir deste NSU. */
+  ultNSU?: string;
+  /** consNSU: busca só este NSU (recuperação de lacunas). */
+  nsu?: string;
+}
+
+export function montarEnvelope(modelo: Modelo, p: ParametrosConsulta): string {
   const s = SERVICOS[modelo];
+  const pedido = p.nsu !== undefined
+    ? `<consNSU><NSU>${nsu15(p.nsu)}</NSU></consNSU>`
+    : `<distNSU><ultNSU>${nsu15(p.ultNSU ?? '0')}</ultNSU></distNSU>`;
   return (
     '<?xml version="1.0" encoding="utf-8"?>' +
     '<soap12:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ' +
@@ -70,7 +83,7 @@ export function montarEnvelope(modelo: Modelo, p: { tpAmb: 1 | 2; cUF: number; c
     `<tpAmb>${p.tpAmb}</tpAmb>` +
     `<cUFAutor>${p.cUF}</cUFAutor>` +
     `<CNPJ>${p.cnpj}</CNPJ>` +
-    `<distNSU><ultNSU>${nsu15(p.ultNSU)}</ultNSU></distNSU>` +
+    pedido +
     '</distDFeInt>' +
     `</${s.dadosMsg}>` +
     `</${s.metodo}>` +
@@ -127,11 +140,11 @@ export function parseRetorno(xmlResposta: string): RetornoDist {
   };
 }
 
-/** Uma chamada distNSU. Não faz loop: quem chama controla o ritmo e as regras de 137/656. */
+/** Uma chamada ao DistribuicaoDFe (distNSU ou consNSU). Não faz loop: quem chama controla o ritmo e as regras de 137/656. */
 export async function consultarDistNSU(
   modelo: Modelo,
   agent: https.Agent,
-  p: { tpAmb: 1 | 2; cUF: number; cnpj: string; ultNSU: string },
+  p: ParametrosConsulta,
 ): Promise<RetornoDist> {
   const s = SERVICOS[modelo];
   const resposta = await postSoap(s.url[p.tpAmb], `${s.wsdlNs}/${s.metodo}`, montarEnvelope(modelo, p), agent);
