@@ -84,16 +84,34 @@
       </div>
       <div class="filtros">
         <label class="campo"><span>Mês</span><input id="notas-mes" type="month"></label>
-        <label class="campo"><span>Documento</span>
+        <label class="campo so-notas"><span>Documento</span>
           <select id="notas-modelo"><option value="">NF-e e CT-e</option><option value="55">NF-e</option><option value="57">CT-e</option></select>
         </label>
-        <label class="campo"><span>Direção</span>
+        <label class="campo so-notas"><span>Direção</span>
           <select id="notas-direcao"><option value="">Entradas e saídas</option><option value="entrada">Entradas</option><option value="saida">Saídas</option></select>
         </label>
       </div>
-      <div id="notas-resumo" class="numeros"></div>
-      <div id="notas-lista" class="rolagem"></div>
-      <p id="notas-vazio" class="vazio" hidden></p>
+      <div class="abas-tela" role="tablist">
+        <button id="aba-notas" type="button" role="tab" class="aba-tela ativa" aria-selected="true">Notas</button>
+        <button id="aba-auditoria" type="button" role="tab" class="aba-tela" aria-selected="false">Auditoria <span id="aba-auditoria-qtd" class="contador" hidden></span></button>
+      </div>
+      <div id="painel-notas" class="pilha">
+        <div id="notas-resumo" class="numeros"></div>
+        <div id="notas-lista" class="rolagem"></div>
+        <p id="notas-vazio" class="vazio" hidden></p>
+      </div>
+      <div id="painel-auditoria" class="pilha" hidden>
+        <div class="barra-auditoria">
+          <div class="segmentos" role="group" aria-label="Mostrar">
+            <button id="aud-abertos" type="button" class="segmento ativo" aria-pressed="true">Abertos</button>
+            <button id="aud-todos" type="button" class="segmento" aria-pressed="false">Todos</button>
+          </div>
+          <button id="aud-refazer" type="button" class="botao pequeno">Refazer auditoria do mês</button>
+        </div>
+        <div id="aud-resumo" class="numeros"></div>
+        <div id="aud-lista" class="pilha"></div>
+        <p id="aud-vazio" class="vazio" hidden></p>
+      </div>
      </section>
     </main>
   </div>

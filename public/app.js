@@ -216,6 +216,7 @@ function linhaEmpresa(e) {
     celula('Situação',
       h('span', { class: `selo ${st.tom}` }, st.texto(e)),
       e.status === 'erro' && e.ultimo_motivo ? h('span', { class: 'motivo', text: `${e.ultimo_cstat ? e.ultimo_cstat + ' · ' : ''}${e.ultimo_motivo}` }) : null,
+      Number(e.pendencias_auditoria) ? h('span', { class: 'meta', text: `${e.pendencias_auditoria} pendência${Number(e.pendencias_auditoria) === 1 ? '' : 's'} na auditoria` }) : null,
     ),
     celula('Certificado', ...certificado),
     celula('Última sincronização', ...sincronizacao,
@@ -457,7 +458,7 @@ function abrirNotas(e) {
   $('notas-sub').textContent = `${formatarCnpj(e.cnpj)} · ${e.uf}${e.regime ? ' · ' + (REGIMES[e.regime] || e.regime) : ''}`;
   if (!$('notas-mes').value) $('notas-mes').value = mesAtual();
   window.scrollTo(0, 0);
-  carregarNotas();
+  trocarAba('notas');
 }
 
 function fecharNotas() {
@@ -581,6 +582,193 @@ async function baixarZip() {
   }
 }
 
+
+/* ---------- auditoria ---------- */
+let abaAtual = 'notas';
+let audMostrar = 'abertos';
+let audDados = null;
+const confirmandoLote = new Set();
+const ORDEM_SEV = { erro: 0, alerta: 1, info: 2 };
+const SEV_TEXTO = { erro: 'Erro', alerta: 'Alerta', info: 'Informativo' };
+const SEV_TOM = { erro: 'problema', alerta: 'atencao', info: 'neutro' };
+
+function trocarAba(aba) {
+  abaAtual = aba;
+  $('aba-notas').classList.toggle('ativa', aba === 'notas');
+  $('aba-auditoria').classList.toggle('ativa', aba === 'auditoria');
+  $('aba-notas').setAttribute('aria-selected', String(aba === 'notas'));
+  $('aba-auditoria').setAttribute('aria-selected', String(aba === 'auditoria'));
+  $('painel-notas').hidden = aba !== 'notas';
+  $('painel-auditoria').hidden = aba !== 'auditoria';
+  $('notas-zip').hidden = aba !== 'notas';
+  for (const el of document.querySelectorAll('.so-notas')) el.hidden = aba !== 'notas';
+  recarregarAba();
+}
+
+function recarregarAba() {
+  if (abaAtual === 'notas') carregarNotas();
+  carregarAuditoria();
+}
+
+function mesSelecionado() { return $('notas-mes').value || mesAtual(); }
+
+async function carregarAuditoria() {
+  if (!empresaNotas) return;
+  try {
+    audDados = await chamar(`/api/empresas/${empresaNotas.id}/auditoria?mes=${mesSelecionado()}`);
+    const abertos = audDados.apontamentos.filter((a) => a.status === 'aberto' && a.severidade !== 'info').length;
+    const cont = $('aba-auditoria-qtd');
+    cont.textContent = String(abertos);
+    cont.classList.toggle('zero', abertos === 0);
+    cont.hidden = false;
+    if (abaAtual === 'auditoria') renderAuditoria();
+  } catch (e) {
+    if (abaAtual === 'auditoria') { $('aud-vazio').textContent = e.message; $('aud-vazio').hidden = false; }
+  }
+}
+
+function pct(parte, total) { return total > 0 ? `${Math.round((parte / total) * 100)}%` : '—'; }
+
+function renderAuditoria() {
+  const d = audDados;
+  if (!d) return;
+  const ap = d.apontamentos;
+  const conta = (f) => ap.filter(f).length;
+  const mono = Object.fromEntries((d.monofasico || []).map((m) => [m.direcao, m]));
+  const ent = mono.entrada || { total: 0, monofasico: 0 };
+  const sai = mono.saida || { total: 0, monofasico: 0 };
+  $('aud-resumo').replaceChildren(
+    cartao('Erros abertos', String(conta((a) => a.status === 'aberto' && a.severidade === 'erro'))),
+    cartao('Alertas abertos', String(conta((a) => a.status === 'aberto' && a.severidade === 'alerta'))),
+    cartao('Resolvidos', String(conta((a) => a.status !== 'aberto')), `${conta((a) => a.status === 'ignorado')} ignorados`),
+    cartao('Informativos', String(conta((a) => a.severidade === 'info'))),
+    cartao('Compras monofásicas', moeda(ent.monofasico), `${pct(Number(ent.monofasico), Number(ent.total))} das compras`),
+    cartao('Vendas monofásicas', moeda(sai.monofasico), Number(sai.total) ? `${pct(Number(sai.monofasico), Number(sai.total))} das vendas em NF-e` : 'sem NF-e de saída no mês'),
+  );
+
+  const visiveis = ap.filter((a) => audMostrar === 'todos' || a.status === 'aberto');
+  const grupos = new Map();
+  for (const a of visiveis) {
+    if (!grupos.has(a.regra)) grupos.set(a.regra, []);
+    grupos.get(a.regra).push(a);
+  }
+  const ordenados = [...grupos.entries()].sort((x, y) =>
+    (ORDEM_SEV[x[1][0].severidade] - ORDEM_SEV[y[1][0].severidade]) || (y[1].length - x[1].length));
+
+  const vazio = $('aud-vazio');
+  if (!ordenados.length) {
+    $('aud-lista').replaceChildren();
+    vazio.textContent = d.aguardandoAuditoria
+      ? `${d.aguardandoAuditoria} nota(s) deste mês ainda aguardando auditoria. Ela roda sozinha em até 1 minuto, ou use "Refazer auditoria do mês".`
+      : audMostrar === 'abertos' ? 'Nenhum apontamento aberto neste mês.' : 'Nenhum apontamento neste mês.';
+    vazio.hidden = false;
+    return;
+  }
+  vazio.hidden = true;
+  $('aud-lista').replaceChildren(...ordenados.map(([regra, lista]) => grupoRegra(regra, lista, d.regras[regra] || { titulo: regra, explicacao: '' })));
+}
+
+function grupoRegra(regra, lista, info) {
+  const sev = lista[0].severidade;
+  const abertos = lista.filter((a) => a.status === 'aberto');
+  const temSugestao = abertos.some((a) => a.sugestao);
+  const total = lista.reduce((t, a) => t + (a.quantidade || 1), 0);
+  const acoes = [];
+  if (abertos.length && regra !== 'CFOP_ENTRADA_INDEFINIDO') {
+    const chaveR = `${regra}:resolver`;
+    acoes.push(h('button', {
+      type: 'button', class: `botao pequeno${confirmandoLote.has(chaveR) ? ' perigo' : ''}`,
+      onclick: () => loteConfirmar(chaveR, regra, 'resolver'),
+    }, confirmandoLote.has(chaveR) ? `Confirmar (${abertos.length})` : temSugestao ? `Aplicar sugestão em todos (${abertos.length})` : `Marcar todos como tratados (${abertos.length})`));
+  }
+  if (abertos.length) {
+    const chaveI = `${regra}:ignorar`;
+    acoes.push(h('button', {
+      type: 'button', class: `botao fantasma pequeno${confirmandoLote.has(chaveI) ? ' perigo' : ''}`,
+      onclick: () => loteConfirmar(chaveI, regra, 'ignorar'),
+    }, confirmandoLote.has(chaveI) ? `Confirmar (${abertos.length})` : 'Ignorar todos'));
+  }
+  const limite = 60;
+  return h('section', { class: `grupo-regra ${sev}` },
+    h('div', { class: 'grupo-topo' },
+      h('div', {},
+        h('h3', {}, info.titulo, h('span', { class: `selo ${SEV_TOM[sev]}`, text: SEV_TEXTO[sev] }),
+          h('span', { class: 'meta', text: `${total} ocorrência${total === 1 ? '' : 's'}` })),
+        h('p', { text: info.explicacao })),
+      acoes.length ? h('div', { class: 'grupo-acoes' }, ...acoes) : null),
+    ...lista.slice(0, limite).map(linhaApontamento),
+    ...(lista.length > limite ? [h('div', { class: 'mais-itens', text: `e mais ${lista.length - limite}. As ações em lote valem para todos.` })] : []),
+  );
+}
+
+function linhaApontamento(a) {
+  const resolvido = a.status !== 'aberto';
+  let acoes;
+  if (resolvido) {
+    acoes = [h('button', { type: 'button', class: 'botao fantasma pequeno', onclick: () => resolver(a, 'reabrir') }, 'Reabrir')];
+  } else if (a.regra === 'CFOP_ENTRADA_INDEFINIDO') {
+    const campo = h('input', { class: 'cfop', type: 'text', inputmode: 'numeric', maxlength: '4', placeholder: 'CFOP', 'aria-label': 'CFOP de entrada' });
+    acoes = [
+      campo,
+      h('button', { type: 'button', class: 'botao pequeno', onclick: () => resolver(a, 'resolver', campo.value.trim()) }, 'Salvar'),
+      h('button', { type: 'button', class: 'botao fantasma pequeno', onclick: () => resolver(a, 'ignorar') }, 'Ignorar'),
+    ];
+  } else {
+    acoes = [
+      h('button', { type: 'button', class: 'botao pequeno', onclick: () => resolver(a, 'resolver') },
+        a.sugestao ? `Aplicar CST ${a.sugestao.valor}` : 'Tratado'),
+      h('button', { type: 'button', class: 'botao fantasma pequeno', onclick: () => resolver(a, 'ignorar') }, 'Ignorar'),
+    ];
+  }
+  const decisao = resolvido
+    ? `${a.status === 'ajustado' ? 'Tratado' : 'Ignorado'} por ${a.resolvido_por || '—'} em ${dataCurta(a.resolvido_em)}${a.observacao ? ` · ${a.observacao}` : ''}`
+    : null;
+  return h('div', { class: `apontamento${resolvido ? ' resolvido' : ''}` },
+    h('div', { class: 'texto' }, a.mensagem, decisao ? h('span', { class: 'decisao', text: decisao }) : null),
+    h('div', { class: 'acoes-ap' }, ...acoes));
+}
+
+async function resolver(a, acao, valor) {
+  try {
+    await chamar(`/api/apontamentos/${a.id}`, { method: 'POST', body: { acao, valor: valor || null } });
+    await carregarAuditoria();
+  } catch (e) { avisar(e.message); }
+}
+
+async function loteConfirmar(chave, regra, acao) {
+  if (!confirmandoLote.has(chave)) {
+    confirmandoLote.add(chave);
+    renderAuditoria();
+    setTimeout(() => { confirmandoLote.delete(chave); renderAuditoria(); }, 5000);
+    return;
+  }
+  confirmandoLote.delete(chave);
+  try {
+    const r = await chamar(`/api/empresas/${empresaNotas.id}/auditoria/lote`, { method: 'POST', body: { mes: mesSelecionado(), regra, acao } });
+    avisar(`${r.quantidade} apontamento(s) ${acao === 'ignorar' ? 'ignorados' : 'tratados'}.`);
+    await carregarAuditoria();
+  } catch (e) { avisar(e.message); }
+}
+
+async function refazerAuditoria() {
+  const b = $('aud-refazer');
+  b.disabled = true;
+  b.textContent = 'Auditando…';
+  try {
+    const r = await chamar(`/api/empresas/${empresaNotas.id}/auditoria/refazer`, { method: 'POST', body: { mes: mesSelecionado() } });
+    avisar(`Auditoria refeita: ${r.apontamentos} apontamento(s).`);
+    await carregarAuditoria();
+  } catch (e) { avisar(e.message); }
+  finally { b.disabled = false; b.textContent = 'Refazer auditoria do mês'; }
+}
+
+function marcarSegmento() {
+  $('aud-abertos').classList.toggle('ativo', audMostrar === 'abertos');
+  $('aud-todos').classList.toggle('ativo', audMostrar === 'todos');
+  $('aud-abertos').setAttribute('aria-pressed', String(audMostrar === 'abertos'));
+  $('aud-todos').setAttribute('aria-pressed', String(audMostrar === 'todos'));
+}
+
 /* ---------- início ---------- */
 async function abrirApp() {
   $('tela-login').hidden = true;
@@ -616,7 +804,13 @@ function ligarEventos() {
 
   $('notas-voltar').addEventListener('click', fecharNotas);
   $('notas-zip').addEventListener('click', baixarZip);
-  for (const id of ['notas-mes', 'notas-modelo', 'notas-direcao']) $(id).addEventListener('change', carregarNotas);
+  $('notas-mes').addEventListener('change', recarregarAba);
+  for (const id of ['notas-modelo', 'notas-direcao']) $(id).addEventListener('change', carregarNotas);
+  $('aba-notas').addEventListener('click', () => trocarAba('notas'));
+  $('aba-auditoria').addEventListener('click', () => trocarAba('auditoria'));
+  $('aud-refazer').addEventListener('click', refazerAuditoria);
+  $('aud-abertos').addEventListener('click', () => { audMostrar = 'abertos'; marcarSegmento(); renderAuditoria(); });
+  $('aud-todos').addEventListener('click', () => { audMostrar = 'todos'; marcarSegmento(); renderAuditoria(); });
 
   $('mostrar-senha').addEventListener('click', () => {
     const campo = $('senha');

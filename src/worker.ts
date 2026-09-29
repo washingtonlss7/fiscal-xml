@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import { configWorker } from './config';
 import { criarDb, ok } from './db';
+import { auditarPendentes, reauditarRecentes } from './auditoria/motor';
 import { extrairPendentes } from './extrator';
 import { log } from './log';
 import { executarRodada } from './rodada';
@@ -93,6 +94,8 @@ async function tique() {
     // Detalha (itens e tributos) notas completas ainda não extraídas, inclusive o histórico.
     const extraidas = await extrairPendentes(db, cfg.bucket, 150);
     if (extraidas) log.info('notas detalhadas', { quantidade: extraidas });
+    // Audita os meses com notas novas ou alteradas.
+    await auditarPendentes(db, 5);
     // A cada 3 minutos, continua filas que ficaram pela metade (sem esperar a próxima rodada agendada).
     if (ciclo++ % 3 === 0 && !rodadaAtiva) {
       const ids = await empresasComFila();
@@ -119,6 +122,9 @@ async function iniciar() {
     if (!cron.validate(expr)) throw new Error(`Expressão cron inválida em CRON_RODADAS: ${expr}`);
     cron.schedule(expr, () => void rodadaCompleta(`cron ${expr}`), { timezone: 'America/Sao_Paulo' });
   }
+
+  // Todo dia às 6h reaudita o mês atual e o anterior (regras que dependem do tempo).
+  cron.schedule('0 6 * * *', () => void reauditarRecentes(db).catch((e) => log.error('erro ao reabrir auditoria', { erro: (e as Error).message })), { timezone: 'America/Sao_Paulo' });
 
   const intervalo = setInterval(() => void tique(), 60_000);
   setTimeout(() => void tique(), 5_000);

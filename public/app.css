@@ -263,3 +263,32 @@ table.notas .mono { font-family: var(--mono); font-size: 12px; }
 tr.cancelada td { color: var(--tinta-2); }
 tr.cancelada .valor-nota { text-decoration: line-through; }
 .aviso-tabela { padding: 10px 12px; font-size: 13px; color: var(--tinta-2); border-top: 1px solid var(--linha); }
+
+/* Abas da empresa */
+.abas-tela { display: flex; gap: 4px; border-bottom: 1px solid var(--linha); }
+.aba-tela { border: 0; background: transparent; padding: 10px 14px; font-weight: 600; color: var(--tinta-2); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; display: inline-flex; align-items: center; gap: 8px; }
+.aba-tela.ativa { color: var(--tinta); border-bottom-color: var(--destaque); }
+.contador { min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--atencao-fundo); color: var(--atencao); font-size: 12px; line-height: 20px; text-align: center; }
+.contador.zero { background: var(--ok-fundo); color: var(--ok); }
+
+/* Auditoria */
+.barra-auditoria { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.segmentos { display: inline-flex; background: var(--neutro-fundo); border-radius: 8px; padding: 3px; }
+.segmento { border: 0; background: transparent; border-radius: 6px; padding: 6px 12px; font-weight: 550; color: var(--tinta-2); cursor: pointer; }
+.segmento.ativo { background: var(--superficie); color: var(--tinta); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.grupo-regra { background: var(--superficie); border: 1px solid var(--linha); border-radius: var(--raio); overflow: hidden; }
+.grupo-regra.erro { border-left: 3px solid var(--problema); }
+.grupo-regra.alerta { border-left: 3px solid var(--atencao); }
+.grupo-regra.info { border-left: 3px solid var(--neutro); }
+.grupo-topo { display: flex; justify-content: space-between; gap: 12px; padding: 14px 16px; flex-wrap: wrap; align-items: flex-start; }
+.grupo-topo h3 { margin: 0; font-size: 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.grupo-topo p { margin: 4px 0 0; font-size: 13px; color: var(--tinta-2); max-width: 75ch; }
+.grupo-acoes { display: flex; gap: 6px; flex-wrap: wrap; }
+.apontamento { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; padding: 10px 16px; border-top: 1px solid var(--linha); align-items: center; }
+.apontamento .texto { font-size: 14px; overflow-wrap: anywhere; }
+.apontamento .decisao { display: block; font-size: 12px; color: var(--tinta-2); margin-top: 2px; }
+.apontamento .acoes-ap { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.apontamento input.cfop { width: 76px; min-height: 30px; padding: 0 8px; border: 1px solid var(--linha); border-radius: 6px; background: var(--superficie); font-family: var(--mono); }
+.apontamento.resolvido .texto { color: var(--tinta-2); }
+.mais-itens { padding: 10px 16px; border-top: 1px solid var(--linha); font-size: 13px; color: var(--tinta-2); }
+@media (max-width: 700px) { .apontamento { grid-template-columns: 1fr; } .apontamento .acoes-ap { justify-content: flex-start; } }

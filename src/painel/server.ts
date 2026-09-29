@@ -8,6 +8,8 @@ import { buscarTodos, criarDb, ok } from '../db';
 import { ErroValidacao, salvarEmpresaComCertificado } from '../empresas';
 import { log } from '../log';
 import { Zip } from './zip';
+import { auditarMes } from '../auditoria/motor';
+import { REGRAS } from '../auditoria/regras';
 
 function exigir(nome: string): string {
   const v = process.env[nome]?.trim();
@@ -212,6 +214,39 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
     return responder(res, 200, { ativo: !!ativo });
   }
 
+  const aud = rota.match(/^\/api\/empresas\/([0-9a-f-]{36})\/auditoria(\/lote|\/refazer)?$/);
+  if (aud) {
+    const [, id, sub] = aud;
+    if (metodo === 'GET' && !sub) return listarAuditoria(res, id, filtroNotas(url));
+    if (metodo === 'POST' && sub === '/refazer') {
+      const { mes } = await lerCorpo(req);
+      const f = filtroNotas(new URL(`http://x/?mes=${encodeURIComponent(String(mes ?? ''))}`));
+      const r = await auditarMes(db, id, f.de.slice(0, 10));
+      return responder(res, 200, { apontamentos: r.apontamentos.length });
+    }
+    if (metodo === 'POST' && sub === '/lote') {
+      const c = await lerCorpo(req);
+      const f = filtroNotas(new URL(`http://x/?mes=${encodeURIComponent(String(c.mes ?? ''))}`));
+      const abertos = ok(
+        await db.from('apontamentos').select('*').eq('empresa_id', id).eq('competencia', f.de.slice(0, 10))
+          .eq('regra', String(c.regra ?? '')).eq('status', 'aberto'),
+        'listar apontamentos do lote',
+      ) as any[];
+      for (const a of abertos) await resolverApontamento(a, String(c.acao), c.observacao ? String(c.observacao) : null, null, email);
+      log.info('auditoria em lote', { empresa: id, regra: c.regra, acao: c.acao, quantidade: abertos.length, por: email });
+      return responder(res, 200, { quantidade: abertos.length });
+    }
+  }
+
+  const apont = rota.match(/^\/api\/apontamentos\/(\d+)$/);
+  if (metodo === 'POST' && apont) {
+    const c = await lerCorpo(req);
+    const a = ok(await db.from('apontamentos').select('*').eq('id', Number(apont[1])).maybeSingle(), 'ler apontamento') as any;
+    if (!a) throw new ErroHttp(404, 'Apontamento não encontrado.');
+    await resolverApontamento(a, String(c.acao), c.observacao ? String(c.observacao) : null, c.valor ? String(c.valor) : null, email);
+    return responder(res, 200, { ok: true });
+  }
+
   const notas = rota.match(/^\/api\/empresas\/([0-9a-f-]{36})\/(notas|xml|zip)$/);
   if (metodo === 'GET' && notas) {
     const [, id, tipo] = notas;
@@ -222,6 +257,72 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
   }
 
   throw new ErroHttp(404, 'Rota não encontrada.');
+}
+
+/* ---------- auditoria ---------- */
+
+async function listarAuditoria(res: http.ServerResponse, id: string, f: FiltroNotas) {
+  const competencia = f.de.slice(0, 10);
+  const lista = await buscarTodos<any>(
+    (de, ate) => db.from('apontamentos')
+      .select('id,regra,severidade,referencia,chave,n_item,mensagem,sugestao,quantidade,status,observacao,resolvido_por,resolvido_em')
+      .eq('empresa_id', id).eq('competencia', competencia).order('severidade').order('id').range(de, ate),
+    'listar apontamentos',
+  );
+  const mono = ok(
+    await db.rpc('resumo_monofasico', { p_empresa: id, p_de: f.de, p_ate: f.ate }),
+    'resumo monofásico',
+  ) as { direcao: string; total: number; monofasico: number }[];
+  const { count } = await db.from('documentos').select('chave', { count: 'exact', head: true }).eq('empresa_id', id)
+    .gte('emitida_em', f.de).lt('emitida_em', f.ate).eq('auditado', false);
+  responder(res, 200, { apontamentos: lista, regras: REGRAS, monofasico: mono, aguardandoAuditoria: count ?? 0 });
+}
+
+const CFOP_ENTRADA_VALIDO = /^[123]\d{3}$/;
+const CST_PIS_VALIDO = /^\d{2}$/;
+
+/** Marca um apontamento como ajustado/ignorado/aberto e, quando é o caso, grava o ajuste no item. */
+async function resolverApontamento(a: any, acao: string, observacao: string | null, valor: string | null, email: string) {
+  const agora = new Date().toISOString();
+  if (acao === 'reabrir') {
+    ok(await db.from('apontamentos').update({ status: 'aberto', resolvido_por: null, resolvido_em: null, atualizado_em: agora }).eq('id', a.id), 'reabrir');
+    return;
+  }
+  if (acao !== 'resolver' && acao !== 'ignorar') throw new ErroHttp(400, 'Ação inválida.');
+
+  if (acao === 'resolver' && a.chave && a.n_item) {
+    const campo: string | undefined = a.regra === 'CFOP_ENTRADA_INDEFINIDO' ? 'cfop_escrit' : a.sugestao?.campo;
+    const v = valor ?? a.sugestao?.valor ?? null;
+    if (campo && v) {
+      let alteracao: Record<string, unknown>;
+      if (campo === 'cfop_escrit') {
+        if (!CFOP_ENTRADA_VALIDO.test(v)) throw new ErroHttp(422, 'Informe um CFOP de entrada válido (1xxx, 2xxx ou 3xxx).');
+        alteracao = { cfop_escrit: v };
+      } else if (campo === 'cst_pis_cofins_escrit') {
+        if (!CST_PIS_VALIDO.test(v)) throw new ErroHttp(422, 'CST de PIS/COFINS inválido.');
+        alteracao = { cst_pis_escrit: v, cst_cofins_escrit: v };
+      } else {
+        throw new ErroHttp(400, 'Ajuste não suportado para este apontamento.');
+      }
+      ok(
+        await db.from('documento_itens').update({ ...alteracao, ajustado_por: email, ajustado_em: agora })
+          .eq('empresa_id', a.empresa_id).eq('chave', a.chave).eq('n_item', a.n_item),
+        'ajustar item',
+      );
+    } else if (a.regra === 'CFOP_ENTRADA_INDEFINIDO') {
+      throw new ErroHttp(422, 'Informe o CFOP de entrada.');
+    }
+  }
+  ok(
+    await db.from('apontamentos').update({
+      status: acao === 'resolver' ? 'ajustado' : 'ignorado',
+      observacao: observacao ?? a.observacao ?? null,
+      resolvido_por: email,
+      resolvido_em: agora,
+      atualizado_em: agora,
+    }).eq('id', a.id),
+    'resolver apontamento',
+  );
 }
 
 /* ---------- notas ---------- */

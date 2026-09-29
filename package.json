@@ -17,7 +17,7 @@
     "prod:teste-sefaz": "node dist/cli/teste-sefaz.js",
     "prod:cadastrar-empresa": "node dist/cli/cadastrar-empresa.js",
     "gerar-chave": "node -e \"console.log(require('crypto').randomBytes(32).toString('base64'))\"",
-    "test": "tsx test/parse.test.ts && tsx test/evento.test.ts && tsx test/extrator.test.ts && tsx test/zip.test.ts"
+    "test": "tsx test/parse.test.ts && tsx test/evento.test.ts && tsx test/extrator.test.ts && tsx test/zip.test.ts && tsx test/auditoria.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",
