@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Cofre Fiscal</title>
+  <link rel="icon" href="/icone.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <!-- Login -->
+  <main id="tela-login" class="login" hidden>
+    <section class="login-cartao" aria-labelledby="login-titulo">
+      <div class="marca">
+        <img src="/icone.svg" alt="" width="28" height="28">
+        <span>Cofre Fiscal</span>
+      </div>
+      <h1 id="login-titulo">Acesso ao painel</h1>
+      <div class="abas" role="tablist">
+        <button type="button" role="tab" id="aba-entrar" aria-selected="true" class="aba ativa">Entrar</button>
+        <button type="button" role="tab" id="aba-primeiro" aria-selected="false" class="aba">Primeiro acesso</button>
+      </div>
+      <form id="form-login" novalidate>
+        <label class="campo">
+          <span>E-mail</span>
+          <input id="login-email" type="email" autocomplete="username" required>
+        </label>
+        <label class="campo">
+          <span>Senha</span>
+          <input id="login-senha" type="password" autocomplete="current-password" required minlength="10">
+        </label>
+        <p id="login-dica" class="dica" hidden>Crie uma senha com pelo menos 10 caracteres. Só e-mails autorizados conseguem criar acesso.</p>
+        <p id="login-erro" class="erro" role="alert" hidden></p>
+        <button id="login-botao" type="submit" class="botao primario largo">Entrar</button>
+      </form>
+    </section>
+  </main>
+
+  <!-- Aplicação -->
+  <div id="tela-app" class="app" hidden>
+    <header class="topo">
+      <div class="marca">
+        <img src="/icone.svg" alt="" width="24" height="24">
+        <span>Cofre Fiscal</span>
+      </div>
+      <div class="topo-direita">
+        <span id="usuario-email" class="usuario"></span>
+        <button id="botao-sair" type="button" class="botao fantasma">Sair</button>
+      </div>
+    </header>
+
+    <main class="conteudo">
+      <div class="cabecalho-pagina">
+        <div>
+          <h1>Empresas</h1>
+          <p class="subtitulo">Certificados A1 e captação de NF-e e CT-e na SEFAZ. Rodadas automáticas às 2h e às 14h.</p>
+        </div>
+        <button id="botao-adicionar" type="button" class="botao primario">Adicionar empresa</button>
+      </div>
+
+      <nav id="resumo" class="resumo" aria-label="Filtrar por situação"></nav>
+
+      <div class="barra">
+        <label class="busca">
+          <span class="visualmente-oculto">Buscar</span>
+          <input id="busca" type="search" placeholder="Buscar por CNPJ, razão social ou código ERP" autocomplete="off">
+        </label>
+        <span id="atualizado" class="atualizado"></span>
+      </div>
+
+      <div id="lista" class="lista" aria-live="polite"></div>
+      <p id="vazio" class="vazio" hidden></p>
+    </main>
+  </div>
+
+  <!-- Painel lateral de cadastro -->
+  <div id="gaveta-fundo" class="gaveta-fundo" hidden></div>
+  <aside id="gaveta" class="gaveta" role="dialog" aria-modal="true" aria-labelledby="gaveta-titulo" hidden>
+    <div class="gaveta-topo">
+      <h2 id="gaveta-titulo">Adicionar empresa</h2>
+      <button id="gaveta-fechar" type="button" class="botao fantasma icone" aria-label="Fechar">✕</button>
+    </div>
+    <form id="form-empresa" class="gaveta-corpo" novalidate>
+      <p id="gaveta-contexto" class="contexto" hidden></p>
+
+      <div id="area-arquivo" class="arquivo" tabindex="0">
+        <input id="arquivo" type="file" accept=".pfx,.p12,application/x-pkcs12" class="visualmente-oculto">
+        <div class="arquivo-texto">
+          <strong id="arquivo-nome">Selecione o certificado A1</strong>
+          <span id="arquivo-detalhe">Arquivo .pfx ou .p12. Clique ou arraste aqui.</span>
+        </div>
+      </div>
+
+      <details class="opcionais">
+        <summary>Não tenho o arquivo, o certificado está instalado no Windows</summary>
+        <ol class="passos">
+          <li>Aperte <kbd>Win</kbd> + <kbd>R</kbd>, digite <code>certmgr.msc</code> e confirme.</li>
+          <li>Abra <strong>Pessoal → Certificados</strong>, clique com o botão direito no certificado da empresa e escolha <strong>Todas as tarefas → Exportar</strong>.</li>
+          <li>Marque <strong>Sim, exportar a chave privada</strong>, escolha o formato <strong>.PFX</strong>, defina uma senha e salve.</li>
+          <li>Envie esse arquivo aqui com a senha que você definiu.</li>
+        </ol>
+        <p class="dica">Se a opção de exportar a chave privada estiver desabilitada, o certificado foi instalado como não exportável. Nesse caso, use o arquivo original entregue pela certificadora.</p>
+      </details>
+
+      <label class="campo">
+        <span>Senha do certificado</span>
+        <div class="senha">
+          <input id="senha" type="password" autocomplete="off" required>
+          <button id="mostrar-senha" type="button" class="botao fantasma pequeno" aria-pressed="false">Mostrar</button>
+        </div>
+      </label>
+
+      <div class="linha-campos">
+        <label class="campo">
+          <span>UF</span>
+          <select id="uf" required></select>
+        </label>
+        <label class="campo">
+          <span>Regime</span>
+          <select id="regime">
+            <option value="">Não informado</option>
+            <option value="simples">Simples Nacional</option>
+            <option value="presumido">Lucro Presumido</option>
+            <option value="real">Lucro Real</option>
+            <option value="mei">MEI</option>
+          </select>
+        </label>
+      </div>
+
+      <details class="opcionais">
+        <summary>Campos opcionais</summary>
+        <label class="campo">
+          <span>Razão social</span>
+          <input id="razao" type="text" placeholder="Se vazio, usa o nome do certificado">
+        </label>
+        <label class="campo">
+          <span>Código no sistema contábil</span>
+          <input id="codigo-erp" type="text" inputmode="numeric">
+        </label>
+        <label class="campo">
+          <span>CNPJ</span>
+          <input id="cnpj" type="text" inputmode="numeric" placeholder="Só se não estiver no certificado">
+        </label>
+      </details>
+
+      <p class="dica">O certificado e a senha são criptografados no servidor antes de irem para o banco. A senha não fica visível para ninguém depois do envio.</p>
+      <p id="form-erro" class="erro" role="alert" hidden></p>
+      <div id="form-sucesso" class="sucesso" role="status" hidden></div>
+
+      <div class="gaveta-acoes">
+        <button id="form-cancelar" type="button" class="botao fantasma">Cancelar</button>
+        <button id="form-enviar" type="submit" class="botao primario">Salvar certificado</button>
+      </div>
+    </form>
+  </aside>
+
+  <div id="aviso" class="aviso" role="status" hidden></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

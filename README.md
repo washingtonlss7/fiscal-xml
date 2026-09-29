@@ -72,6 +72,17 @@ npm run gerar-chave
 
 ## 4. Cadastrar clientes
 
+O jeito normal é pelo **painel web** (serviço `painel` no Easypanel): entre com um e-mail autorizado, clique em **Adicionar empresa**, envie o `.pfx` e a senha. O servidor lê o CNPJ e a validade do certificado, cifra o arquivo e a senha e grava no banco. A lista mostra a situação de cada empresa, e o botão **Sincronizar** pede uma consulta imediata (respeitando a espera de 1 hora da SEFAZ).
+
+### Painel web
+
+- Mesmo repositório e mesma imagem do coletor, com o comando `node dist/painel/server.js` (porta 3000).
+- Variáveis: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `MASTER_KEY` (a mesma do coletor) e `PAINEL_EMAILS` (e-mails autorizados, separados por vírgula).
+- No primeiro uso, cada e-mail autorizado cria a própria senha na aba **Primeiro acesso**.
+- O navegador nunca fala direto com o banco: todas as operações passam pelo servidor, que valida a sessão e o e-mail.
+
+### Pela linha de comando
+
 Com o `.env` preenchido (mesma `MASTER_KEY` do servidor):
 
 ```bash

@@ -21,7 +21,9 @@ RUN sh scripts/baixar-cadeia-icp.sh /app/certs/icp-brasil.pem
 
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+COPY public ./public
 COPY package.json ./
 
 USER node
+# O mesmo imagem serve o coletor (padrão) e o painel: node dist/painel/server.js
 CMD ["node", "dist/worker.js"]
