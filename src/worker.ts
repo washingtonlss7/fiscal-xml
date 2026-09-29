@@ -75,7 +75,8 @@ async function empresasComFila(): Promise<string[]> {
     await db
       .from('sync_state')
       .select('empresa_id,ult_nsu,max_nsu')
-      .eq('ultimo_cstat', '138')
+      .in('ultimo_cstat', ['138', '656'])
+      .lt('erros_consecutivos', 3)
       .lte('proxima_consulta_em', new Date().toISOString())
       .limit(1000),
     'listar filas pendentes',
