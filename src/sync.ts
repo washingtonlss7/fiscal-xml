@@ -3,7 +3,7 @@ import { Db, ok, salvarXml } from './db';
 import { log } from './log';
 import { consultarDistNSU, DocZip, Modelo, RetornoDist } from './sefaz/distDFe';
 import { EVENTO_CANCELAMENTO, interpretar } from './sefaz/documentos';
-import { daquiA, esperar, minutos } from './util';
+import { daquiA, emParalelo, esperar, minutos } from './util';
 
 export interface EmpresaSync {
   id: string;
@@ -140,6 +140,16 @@ async function processarDoc(ctx: ContextoSync, empresa: EmpresaSync, modelo: Mod
   );
 }
 
+/**
+ * Grava um lote do distNSU. Notas e resumos vão em paralelo (são independentes entre si);
+ * os eventos vêm depois, em ordem, para o cancelamento sempre encontrar a nota já gravada.
+ */
+async function processarLote(ctx: ContextoSync, empresa: EmpresaSync, modelo: Modelo, docs: DocZip[]): Promise<void> {
+  const ehEvento = (d: DocZip) => /^(resEvento|procEvento)/.test(d.schema);
+  await emParalelo(docs.filter((d) => !ehEvento(d)), 6, (d) => processarDoc(ctx, empresa, modelo, d));
+  for (const d of docs.filter(ehEvento)) await processarDoc(ctx, empresa, modelo, d);
+}
+
 async function atualizarEstado(db: Db, empresaId: string, modelo: Modelo, campos: Record<string, unknown>) {
   ok(
     await db.from('sync_state').update(campos).eq('empresa_id', empresaId).eq('modelo', modelo),
@@ -219,10 +229,8 @@ export async function sincronizarModelo(
     };
 
     if (ret.cStat === '138') {
-      for (const doc of ret.docs) {
-        await processarDoc(ctx, empresa, modelo, doc);
-        documentos++;
-      }
+      await processarLote(ctx, empresa, modelo, ret.docs);
+      documentos += ret.docs.length;
       // Se o NSU não avançou, trata como fim para não repetir a mesma consulta (evita 656).
       const naoAvancou = ret.ultNSU <= ultNSU;
       if (!naoAvancou) ultNSU = ret.ultNSU;
