@@ -1,0 +1,262 @@
+segmento;item;produto;cest;ncm;mva_industria;mva_distribuidor
+I;1;Charutos, cigarrilhas e cigarros, de tabaco ou dos seus sucedâneos;04.001.00;2402;50,00%;
+I;2;Tabaco para fumar, mesmo contendo sucedâneos de tabaco em qualquer proporção;04.002.00;2403.1;50,00%;
+II;1;Água mineral, gasosa ou não, ou potável, naturais, em garrafa de vidro, retornável ou não, com capacidade de até 500 ml;03.001.00;2201.10.00;250,00%;170,00%
+II;2;Água mineral, gasosa ou não, ou potável, naturais, em embalagem com capacidade igual ou superior a 5.000 ml;03.002.00;2201.10.00;100,00%;70,00%
+II;3;Água mineral, gasosa ou não, ou potável, naturais, em embalagem de vidro, não retornável, com capacidade de até 300 ml;03.003.00;2201.10.00;140,00%;100,00%
+II;4;Água mineral, gasosa ou não, ou potável, naturais, em garrafa plástica de 1.500 ml;03.004.00;2201.10.00;120,00%;70,00%
+II;5;Água mineral, gasosa ou não, ou potável, naturais, em copos plásticos e embalagem plástica com capacidade de até 500 ml;03.005.00;2201.10.00;140,00%;100,00%
+II;6;Outras águas minerais, potáveis ou naturais, gasosas ou não, inclusive gaseificadas;03.006.00;2201.90.00;140,00%;70,00%
+II;7;Outras águas minerais, potáveis ou naturais, gasosas ou não, inclusive gaseificadas ou aromatizadas artificialmente;03.008.00;2202.90.00;140,00%;70,00%
+II;8;Refrigerante em garrafa com capacidade igual ou superior a 600 ml;03.010.00;2202;140,00%;40,00%
+II;9;Refrigerantes pré-mix ou post-mix;03.011.00;2202;140,00%;100,00%
+II;10;Demais refrigerantes;03.011.00;2202;140,00%;40,00%
+II;11;Xarope ou extrato concentrado destinados ao preparo de refrigerante em máquina "pré-mix" ou "post-mix";03.012.00;2106.90.10;140,00%;40,00%
+II;12;Bebidas energéticas em embalagem com capacidade inferior a 600 ml;03.013.00;2202.90.00;140,00%;40,00%
+II;13;Bebidas energéticas em embalagem com capacidade igual ou superior a 600 ml;03.014.00;2202.90.00;140,00%;40,00%
+II;14;Bebidas hidroeletrolíticas (isotônicas) em embalagem com capacidade inferior a 600 ml;03.015.00;2106.90.90;140,00%;40,00%
+II;15;Bebidas hidroeletrolíticas (isotônicas) em embalagem com capacidade igual ou superior a 600ml;03.016.00;2106.90.90;140,00%;40,00%
+II;16;Cerveja;03.021.00;2203.00.00;76,00%;35,00%
+II;17;Cerveja sem álcool;03.022.00;2202.90.00;76,00%;35,00%
+II;18;Chope;03.023.00;2203.00.00;140,00%;115,00%
+III;1;Aperitivos, amargos, bitter e similares;02.001.00;2205 2208.90.00;123,87%;123,87%
+III;2;Batida e similares;02.002.00;2208.90.00;123,87%;123,87%
+III;3;Bebida ice;02.003.00;2208.90.00;123,87%;123,87%
+III;4;Cachaça e aguardentes;02.004.00;2207.20 2208.40.00;65,93%;65,93%
+III;5;Catuaba e similares;02.005.00;2205 2206.00.90 2208.90.00;123,87%;123,87%
+III;6;Conhaque, brandy e similares;02.006.00;2208.20.00;123,87%;123,87%
+III;7;Cooler;02.007.00;2206.00.90 2208.90.00;123,87%;123,87%
+III;8;Gim (gin) e genebra;02.008.00;2208.50.00;123,87%;123,87%
+III;9;Jurubeba e similares;02.009.00;2205 2206.00.90 2208.90.00;123,87%;123,87%
+III;10;Licores e similares;02.010.00;2208.70.00;123,87%;123,87%
+III;11;Pisco;02.011.00;2208.20.00;123,87%;123,87%
+III;12;Rum;02.012.00;2208.40.00;123,87%;123,87%
+III;13;Saque;02.013.00;2206.00.90;123,87%;123,87%
+III;14;Steinhaeger;02.014.00;2208.90.00;123,87%;123,87%
+III;15;Tequila;02.015.00;2208.90.00;123,87%;123,87%
+III;16;Uísque;02.016.00;2208.30;123,87%;123,87%
+III;17;Vermute e similares;02.017.00;2205;123,87%;123,87%
+III;18;Vodka;02.018.00;2208.60.00;123,87%;123,87%
+III;19;Derivados de vodka;02.019.00;2208.90.00;123,87%;123,87%
+III;20;Arak;02.020.00;2208.90.00;123,87%;123,87%
+III;21;Aguardente vínica / grappa;02.021.00;2208.20.00;123,87%;123,87%
+III;22;Sidra e similares;02.022.00;2206.00.10;123,87%;123,87%
+III;23;Sangrias e coquetéis;02.023.00;2205 2206.00.90 2208.90.00;123,87%;123,87%
+III;24;Outras bebidas alcoólicas não especificadas nos itens anteriores;02.025.00;2205, 2206, 2207, 2208;123,87%;123,87%
+III;25;Vinhos de uvas frescas, incluindo os vinhos enriquecidos com álcool; mostos de uvas;02.024.00;2204;43,03%;43,03%
+IV;1;Cimento de qualquer espécie, exceto o branco;05.001.00;2523;20,00%;20,00%
+V;1;Café torrado e moído, em embalagens de conteúdo inferior ou igual a 2 kg;17.096.00;0901;29,00%;26,00%
+V;2;Café torrado e moído, em embalagens de conteúdo superior a 2 kg;17.096.01;0901;29,00%;26,00%
+VI;1;Biscoitos e bolachas derivados de farinha de trigo (exceto cream cracker, água e sal, maisena, maria e outros de consumo popular)...;17.053.00;1905.31;37,00%;35,00%
+VI;2;Biscoitos e bolachas cream cracker, água e sal, maisena e maria e outros de consumo popular, adicionados de edulcorantes...;17.055.00;1905.31;37,00%;35,00%
+VI;3;Biscoitos e bolachas cream cracker, água e sal, maisena e maria e outros de consumo popular...;17.056.00;1905.90.20;37,00%;35,00%
+VI;4;"Waffles" e "wafers" - sem cobertura;17.057.00;1905.32;37,00%;35,00%
+VI;5;"Waffles" e "wafers"- com cobertura;17.058.00;1905.32;37,00%;35,00%
+VI;6;Outras bolachas, exceto casquinhas para sorvete;17.061.00;1905.90.20;37,00%;35,00%
+VI;7;Pães industrializados, inclusive de especiarias, exceto panetones e bolo de forma;17.050.00;1905.20;37,00%;35,00%
+VI;8;Torradas, pão torrado e produtos semelhantes torrados;17.059.00;1905.40;37,00%;35,00%
+VI;9;Outros pães de forma;17.060.00;1905.90.10;37,00%;35,00%
+VI;10;Pão denominado knackebrot;17.063.00;1905.10.00;37,00%;35,00%
+VI;11;Demais pães industrializados;17.064.00;1905.90;37,00%;35,00%
+VI;12;Massas alimentícias tipo instantânea;17.047.00;1902.30.00;37,00%;35,00%
+VI;13;Massas alimentícias, cozidas ou recheadas ou preparadas de outro modo, exceto instantânea;17.048.00;1902;37,00%;35,00%
+VI;14;Massas alimentícias não cozidas, nem recheadas, nem preparadas de outro modo;17.049.00;1902.1;37,00%;35,00%
+VII;1;Óleo de soja refinado, em recipientes com capacidade inferior ou igual a 5 litros;17.065.00;1507.90.11;28,00%;25,00%
+VII;2;Óleo de amendoim refinado, em recipientes com capacidade inferior ou igual a 5 litros;17.066.00;1508;64,00%;35,00%
+VII;3;Óleo de girassol ou de algodão refinado, em recipientes com capacidade inferior ou igual a 5 litros;17.069.00;1512.19.11 1512.29.10;64,00%;35,00%
+VII;4;Óleo de canola, em recipientes com capacidade inferior ou igual a 5 litros;17.070.00;1514.1;64,00%;35,00%
+VII;5;Óleo de linhaça refinado, em recipientes com capacidade inferior ou igual a 5 litros;17.071.00;1515.19.00;64,00%;35,00%
+VII;6;Óleo de milho refinado, em recipientes com capacidade inferior ou igual a 5 litros;17.072.00;1515.29.10;64,00%;35,00%
+VII;7;Outros óleos refinados, em recipientes com capacidade inferior ou igual a 5 litros;17.073.00;1512.29.90;64,00%;35,00%
+VII;8;Outros óleos obtidos exclusivamente a partir de azeitonas e misturas, em recipientes até 5 litros;17.068.00;1510.00.00;64,00%;35,00%
+VII;9;Misturas de óleos refinados, para consumo humano, em recipientes até 5 litros;17.074.00;1517.90.10;64,00%;35,00%
+VII;10;Outros óleos vegetais comestíveis não especificados anteriormente;17.075.00;1511, 1513, 1514, 1515, 1516, 1518;64,00%;35,00%
+VII;11;Azeites de oliva até 2 litros (de fabricação nacional);17.067.00;1509;28,00%;25,00%
+VII;12;Azeites de oliva até 2 litros (importados);17.067.00;1509;64,00%;35,00%
+VII;13;Azeites de oliva de 2 a 5 litros (de fabricação nacional);17.067.01;1509;28,00%;25,00%
+VII;14;Azeites de oliva de 2 a 5 litros (importados);17.067.01;1509;64,00%;35,00%
+VII;15;Azeites de oliva acima de 5 litros (de fabricação nacional);17.067.02;1509;28,00%;25,00%
+VII;16;Azeites de oliva acima de 5 litros (importados);17.067.02;1509;64,00%;35,00%
+VIII;1;Açúcar refinado, até 2 kg;17.099.00;1701.1 1701.99.00;10,00%;10,00%
+VIII;2;Açúcar refinado, de 2 a 5 kg;17.099.01;1701.1 1701.99.00;10,00%;10,00%
+VIII;3;Açúcar refinado, acima de 5 kg;17.099.02;1701.1 1701.99.00;10,00%;10,00%
+VIII;4;Açúcar refinado com aromatizante ou corante, até 2 kg;17.100.00;1701.91.00;10,00%;10,00%
+VIII;5;Açúcar refinado com aromatizante ou corante, de 2 a 5 kg;17.100.01;1701.91.00;10,00%;10,00%
+VIII;6;Açúcar refinado com aromatizante ou corante, acima de 5 kg;17.100.02;1701.91.00;10,00%;10,00%
+VIII;7;Açúcar cristal, até 2 kg;17.101.00;1701.1 1701.99.00;15,00%;15,00%
+VIII;8;Açúcar cristal, de 2 a 5 kg;17.101.01;1701.1 1701.99.00;15,00%;15,00%
+VIII;9;Açúcar cristal, acima de 5 kg;17.101.02;1701.1 1701.99.00;15,00%;15,00%
+VIII;10;Açúcar cristal com aromatizante ou corante, até 2 kg;17.102.00;1701.91.00;15,00%;15,00%
+VIII;11;Açúcar cristal com aromatizante ou corante, de 2 a 5 kg;17.102.01;1701.91.00;15,00%;15,00%
+VIII;12;Açúcar cristal com aromatizante ou corante, acima de 5 kg;17.102.02;1701.91.00;15,00%;15,00%
+VIII;13;Outros tipos de açúcar, até 2 kg;17.103.00;1701.1 1701.99.00;20,00%;20,00%
+VIII;14;Outros tipos de açúcar, de 2 a 5 kg;17.103.01;1701.1 1701.99.00;20,00%;20,00%
+VIII;15;Outros tipos de açúcar, acima de 5 kg;17.103.02;1701.1 1701.99.00;20,00%;20,00%
+VIII;16;Outros tipos de açúcar com aromatizante ou corante, até 2 kg;17.104.00;1701.91.00;20,00%;20,00%
+VIII;17;Outros tipos de açúcar com aromatizante ou corante, de 2 a 5 kg;17.104.01;1701.91.00;20,00%;20,00%
+VIII;18;Outros tipos de açúcar com aromatizante ou corante, acima de 5 kg;17.104.02;1701.91.00;20,00%;20,00%
+IX;1;Perfumes (extratos);28.001.00;3303.00.10;35,00%;35,00%
+IX;2;Águas de Colônia;28.002.00;3303.00.20;35,00%;35,00%
+IX;3;Produtos de maquiagem para os lábios;28.003.00;3304.10.00;35,00%;35,00%
+IX;4;Sombra, delineador, lápis para sobrancelhas e rímel;28.004.00;3304.20.10;35,00%;35,00%
+IX;5;Outros produtos de maquiagem para os olhos;28.005.00;3304.20.90;35,00%;35,00%
+IX;6;Preparações para manicuros e pedicuros;28.006.00;3304.30.00;35,00%;35,00%
+IX;7;Pós para maquiagem, incluindo os compactos;28.007.00;3304.91.00;35,00%;35,00%
+IX;8;Cremes de beleza, cremes nutritivos e loções tônicas;28.008.00;3304.99.10;35,00%;35,00%
+IX;9;Outros produtos de beleza ou de maquiagem e preparações para cuidados da pele;28.009.00;3304.99.90;35,00%;35,00%
+IX;10;Preparações antisolares e os bronzeadores;28.010.00;3304.99.90;35,00%;35,00%
+IX;11;Xampus para o cabelo;28.011.00;3305.10.00;35,00%;35,00%
+IX;12;Preparações para ondulação ou alisamento, permanentes, dos cabelos;28.012.00;3305.20.00;35,00%;35,00%
+IX;13;Outras preparações capilares;28.013.00;3305.90.00;35,00%;35,00%
+IX;14;Tintura para o cabelo;28.014.00;3305.90.00;35,00%;35,00%
+IX;15;Preparações para barbear (antes, durante ou após);28.015.00;3307.10.00;35,00%;35,00%
+IX;16;Desodorantes corporais e antiperspirantes, líquidos;28.016.00;3307.20.10;35,00%;35,00%
+IX;17;Outros desodorantes corporais e antiperspirantes;28.017.00;3307.20.90;35,00%;35,00%
+IX;18;Outros produtos de perfumaria ou de toucador preparados;28.018.00;3307.90.00;35,00%;35,00%
+IX;19;Outras preparações cosméticas;28.019.00;3307.90.00;35,00%;35,00%
+IX;20;Sabões de toucador, em barras, pedaços ou figuras moldadas;28.020.00;3401.11.90;35,00%;35,00%
+IX;21;Outros sabões, produtos e preparações orgânicos tensoativos...;28.021.00;3401.19.00;35,00%;35,00%
+IX;22;Sabões de toucador sob outras formas;28.022.00;3401.20.10;35,00%;35,00%
+IX;23;Produtos e preparações orgânicos tensoativos para lavagem da pele, líquido ou creme;28.023.00;3401.30.00;35,00%;35,00%
+IX;24;Lenços de papel, incluindo os de desmaquiar;28.024.00;4818.20.00;35,00%;35,00%
+IX;25;Apontadores de lápis para maquiagem;28.025.00;8214.10.00;35,00%;35,00%
+IX;26;Utensílios e sortidos de utensílios de manicuros ou de pedicuros;28.026.00;8214.20.00;35,00%;35,00%
+IX;27;Escovas e pincéis de barba, escovas para cabelos, cílios ou unhas e outras escovas de toucador;28.027.00;9603.29.00;35,00%;35,00%
+IX;28;Pincéis para aplicação de produtos cosméticos;28.028.00;9603.30.00;35,00%;35,00%
+IX;29;Vaporizadores de toucador, suas armações e cabeças de armações;28.029.00;9616.10.00;35,00%;35,00%
+IX;30;Borlas ou esponjas para pós ou para aplicação de cosméticos;28.030.00;9616.20.00;35,00%;35,00%
+IX;31;Malas e maletas de toucador;28.031.00;4202.1;35,00%;35,00%
+IX;32;Pentes, travessas para cabelo, grampos, pinças, bobs e artefatos para penteados;28.032.00;9615;35,00%;35,00%
+IX;33;Mamadeiras;28.033.00;3923.30.00 3924.90.00 3924.10.00 4014.90.90 7010.20.00;35,00%;35,00%
+IX;34;Chupetas e bicos para mamadeiras e para chupetas;28.034.00;4014.90.90;35,00%;35,00%
+IX;35;Outros produtos cosméticos e de higiene pessoal não relacionados acima;28.035.00;Capítulos 33 e 34 da TIPI;35,00%;35,00%
+IX;36;Outros artigos destinados a cuidados pessoais não relacionados acima;28.036.00;Capítulos 44, 64, 65, 82, 90 e 96 da TIPI;35,00%;35,00%
+IX;37;Acessórios e embalagens presenteáveis;28.037.00;Capítulos 39, 42, 48, 71, 83, 90 e 91 da TIPI;35,00%;35,00%
+IX;38;Vestuário e seus acessórios; calçados, polainas e artefatos semelhantes;28.038.00;Capítulos 61, 62 e 64 da TIPI;35,00%;35,00%
+IX;39;Outros artigos de vestuário em geral;28.039.00;Capítulos 42, 52, 55, 58, 63 e 65 da TIPI;35,00%;35,00%
+IX;40;Artigos de casa;28.040.00;Diversos capítulos da TIPI;35,00%;35,00%
+IX;41;Produtos das indústrias alimentares e bebidas;28.041.00;Capítulos 13 e 15 a 23 da TIPI;35,00%;35,00%
+IX;42;Produtos destinados à higiene bucal;28.042.00;Capítulo 33 da TIPI;35,00%;35,00%
+IX;43;Produtos de limpeza e conservação doméstica;28.043.00;Diversos capítulos da TIPI;35,00%;35,00%
+IX;44;Outros produtos comercializados pelo sistema de marketing direto porta a porta;28.044.00;;35,00%;35,00%
+X;1;Medicamentos de referência – Lista positiva;13.001.00;3003 3004;38,24%;38,24%
+X;2;Medicamentos de referência – Lista negativa;13.001.01;3003 3004;33,05%;33,05%
+X;3;Medicamentos de referência – Lista neutra;13.001.02;3003 3004;41,34%;41,34%
+X;4;Medicamentos genéricos – Lista positiva;13.002.00;3003 3004;38,24%;38,24%
+X;5;Medicamentos genéricos – Lista negativa;13.002.01;3003 3004;33,05%;33,05%
+X;6;Medicamentos genéricos – Lista neutra;13.002.02;3003 3004;41,34%;41,34%
+X;7;Medicamentos similares – Lista positiva;13.003.00;3003 3004;38,24%;38,24%
+X;8;Medicamentos similares – Lista negativa;13.003.01;3003 3004;33,05%;33,05%
+X;9;Medicamentos similares – Lista neutra;13.003.02;3003 3004;41,34%;41,34%
+X;10;Outros tipos de medicamentos – Lista positiva;13.004.00;3003 3004;38,24%;38,24%
+X;11;Outros tipos de medicamentos – Lista negativa;13.004.01;3003 3004;33,05%;33,05%
+X;12;Outros tipos de medicamentos – Lista neutra;13.004.02;3003 3004;41,34%;41,34%
+X;13;Preparações químicas contraceptivas – Lista positiva;13.005.00;3006.60.00;38,24%;38,24%
+X;14;Preparações químicas contraceptivas – Lista negativa;13.005.01;3006.60.00;33,05%;33,05%
+X;15;Provitaminas e vitaminas – Lista neutra;13.006.00;2936;41,34%;41,34%
+X;16;Preparações opacificantes e reagentes de diagnóstico – Lista positiva (Conv. 76/94);13.007.00;3006.30;38,24%;38,24%
+X;17;Preparações opacificantes e reagentes de diagnóstico – Lista negativa (Conv. 76/94);13.007.01;3006.30;33,05%;33,05%
+X;18;Antissoro e produtos imunológicos – Lista positiva;13.008.00;3002;38,24%;38,24%
+X;19;Antissoro e produtos imunológicos – Lista negativa;13.008.01;3002;33,05%;33,05%
+X;20;Vacinas e produtos semelhantes – Lista positiva;13.009.00;3002;38,24%;38,24%
+X;21;Vacinas e produtos semelhantes – Lista negativa;13.009.01;3002;33,05%;33,05%
+X;22;Algodão, atadura, esparadrapo, gazes etc. impregnados de substâncias farmacêuticas – Lista positiva;13.010.00;3005;38,24%;38,24%
+X;23;Algodão, atadura, esparadrapo, gazes etc. impregnados de substâncias farmacêuticas – Lista negativa;13.010.01;3005;33,05%;33,05%
+X;24;Algodão, atadura, esparadrapo, gazes etc. não impregnados – Lista negativa;13.011.00;3005.10.90;33,05%;33,05%
+X;25;Algodão, atadura, esparadrapo, gazes etc. não impregnados, para venda a retalho – Lista negativa;13.011.01;3005.10.90;33,05%;33,05%
+X;26;Luvas cirúrgicas e luvas de procedimento – Lista neutra (somente operações com SP – Protocolo 25/09);13.012.00;4015.11.00 4015.19.00;41,34%;41,34%
+X;27;Preservativo – Lista neutra;13.013.00;4014.10.00;41,34%;41,34%
+X;28;Seringas, mesmo com agulhas – Lista neutra;13.014.00;9018.31;41,34%;41,34%
+X;29;Agulhas para seringas – Lista neutra;13.015.00;9018.32.1;41,34%;41,34%
+X;30;Contraceptivos (DIU) – Lista neutra;13.016.00;3926.90.90 9018.90.99;41,34%;41,34%
+X;31;Mamadeiras (Conv. 76/94) – Lista neutra;20.063.00;3923.30.00 3924.90.00 3924.10.00 4014.90.90 7010.20.00;41,34%;41,34%
+X;32;Chupetas e bicos de borracha (Conv. 76/94) – Lista neutra;20.039.00;4014.90.90;41,34%;41,34%
+X;33;Chupetas e bicos de silicone (Conv. 76/94) – Lista neutra;20.040.00;3924.90.00 3926.90.40 3926.90.90;41,34%;41,34%
+X;34;Tampões higiênicos e absorventes higiênicos externos (Conv. 76/94) – Lista neutra;20.049.00 20.050.00;9619.00.00;41,34%;41,34%
+X;35;Dentifrícios (Conv. 76/94) – Lista neutra;20.023.00;3306.10.00;41,34%;41,34%
+X;36;Escovas de dentes (Conv. 76/94) – Lista negativa;20.058.00;9603.21.00;33,05%;33,05%
+X;37;Fios dentais (Conv. 76/94) – Lista neutra;20.024.00;3306.20.00;41,34%;41,34%
+X;38;Outras preparações para higiene bucal ou dentária (Conv. 76/94) – Lista neutra;20.025.00;3306.90.00;41,34%;41,34%
+X;39;Fraldas (Conv. 76/94) – Lista neutra;20.048.00;9619.00.00;41,34%;41,34%
+XI;1;Sorvetes de qualquer espécie;23.001.00;2105.00;70,00%;70,00%
+XI;2;Preparados para fabricação de sorvetes em máquina;23.002.00;1806 1901 2106;328,00%;328,00%
+XII;1;Pneus novos, dos tipos utilizados em automóveis de passageiros;16.001.00;4011.10.00;42,00%;42,00%
+XII;2;Pneus novos, dos tipos utilizados em caminhões;16.002.00;4011;32,00%;32,00%
+XII;3;Pneus novos para motocicletas;16.003.00;4011.40.00;60,00%;60,00%
+XII;4;Outros tipos de pneus novos, exceto para bicicletas;16.004.00;4011;45,00%;45,00%
+XIII;1;Tintas e vernizes;24.001.00;3208 3209 3210.00;35,00%;35,00%
+XIII;2;Xadrez e pós assemelhados;24.002.00;2821 3204.17.00 3206;35,00%;35,00%
+XIII;3;Silicones em formas primárias, para uso na construção;10.004.00;3910.00;35,00%;35,00%
+XIV;22;Motocicletas e ciclos equipados com motor auxiliar;26.001.00;8711;34,00%;34,00%
+XV;1;Aparelhos e lâminas de barbear;20.064.00;8212.10.20 8212.20.10;30,00%;30,00%
+XVI;1;Lâmpadas elétricas;09.001.00;8539;60,03%;60,03%
+XVI;2;Lâmpadas eletrônicas;09.002.00;8540;102,31%;102,31%
+XVI;3;Reatores para lâmpadas ou tubos de descargas;09.003.00;8504.10.00;53,13%;53,13%
+XVI;4;Starter;09.004.00;8536.50;102,31%;102,31%
+XVI;5;Lâmpadas de LED;09.005.00;8543.70.99;63,67%;63,67%
+XVII;1;Ração tipo "pet" para animais domésticos;22.001.00;2309;46,00%;46,00%
+XVIII;1;Telefones para redes celulares;21.053.00;8517.12.3;0,00%;0,00%
+XVIII;2;Outros telefones para outras redes sem fio;21.054.00;8517.12;0,00%;0,00%
+XVIII;3;Cartões inteligentes ("smart cards");21.063.00;8523.52.00;0,00%;0,00%
+XVIII;4;Cartões inteligentes ("sim cards");21.064.00;8523.52.00;0,00%;0,00%
+XX;1;Água sanitária, branqueador e outros alvejantes;11.001.00;2828.90.11 2828.90.19 3206.41.00 3808.94.19;70,00%;70,00%
+XX;2;Sabões em pó, flocos, palhetas, grânulos para lavar roupas;11.002.00;3401.20.90;40,88%;40,88%
+XX;3;Sabões líquidos para lavar roupas;11.003.00;3401.20.90;40,88%;40,88%
+XX;4;Detergentes em pó, flocos, palhetas, grânulos;11.004.00;3402.20.00;40,88%;40,88%
+XX;5;Detergentes líquidos, exceto para lavar roupa;11.005.00;3402.20.00;40,88%;40,88%
+XX;6;Detergentes líquidos para lavar roupa;11.006.00;3402.20.00;40,88%;40,88%
+XX;7;Outros agentes orgânicos de superfície e preparações para limpeza, até 50 litros ou 50 kg;11.007.00;3402;40,88%;40,88%
+XX;8;Amaciante/suavizante;11.008.00;3809.91.90;27,00%;27,00%
+XX;9;Esponjas para limpeza;11.009.00;3924.10.00 3924.90.00 6805.30.10 6805.30.90;59,00%;59,00%
+XX;10;Álcool etílico para limpeza;11.010.00;2207 2208.90.00;31,00%;31,00%
+XX;11;Sacos de lixo de conteúdo igual ou inferior a 100 litros;15.004.00;3923.2;49,00%;49,00%
+XX;12;Esponjas e palhas de aço de uso doméstico;11.011.00;7323.10.00;35,00%;35,00%
+XXI;1;Argamassas;10.002.00;3816.00.1 3824.50.00;37,00%;37,00%
+XXI;2;Outras argamassas;10.003.00;3214.90.00;37,00%;37,00%
+XXI;3;Revestimentos de PVC e outros plásticos; forro, sancas e afins de PVC;10.005.00;3916;44,00%;44,00%
+XXI;4;Tubos e seus acessórios, de plásticos, para uso na construção;10.006.00;3917;33,00%;33,00%
+XXI;5;Revestimento de pavimento de PVC e outros plásticos;10.007.00;3918;38,00%;38,00%
+XXI;6;Chapas, folhas, tiras, fitas, películas autoadesivas de plásticos, para construção;10.008.00;3919;39,00%;39,00%
+XXI;7;Veda rosca, lona plástica para construção, fitas isolantes e afins;10.009.00;3919 3920 3921;28,00%;28,00%
+XXI;8;Telha de plástico;10.010.00;3921;42,00%;42,00%
+XXI;9;Cumeeira de plástico;10.011.00;3921;42,00%;42,00%
+XXI;10;Chapas, laminados plásticos em bobina, para construção;10.012.00;3921;42,00%;42,00%
+XXI;11;Telha, cumeeira e caixa d'água de fibrocimento, cimento-celulose;10.023.00;6811;30,00%;30,00%
+XXI;12;Caixas d'água, tanques, reservatórios, telhas, calhas de fibrocimento e semelhantes;10.024.00;6811;30,00%;30,00%
+XXI;13;Caixa d'água de plástico;10.015.00;3925.10.00;30,00%;30,00%
+XXI;14;Outras telhas, cumeeira e caixa d'água de plástico;10.016.00;3925.90;30,00%;30,00%
+XXI;15;Banheiras, boxes, pias, lavatórios, sanitários e artigos semelhantes de plásticos;10.013.00;3922;41,00%;41,00%
+XXI;16;Artefatos de higiene/toucador de plástico, para uso na construção;10.014.00;3924;52,00%;52,00%
+XXI;17;Portas, janelas e seus caixilhos, alisares e soleiras (plástico);10.018.00;3925.20.00;37,00%;37,00%
+XXI;18;Postigos, estores (incluídas as venezianas) e artefatos semelhantes;10.019.00;3925.30.00;48,00%;48,00%
+XXI;19;Outras obras de plástico, para uso na construção;10.020.00;3926.90;36,00%;36,00%
+XXI;20;Papel de parede e revestimentos de parede semelhantes; papel para vitrais;10.021.00;4814;51,00%;51,00%
+XXI;21;Telhas de concreto;10.022.00;6810.19.00;33,00%;33,00%
+XXI;22;Ladrilhos e placas de cerâmica, para pavimentação ou revestimento;10.030.00;6907 6908;39,00%;39,00%
+XXI;23;Cubos, pastilhas e artigos semelhantes de cerâmica;10.030.01;6907 6908;39,00%;39,00%
+XXI;24;Pias, lavatórios, banheiras, sanitários e aparelhos semelhantes de cerâmica;10.031.00;6910;40,00%;40,00%
+XXI;25;Artefatos de higiene/toucador de cerâmica;10.032.00;6912.00.00;54,00%;54,00%
+XXI;26;Vidro vazado ou laminado, em chapas, folhas ou perfis;10.033.00;7003;39,00%;39,00%
+XXI;27;Vidro estirado ou soprado, em folhas;10.034.00;7004;69,43%;69,43%
+XXI;28;Vidro flotado e vidro desbastado ou polido;10.035.00;7005;39,00%;39,00%
+XXI;29;Vidros temperados;10.036.00;7007.19.00;36,00%;36,00%
+XXI;30;Vidros laminados;10.037.00;7007.29.00;39,00%;39,00%
+XXI;31;Vidros isolantes de paredes múltiplas;10.038.00;7008;50,00%;50,00%
+XXI;32;Espelhos de vidro, exceto os de uso automotivo;27.001.00;7009;37,00%;37,00%
+XXI;33;Blocos, placas, tijolos, ladrilhos, telhas de vidro prensado ou moldado;10.039.00;7016;61,20%;61,20%
+XXI;34;Vergalhões;10.042.00;7214.20.00;33,00%;33,00%
+XXI;35;Outros vergalhões;10.043.00;7213 7308.90.10;33,00%;33,00%
+XXI;36;Barras próprias para construções, exceto vergalhões;10.040.00;7214.20.00;40,00%;40,00%
+XXI;37;Outras barras próprias para construções, exceto vergalhões;10.041.00;7308.90.10;40,00%;40,00%
+XXI;38;Fios de ferro ou aço não ligados; cordas, cabos, tranças e artefatos semelhantes;10.044.00;7217.10.90 7312;42,00%;42,00%
+XXI;39;Outros fios de ferro ou aço, não ligados, galvanizados;10.045.00;7217.20;40,00%;40,00%
+XXI;40;Acessórios para tubos de ferro fundido, ferro ou aço;10.046.00;7307;33,00%;33,00%
+XXI;41;Portas e janelas de ferro fundido, ferro ou aço;10.047.00;7308.30.00;34,00%;34,00%
+XXI;42;Material para andaimes e escoramentos de ferro ou aço;10.048.00;7308.40.00 7308.90;39,00%;39,00%
+XXI;43;Caixas diversas de ferro ou aço, próprias para a construção;10.051.00;7310;59,00%;59,00%
+XXI;44;Arame farpado e arames para cercas;10.052.00;7313.00.00;42,00%;42,00%
+XXI;45;Telas metálicas, grades e redes, de fios de ferro ou aço;10.053.00;7314;33,00%;33,00%
+XXI;46;Correntes de rolos, de ferro fundido, ferro ou aço;10.054.00;7315.11.00;69,43%;69,43%
+XXI;47;Outras correntes de elos articulados;10.055.00;7315.12.90;69,93%;69,93%
+XXI;48;Correntes de elos soldados;10.056.00;7315.82.00;42,00%;42,00%
+XXI;49;Tachas, pregos, percevejos, grampos e artefatos semelhantes de ferro ou aço;10.057.00;7317.00;41,00%;41,00%

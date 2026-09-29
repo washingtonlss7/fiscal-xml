@@ -512,6 +512,20 @@ function arquivoEstatico(res: http.ServerResponse, url: URL): boolean {
   return true;
 }
 
+/** Na primeira vez (tabela vazia), carrega a tabela de ST do ES que vem no repositório (Portaria SEFAZ-ES 16-R/2019). */
+async function semearTabelaST() {
+  const arquivo = path.resolve(__dirname, '../../dados/tabela_st_es.csv');
+  if (!fs.existsSync(arquivo)) return;
+  const { count, error } = await db.from('st_es_regras').select('id', { count: 'exact', head: true });
+  if (error || (count ?? 0) > 0) return;
+  const { regras, erros } = lerTabelaCsv(fs.readFileSync(arquivo, 'utf8'));
+  if (erros.length || !regras.length) return log.error('tabela de ST inicial inválida', { erros: erros.slice(0, 5) });
+  const r = await db.rpc('substituir_regras_st', { p_regras: regras, p_por: 'carga inicial (Portaria 16-R/2019)' });
+  if (r.error) log.error('falha ao carregar tabela de ST inicial', { erro: r.error.message });
+  else log.info('tabela de ST do ES carregada', { regras: r.data });
+}
+void semearTabelaST();
+
 const servidor = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   try {

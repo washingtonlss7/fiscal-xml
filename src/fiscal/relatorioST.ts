@@ -9,10 +9,10 @@ const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
 
 export async function lerRegrasST(db: Db): Promise<RegraST[]> {
   const linhas = await buscarTodos<any>(
-    (de, ate) => db.from('st_es_regras').select('id,cest,ncm,descricao,mva,pmpf,aliquota_interna').order('id').range(de, ate),
+    (de, ate) => db.from('st_es_regras').select('id,cest,ncm,descricao,mva,mva_distribuidor,pmpf,aliquota_interna,origem').order('id').range(de, ate),
     'ler tabela de ST',
   );
-  return linhas.map((r) => ({ ...r, mva: num(r.mva), pmpf: num(r.pmpf), aliquota_interna: Number(r.aliquota_interna) }));
+  return linhas.map((r) => ({ ...r, mva: num(r.mva), mva_distribuidor: num(r.mva_distribuidor), pmpf: num(r.pmpf), aliquota_interna: Number(r.aliquota_interna) }));
 }
 
 export interface RelatorioST extends ResultadoST {
@@ -93,6 +93,7 @@ export function abasST(r: RelatorioST, mes: string, ajustarMva: boolean): Aba[] 
       { titulo: 'Frete + seguro + outras − desc.', tipo: 'moeda', total: true },
       { titulo: 'IPI', tipo: 'moeda', total: true },
       { titulo: 'Base da operação', tipo: 'moeda', total: true },
+      { titulo: 'Fornecedor (MVA)', tipo: 'texto', largura: 12 },
       { titulo: 'MVA %', tipo: 'pct', largura: 9 },
       { titulo: 'PMPF', tipo: 'moeda', largura: 10 },
       { titulo: 'Base ST', tipo: 'moeda', total: true },
@@ -114,7 +115,8 @@ export function abasST(r: RelatorioST, mes: string, ajustarMva: boolean): Aba[] 
       ].filter(Boolean).join('. ');
       return [
         l.nota.emitida_em, l.nota.numero, l.nota.emit_nome, l.nota.uf_emit, l.item.n_item, l.item.x_prod, l.item.ncm, l.item.cest, l.item.cfop,
-        l.item.q_com, l.item.v_prod, outras, Number(l.item.v_ipi ?? 0), l.baseOperacao, l.mvaUsada, l.usouPmpf ? l.regra.pmpf : null,
+        l.item.q_com, l.item.v_prod, outras, Number(l.item.v_ipi ?? 0), l.baseOperacao,
+        l.tipoFornecedor === 'industria' ? 'Indústria/Importador' : l.tipoFornecedor === 'distribuidor' ? 'Distribuidor' : 'PMPF', l.mvaUsada, l.usouPmpf ? l.regra.pmpf : null,
         l.baseST, l.aliqInterna, Math.round(l.baseST * l.aliqInterna) / 100, l.aliqInterestadual, l.icmsProprio, Number(l.item.v_icms ?? 0),
         l.icmsST, obs, l.nota.chave,
       ];
@@ -152,10 +154,10 @@ export function abasST(r: RelatorioST, mes: string, ajustarMva: boolean): Aba[] 
   };
 
   const sem: Aba = {
-    nome: 'Sem regra na tabela',
+    nome: 'Fora da tabela do ES',
     cabecalho: [
-      'Itens com CEST (indício de ST) que não têm MVA/PMPF na tabela de ST do ES',
-      'Cadastre o CEST ou o NCM na tabela e gere a planilha de novo para incluí-los no cálculo.',
+      'Itens com CEST que não estão na tabela de ST do ES',
+      'O CEST é nacional: nem todo produto com CEST tem ST no ES. Confira; se algum tiver ST, inclua o CEST na tabela e gere a planilha de novo.',
     ],
     colunas: [
       { titulo: 'Emissão', tipo: 'data', largura: 11 },

@@ -635,7 +635,7 @@ async function carregarST() {
     numeros.replaceChildren(
       cartao('ST a recolher', moeda(d.total), `${d.itensCalculados} ite${d.itensCalculados === 1 ? 'm' : 'ns'} calculado${d.itensCalculados === 1 ? '' : 's'}`),
       cartao('Notas de fora do ES', String(d.notasForaDoEstado), `${d.notasComST} com ST a recolher`),
-      cartao('Com CEST sem regra', String(d.itensSemRegra), d.itensSemRegra ? `${moeda(d.valorSemRegra)} em mercadoria` : 'nenhum pendente'),
+      cartao('Fora da tabela do ES', String(d.itensSemRegra), d.itensSemRegra ? `${moeda(d.valorSemRegra)} com CEST, sem ST no ES?` : 'nenhum item'),
       cartao('Já com ST retido', String(d.jaRetidos), 'itens cobrados pelo fornecedor'),
     );
     if (!d.regrasCadastradas) {
@@ -644,7 +644,8 @@ async function carregarST() {
       aviso.hidden = false;
     } else if (d.itensSemRegra) {
       aviso.className = 'st-aviso';
-      aviso.textContent = `${d.itensSemRegra} item(ns) com CEST não estão na tabela (${d.regrasCadastradas} regra(s) cadastrada(s)). Eles aparecem na aba "Sem regra na tabela" da planilha.`;
+      aviso.className = 'st-aviso neutro';
+      aviso.textContent = `${d.itensSemRegra} item(ns) têm CEST mas não estão na tabela de ST do ES (${d.regrasCadastradas} regras). Em geral não têm ST no ES; confira na aba "Fora da tabela do ES" da planilha.`;
       aviso.hidden = false;
     } else {
       aviso.hidden = true;

@@ -10,7 +10,7 @@ import path from 'path';
 import { execFileSync } from 'child_process';
 import { abasST, RelatorioST } from '../src/fiscal/relatorioST';
 import {
-  acharRegra, aliquotaInterestadual, calcularItem, calcularST, ItemST, lerTabelaCsv, mvaAjustada, NotaST, RegraST, tabelaParaCsv,
+  acharRegra, aliquotaInterestadual, tipoFornecedor, calcularItem, calcularST, ItemST, lerTabelaCsv, mvaAjustada, NotaST, RegraST, tabelaParaCsv,
 } from '../src/fiscal/st';
 import { escreverXlsx } from '../src/painel/xlsx';
 import { Zip } from '../src/painel/zip';
@@ -103,10 +103,11 @@ const regra = (x: Partial<RegraST> = {}): RegraST => ({ cest: '1300100', ncm: nu
 
 // 8) Tabela em CSV (Excel pt-BR: ";" e vírgula decimal)
 {
-  const csv = '﻿CEST;NCM;Descrição;MVA;PMPF;Alíquota interna\r\n1300100;;Medicamentos;33,05;;17\r\n;2202;Refrigerantes;;4,5;\r\n;;sem chave;10;;\r\n';
+  const csv = '\uFEFFCEST;NCM;Descrição;MVA;MVA distribuidor;PMPF;Alíquota interna;Origem\r\n1300100;;Medicamentos;33,05;30;;17;\r\n;2202;Refrigerantes;;;4,5;;\r\n;;sem chave;10;;;;\r\n';
   const { regras, erros } = lerTabelaCsv(csv);
   assert.equal(regras.length, 2);
   assert.equal(regras[0].mva, 33.05);
+  assert.equal(regras[0].mva_distribuidor, 30);
   assert.equal(regras[1].pmpf, 4.5);
   assert.equal(regras[1].aliquota_interna, 17);
   assert.equal(erros.length, 1);
@@ -116,7 +117,42 @@ const regra = (x: Partial<RegraST> = {}): RegraST => ({ cest: '1300100', ncm: nu
   console.log('ok  importação e exportação da tabela em CSV (com validação por linha)');
 }
 
-// 9) Planilha Excel válida
+// 9) MVA por tipo de fornecedor e regra por origem (Portaria 16-R/2019)
+{
+  assert.equal(tipoFornecedor('6101', 0), 'industria');
+  assert.equal(tipoFornecedor('6401', 0), 'industria');
+  assert.equal(tipoFornecedor('6102', 0), 'distribuidor');
+  assert.equal(tipoFornecedor('6403', 0), 'distribuidor');
+  assert.equal(tipoFornecedor('6102', 1), 'industria'); // importador
+  const agua = regra({ cest: '0300100', mva: 250, mva_distribuidor: 170 });
+  const ind = calcularItem(nota('SP'), item({ cest: '0300100', cfop: '6101', v_prod: 100 }), agua, false);
+  const dist = calcularItem(nota('SP'), item({ cest: '0300100', cfop: '6102', v_prod: 100 }), agua, false);
+  assert.equal(ind.mvaUsada, 250);
+  assert.equal(ind.tipoFornecedor, 'industria');
+  assert.equal(dist.mvaUsada, 170);
+  assert.equal(dist.icmsST, 38.9); // 270 × 17% = 45,90 − 7,00
+  const azeites = [regra({ cest: '1706700', mva: 28, origem: 'nacional' }), regra({ cest: '1706700', mva: 64, origem: 'importado' })];
+  assert.equal(acharRegra({ cest: '1706700', ncm: '15091000', orig: 0 }, azeites)?.mva, 28);
+  assert.equal(acharRegra({ cest: '1706700', ncm: '15091000', orig: 2 }, azeites)?.mva, 64);
+  console.log('ok  MVA indústria/importador x distribuidor pelo CFOP e regra por origem (nacional/importado)');
+}
+
+// 10) Tabela da Portaria 16-R/2019 que vai no repositório
+{
+  const { regras, erros } = lerTabelaCsv(fs.readFileSync(path.join(__dirname, '../dados/tabela_st_es.csv'), 'utf8'));
+  assert.deepEqual(erros, []);
+  assert.ok(regras.length >= 300, `só ${regras.length} regras`);
+  const fralda = acharRegra({ cest: '2004800', ncm: '96190000' }, regras);
+  assert.equal(fralda?.mva, 41.34);
+  // Fralda Isacare de MG (valores reais): base 833,34, MVA 41,34%, 17% − 7% => ST 141,90
+  const l = calcularItem(nota('MG'), item({ cest: '2004800', ncm: '96190000', v_prod: 830.08, v_outro: 3.26, v_icms: 58.33 }), fralda!, false);
+  assert.equal(l.icmsProprio, 58.33);
+  assert.equal(l.divergenciaIcms, false);
+  assert.equal(l.icmsST, 141.9);
+  console.log(`ok  tabela do repositório (${regras.length} regras) e caso real de fralda: ST R$ 141,90`);
+}
+
+// 11) Planilha Excel válida
 (async () => {
   const r = calcularST([nota('SP')], [item(), item({ n_item: 2, cest: '1234567' })], [regra()]);
   const rel: RelatorioST = { ...r, empresa: { cnpj: '55885998000140', razao_social: 'Empresa <Teste> & Cia', uf: 'ES' }, notasForaDoEstado: 1, regrasCadastradas: 1 };
@@ -128,7 +164,7 @@ const regra = (x: Partial<RegraST> = {}): RegraST => ({ cest: '1300100', ncm: nu
   const py = `
 import openpyxl, sys
 wb = openpyxl.load_workbook(sys.argv[1])
-assert wb.sheetnames == ['ST por item', 'Resumo por nota', 'Sem regra na tabela'], wb.sheetnames
+assert wb.sheetnames == ['ST por item', 'Resumo por nota', 'Fora da tabela do ES'], wb.sheetnames
 ws = wb['ST por item']
 rows = [r for r in ws.iter_rows(values_only=True)]
 hdr = next(i for i, r in enumerate(rows) if r and r[0] == 'Emissão')
@@ -137,7 +173,7 @@ col = rows[hdr].index('ICMS-ST a recolher')
 assert abs(dados[col] - 168) < 0.001, dados[col]
 assert rows[hdr + 2][0] == 'Total'
 assert 'Empresa <Teste> & Cia' in rows[1][0]
-assert wb['Sem regra na tabela'].max_row >= 4
+assert wb['Fora da tabela do ES'].max_row >= 4
 print('xlsx-ok')
 `;
   const out = execFileSync('python3', ['-c', py, arq]).toString();

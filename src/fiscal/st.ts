@@ -16,8 +16,12 @@ export interface RegraST {
   /** NCM completo ou só o início (2 a 8 dígitos). */
   ncm: string | null;
   descricao: string | null;
-  /** MVA em % (ex.: 40 = 40%). */
+  /** MVA em % (ex.: 40 = 40%) quando o fornecedor é indústria ou importador (ou a única MVA do produto). */
   mva: number | null;
+  /** MVA em % quando o fornecedor é distribuidor/atacadista (revenda). Vazio = usa a `mva`. */
+  mva_distribuidor?: number | null;
+  /** Restringe a regra à origem da mercadoria (ex.: azeite nacional x importado). Vazio = qualquer. */
+  origem?: 'nacional' | 'importado' | null;
   /** Preço médio ponderado a consumidor final, por unidade. Quando existe, é a Base ST. */
   pmpf: number | null;
   aliquota_interna: number;
@@ -62,6 +66,8 @@ export interface LinhaST {
   baseComIpi: number;
   aliqInterestadual: number;
   mvaUsada: number | null;
+  /** Qual coluna de MVA foi usada. */
+  tipoFornecedor: 'industria' | 'distribuidor' | null;
   usouPmpf: boolean;
   baseST: number;
   aliqInterna: number;
@@ -99,15 +105,33 @@ export function cfopSujeito(cfop: string | null): boolean {
   return /^6(1|4)\d\d$/.test(cfop) || cfop === '6910';
 }
 
+/** Origem estrangeira (tabela de origem da NF-e): 1, 2, 6 e 7. */
+const ORIGEM_ESTRANGEIRA = new Set([1, 2, 6, 7]);
+/** Importação direta pelo próprio fornecedor (ele é o importador): 1 e 6. */
+const IMPORTACAO_DIRETA = new Set([1, 6]);
+/** CFOPs de venda/transferência de produção própria: fornecedor industrial. */
+const CFOP_INDUSTRIA = new Set(['101', '105', '109', '111', '116', '118', '122', '124', '125', '151', '401']);
+
+/**
+ * Fornecedor indústria/importador ou distribuidor, pelo CFOP da nota:
+ * produção própria (x101, x401, x151...) ou importação direta (origem 1/6) = indústria/importador; o resto = distribuidor.
+ */
+export function tipoFornecedor(cfop: string | null, orig: number | null): 'industria' | 'distribuidor' {
+  if (orig !== null && IMPORTACAO_DIRETA.has(orig)) return 'industria';
+  return cfop && CFOP_INDUSTRIA.has(cfop.slice(1)) ? 'industria' : 'distribuidor';
+}
+
 /** Escolhe a regra mais específica: CEST igual vale mais; entre NCMs, o prefixo mais longo. */
-export function acharRegra(item: Pick<ItemST, 'cest' | 'ncm'>, regras: RegraST[]): RegraST | undefined {
+export function acharRegra(item: Pick<ItemST, 'cest' | 'ncm'> & { orig?: number | null }, regras: RegraST[]): RegraST | undefined {
   let melhor: RegraST | undefined;
   let pontos = -1;
+  const importado = item.orig !== null && item.orig !== undefined && ORIGEM_ESTRANGEIRA.has(item.orig);
   for (const r of regras) {
     if (r.cest && r.cest !== item.cest) continue;
     if (r.ncm && !(item.ncm ?? '').startsWith(r.ncm)) continue;
     if (!r.cest && !r.ncm) continue;
-    const p = (r.cest ? 100 : 0) + (r.ncm?.length ?? 0);
+    if (r.origem && (r.origem === 'importado') !== importado) continue;
+    const p = (r.cest ? 100 : 0) + (r.ncm?.length ?? 0) + (r.origem ? 1 : 0);
     if (p > pontos) {
       melhor = r;
       pontos = p;
@@ -129,11 +153,14 @@ export function calcularItem(nota: NotaST, item: ItemST, regra: RegraST, ajustar
 
   const usouPmpf = regra.pmpf !== null && regra.pmpf > 0;
   let mvaUsada: number | null = null;
+  let tipo: LinhaST['tipoFornecedor'] = null;
   let baseST: number;
   if (usouPmpf) {
     baseST = r2(n(regra.pmpf) * n(item.q_com));
   } else {
-    const mva = n(regra.mva);
+    tipo = tipoFornecedor(item.cfop, item.orig);
+    const mvaDist = regra.mva_distribuidor;
+    const mva = tipo === 'distribuidor' && mvaDist !== null && mvaDist !== undefined ? n(mvaDist) : n(regra.mva);
     mvaUsada = ajustarMva ? mvaAjustada(mva, aliqInterestadual, aliqInterna) : mva;
     baseST = r2(baseComIpi * (1 + mvaUsada / 100));
   }
@@ -145,6 +172,7 @@ export function calcularItem(nota: NotaST, item: ItemST, regra: RegraST, ajustar
   return {
     nota, item, regra, baseOperacao, baseComIpi, aliqInterestadual,
     mvaUsada: mvaUsada === null ? null : Math.round(mvaUsada * 100) / 100,
+    tipoFornecedor: tipo,
     usouPmpf, baseST, aliqInterna, icmsProprio, icmsST, divergenciaIcms,
   };
 }
@@ -177,7 +205,7 @@ export function calcularST(notas: NotaST[], itens: ItemST[], regras: RegraST[], 
 
 /* ---------- tabela de regras (CSV) ---------- */
 
-export const CABECALHO_TABELA = ['cest', 'ncm', 'descricao', 'mva', 'pmpf', 'aliquota_interna'];
+export const CABECALHO_TABELA = ['cest', 'ncm', 'descricao', 'mva', 'mva_distribuidor', 'pmpf', 'aliquota_interna', 'origem'];
 
 const numeroBR = (v: string): number | null => {
   const t = v.trim().replace(/%$/, '').trim();
@@ -227,13 +255,19 @@ export function lerTabelaCsv(texto: string): { regras: RegraST[]; erros: string[
       if (!cest && !ncm) throw new Error('informe o CEST ou o NCM');
       if (cest && cest.length !== 7) throw new Error(`CEST "${cest}" deve ter 7 dígitos`);
       if (ncm && (ncm.length < 2 || ncm.length > 8)) throw new Error(`NCM "${ncm}" deve ter de 2 a 8 dígitos`);
-      const mva = numeroBR(pega('mva'));
+      const mva = numeroBR(pega('mva')) ?? numeroBR(pega('mva_industria'));
+      const mvaDist = numeroBR(pega('mva_distribuidor'));
+      const origemTxt = pega('origem').toLowerCase();
+      const origem = !origemTxt ? null : origemTxt.startsWith('nac') ? 'nacional' : origemTxt.startsWith('imp') ? 'importado' : undefined;
+      if (origem === undefined) throw new Error(`origem "${pega('origem')}" deve ser nacional, importado ou vazia`);
       const pmpf = numeroBR(pega('pmpf'));
       if (mva === null && pmpf === null) throw new Error('informe a MVA ou o PMPF');
       if (mva !== null && (mva < 0 || mva > 1000)) throw new Error('MVA fora do intervalo (use 40 para 40%)');
+      if (mvaDist !== null && (mvaDist < 0 || mvaDist > 1000)) throw new Error('MVA do distribuidor fora do intervalo');
+      if (mva === null && mvaDist !== null) throw new Error('informe também a MVA (indústria/importador)');
       const aliq = numeroBR(pega('aliquota_interna')) ?? 17;
       if (aliq <= 0 || aliq >= 100) throw new Error('alíquota interna inválida');
-      regras.push({ cest, ncm, descricao: pega('descricao') || null, mva, pmpf, aliquota_interna: aliq });
+      regras.push({ cest, ncm, descricao: pega('descricao') || null, mva, mva_distribuidor: mvaDist, pmpf, aliquota_interna: aliq, origem });
     } catch (e) {
       erros.push(`Linha ${nLinha}: ${(e as Error).message}.`);
     }
@@ -244,6 +278,7 @@ export function lerTabelaCsv(texto: string): { regras: RegraST[]; erros: string[
 export function tabelaParaCsv(regras: RegraST[]): string {
   const fmt = (v: number | null) => (v === null || v === undefined ? '' : String(v).replace('.', ','));
   const esc = (s: string | null) => (s && /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s ?? '');
-  const linhas = regras.map((r) => [r.cest ?? '', r.ncm ?? '', esc(r.descricao), fmt(r.mva), fmt(r.pmpf), fmt(r.aliquota_interna)].join(';'));
+  const linhas = regras.map((r) =>
+    [r.cest ?? '', r.ncm ?? '', esc(r.descricao), fmt(r.mva), fmt(r.mva_distribuidor ?? null), fmt(r.pmpf), fmt(r.aliquota_interna), r.origem ?? ''].join(';'));
   return '﻿' + [CABECALHO_TABELA.join(';'), ...linhas].join('\r\n') + '\r\n';
 }
