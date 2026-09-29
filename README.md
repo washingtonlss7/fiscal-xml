@@ -8,6 +8,7 @@ Esta é a **Fase 1** (captação). Manifestação do destinatário, exportação
 
 - Para cada empresa ativa, o coletor consulta o `distNSU` a partir do último NSU salvo, em lotes de até 50 documentos, até alcançar o `maxNSU`.
 - Segue as regras da NT 2014.002: depois de chegar ao fim ou receber **137** (nenhum documento), só consulta de novo após **1 hora**. Se receber **656** (consumo indevido), o CNPJ fica bloqueado por 1 hora e o coletor espera.
+- Consultas à SEFAZ só das **23h às 6h** (`JANELA_SINCRONIZACAO`); auditoria, extração e armazenamento rodam o dia todo.
 - Agendamento contínuo: até `CONCORRENCIA` empresas (padrão 30) sincronizando ao mesmo tempo; cada empresa volta a consultar a cada `INTERVALO_HORAS` (padrão 3 h, mínimo 1 h exigido pela SEFAZ).
 - Pedidos manuais entram pela tabela `sync_requests` (o botão "Sincronizar agora" do painel vai gravar ali).
 - Os certificados ficam no banco **cifrados com AES-256-GCM**. A chave (`MASTER_KEY`) fica só no servidor.

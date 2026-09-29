@@ -8,7 +8,7 @@ import { log } from './log';
 import { manifestarPendentes } from './manifestacao';
 import { Modelo } from './sefaz/distDFe';
 import { ContextoSync, ResultadoSync, sincronizarModelo } from './sync';
-import { emParalelo } from './util';
+import { dentroDaJanela, emParalelo } from './util';
 
 export interface EmpresaRow {
   id: string;
@@ -70,6 +70,7 @@ export function novoContexto(db: Db, cfg: ConfigWorker, arm: Armazenamento, clie
   return {
     db, arm, tpAmb: cfg.tpAmb, maxChamadasPorRodada: cfg.maxChamadasPorRodada,
     intervaloMs: cfg.intervaloHoras * 3600_000, clientes, manual,
+    podeConsultar: () => dentroDaJanela(cfg.janela),
   };
 }
 
@@ -139,7 +140,7 @@ export async function sincronizarEmpresa(
     for (const modelo of modelos) resultados.push(await sincronizarModelo(ctx, empresa, modelo, agente));
 
     // Notas que chegaram só como resumo: dá ciência para a SEFAZ liberar o XML completo.
-    if (empresa.captar_nfe && empresa.manifestar_ciencia && !empresa.escritorio) {
+    if (empresa.captar_nfe && empresa.manifestar_ciencia && !empresa.escritorio && (!ctx.podeConsultar || ctx.podeConsultar())) {
       await manifestarPendentes(ctx.db, cfg.tpAmb, empresa, certificado, agente);
     }
     const documentos = resultados.reduce((s, r) => s + r.documentos, 0);

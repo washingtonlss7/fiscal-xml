@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { lerJanela } from './util';
 
 function obrigatorio(nome: string): string {
   const v = process.env[nome];
@@ -34,6 +35,8 @@ export function configWorker() {
     concorrencia: Math.max(1, Number(opcional('CONCORRENCIA', '30'))),
     // De quanto em quanto tempo cada empresa volta a consultar a SEFAZ depois de ficar em dia.
     // A SEFAZ exige no mínimo 1 hora; abaixo disso o valor é ignorado.
+    // Horário em que o coletor pode consultar a SEFAZ (fuso de São Paulo). Padrão: 23h às 6h.
+    janela: lerJanela(process.env.JANELA_SINCRONIZACAO ?? '23-6'),
     intervaloHoras: Math.max(1.02, Number(opcional('INTERVALO_HORAS', '3'))),
     // Máximo de chamadas seguidas por empresa/modelo numa rodada (cada uma traz até 50 docs).
     maxChamadasPorRodada: Math.max(1, Number(opcional('MAX_CHAMADAS_POR_RODADA', '40'))),

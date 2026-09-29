@@ -8,6 +8,7 @@ import { fazerBackup, migrarParaR2 } from './migracao';
 import { log } from './log';
 import { Agendador } from './agendador';
 import { carregarEmpresas, emAndamento, executarRodada, garantirSyncState, mapaClientes, novoContexto, sincronizarEmpresa } from './rodada';
+import { dentroDaJanela } from './util';
 
 const cfg = configWorker();
 const db = criarDb(cfg.supabaseUrl, cfg.supabaseServiceKey);
@@ -28,9 +29,21 @@ async function adiar(empresaId: string) {
     .lte('proxima_consulta_em', new Date().toISOString());
 }
 
+/** Registra no log quando a janela de consultas abre e fecha. */
+let janelaAberta: boolean | null = null;
+function janelaAbertaAgora(): boolean {
+  const aberta = dentroDaJanela(cfg.janela);
+  if (aberta !== janelaAberta && cfg.janela) {
+    log.info(aberta ? 'janela de consultas aberta' : 'janela de consultas encerrada', { horario: cfg.janela.texto });
+  }
+  janelaAberta = aberta;
+  return aberta;
+}
+
 const agendador = new Agendador(
   cfg.concorrencia,
   async (limite, excluir) => {
+    if (!janelaAbertaAgora()) return [];
     const devidas = ok(
       await db.rpc('empresas_para_sincronizar', { p_limite: limite, p_excluir: excluir }),
       'empresas para sincronizar',
@@ -65,6 +78,7 @@ async function manutencao() {
     await garantirSyncState(db, empresas);
     const fila = (ok(await db.rpc('fila_sincronizacao'), 'fila') as { vencidas: number; mais_antiga: string | null }[])?.[0];
     log.info('resumo do coletor', {
+      janela: cfg.janela ? `${cfg.janela.texto} (${dentroDaJanela(cfg.janela) ? 'aberta' : 'fechada'})` : 'sem restrição',
       empresas_ativas: empresas.length,
       sincronizando_agora: agendador.ativos,
       aguardando_vaga: Number(fila?.vencidas ?? 0),
@@ -79,6 +93,8 @@ async function manutencao() {
 
 /** Atende o botão "Sincronizar agora" do painel (tabela sync_requests). */
 async function atenderPedidosManuais() {
+  // Fora do horário combinado os pedidos ficam pendentes e são atendidos quando a janela abrir.
+  if (!dentroDaJanela(cfg.janela)) return;
   const pedidos = ok(
     await db.from('sync_requests').select('id,empresa_id').eq('status', 'pendente').order('solicitado_em').limit(50),
     'listar sync_requests',
@@ -152,6 +168,7 @@ async function iniciar() {
   log.info('coletor iniciado', {
     ambiente: cfg.tpAmb === 1 ? 'produção' : 'homologação',
     empresas_simultaneas: cfg.concorrencia,
+    horario_consultas: cfg.janela?.texto ?? 'sem restrição',
     intervalo_horas: cfg.intervaloHoras,
     armazenamento: arm.usaR2 ? 'Cloudflare R2 (criptografado)' : 'Supabase Storage',
   });

@@ -24,6 +24,8 @@ export interface ContextoSync {
   intervaloMs: number;
   /** Pedido manual do painel: pode consultar antes do intervalo, desde que já tenha passado 1 hora. */
   manual?: boolean;
+  /** Janela de horário: quando devolve false, nenhuma nova chamada à SEFAZ é feita. */
+  podeConsultar?: () => boolean;
   /** CNPJ -> empresa cadastrada, para distribuir as notas recebidas pelo escritório (autXML). */
   clientes?: Map<string, { id: string; cnpj: string }>;
 }
@@ -268,6 +270,7 @@ async function recuperarLacunas(
   log.info('recuperando lacunas de NSU', { cnpj: empresa.cnpj, modelo, qtd: lacunas.length });
   let recuperados = 0;
   for (const { nsu } of lacunas) {
+    if (ctx.podeConsultar && !ctx.podeConsultar()) break;
     const t0 = Date.now();
     let ret: RetornoDist;
     try {
@@ -351,6 +354,10 @@ export async function sincronizarModelo(
   };
 
   while (chamadas < ctx.maxChamadasPorRodada) {
+    if (ctx.podeConsultar && !ctx.podeConsultar()) {
+      // Janela encerrada: para aqui; o NSU já está salvo e a empresa continua na próxima janela.
+      return { modelo, status: chamadas ? 'parcial' : 'aguardando', chamadas, documentos, mensagem: 'fora do horário de consulta' };
+    }
     chamadas++;
     const t0 = Date.now();
     let ret: RetornoDist;

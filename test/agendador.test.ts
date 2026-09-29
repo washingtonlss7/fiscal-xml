@@ -6,7 +6,7 @@
 import assert from 'assert';
 import { Agendador, Trabalho } from '../src/agendador';
 import { liberadoEm } from '../src/sync';
-import { esperar } from '../src/util';
+import { dentroDaJanela, esperar, lerJanela } from '../src/util';
 
 const ESCALA = 100; // 1 ms simulado = 100 ms reais
 const EMPRESAS = 1000;
@@ -112,7 +112,22 @@ function pedidoManual() {
   console.log('ok  pedido manual respeita a regra de 1 hora, 656 e erros');
 }
 
+function janela() {
+  const j = lerJanela('23-6')!;
+  const em = (h: string) => new Date(`2026-09-29T${h}:00-03:00`);
+  for (const h of ['23:00', '23:30', '00:00', '03:15', '05:59']) assert.ok(dentroDaJanela(j, em(h)), `${h} deveria estar dentro`);
+  for (const h of ['06:00', '09:00', '13:44', '22:59']) assert.ok(!dentroDaJanela(j, em(h)), `${h} deveria estar fora`);
+  assert.equal(j.texto, '23h às 6h');
+  assert.equal(lerJanela(''), null);
+  assert.ok(dentroDaJanela(null));
+  const dia = lerJanela('08:30-18:00')!;
+  assert.ok(dentroDaJanela(dia, em('12:00')) && !dentroDaJanela(dia, em('08:29')) && !dentroDaJanela(dia, em('18:00')));
+  assert.throws(() => lerJanela('23h'));
+  console.log('ok  janela 23h às 6h (atravessa a meia-noite, horário de Brasília)');
+}
+
 (async () => {
+  janela();
   pedidoManual();
   await semGiroEmFalso();
   await respeitaExternos();
