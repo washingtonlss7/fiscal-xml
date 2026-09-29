@@ -50,6 +50,7 @@
     </header>
 
     <main class="conteudo">
+     <div id="tela-empresas" class="pilha">
       <div class="cabecalho-pagina">
         <div>
           <h1>Empresas</h1>
@@ -70,6 +71,30 @@
 
       <div id="lista" class="lista" aria-live="polite"></div>
       <p id="vazio" class="vazio" hidden></p>
+     </div>
+
+     <section id="tela-notas" class="pilha" hidden>
+      <div class="cabecalho-pagina">
+        <div>
+          <button id="notas-voltar" type="button" class="botao fantasma pequeno voltar">← Empresas</button>
+          <h1 id="notas-titulo"></h1>
+          <p id="notas-sub" class="subtitulo"></p>
+        </div>
+        <button id="notas-zip" type="button" class="botao primario">Baixar XMLs do mês (ZIP)</button>
+      </div>
+      <div class="filtros">
+        <label class="campo"><span>Mês</span><input id="notas-mes" type="month"></label>
+        <label class="campo"><span>Documento</span>
+          <select id="notas-modelo"><option value="">NF-e e CT-e</option><option value="55">NF-e</option><option value="57">CT-e</option></select>
+        </label>
+        <label class="campo"><span>Direção</span>
+          <select id="notas-direcao"><option value="">Entradas e saídas</option><option value="entrada">Entradas</option><option value="saida">Saídas</option></select>
+        </label>
+      </div>
+      <div id="notas-resumo" class="numeros"></div>
+      <div id="notas-lista" class="rolagem"></div>
+      <p id="notas-vazio" class="vazio" hidden></p>
+     </section>
     </main>
   </div>
 
@@ -126,6 +151,12 @@
           </select>
         </label>
       </div>
+
+      <label class="checar">
+        <input id="escritorio" type="checkbox">
+        <span><strong>Este é o certificado do escritório</strong>
+          <small>Recebe as notas dos clientes pela tag autXML (principalmente as NF-e de saída) e distribui para cada cliente cadastrado.</small></span>
+      </label>
 
       <details class="opcionais">
         <summary>Campos opcionais</summary>

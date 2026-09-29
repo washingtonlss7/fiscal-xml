@@ -1,11 +1,13 @@
 import 'dotenv/config';
 import fs from 'fs';
 import http from 'http';
+import zlib from 'zlib';
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import { buscarTodos, criarDb, ok } from '../db';
 import { ErroValidacao, salvarEmpresaComCertificado } from '../empresas';
 import { log } from '../log';
+import { Zip } from './zip';
 
 function exigir(nome: string): string {
   const v = process.env[nome]?.trim();
@@ -181,6 +183,7 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
         razaoSocial: c.razaoSocial ? String(c.razaoSocial) : undefined,
         regime: c.regime ? String(c.regime) : null,
         codigoErp: c.codigoErp ? String(c.codigoErp) : null,
+        escritorio: typeof c.escritorio === 'boolean' ? c.escritorio : undefined,
       });
       log.info('certificado cadastrado pelo painel', { cnpj: r.cnpj, por: email, novo: r.novoCadastro });
       return responder(res, 200, r);
@@ -209,7 +212,135 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
     return responder(res, 200, { ativo: !!ativo });
   }
 
+  const notas = rota.match(/^\/api\/empresas\/([0-9a-f-]{36})\/(notas|xml|zip)$/);
+  if (metodo === 'GET' && notas) {
+    const [, id, tipo] = notas;
+    if (tipo === 'xml') return baixarXml(res, id, url.searchParams.get('chave') ?? '');
+    const filtro = filtroNotas(url);
+    if (tipo === 'zip') return baixarZip(res, id, filtro);
+    return listarNotas(res, id, filtro);
+  }
+
   throw new ErroHttp(404, 'Rota não encontrada.');
+}
+
+/* ---------- notas ---------- */
+
+interface FiltroNotas {
+  mes: string;
+  de: string;
+  ate: string;
+  modelo: string | null;
+  direcao: string | null;
+}
+
+function filtroNotas(url: URL): FiltroNotas {
+  const mes = url.searchParams.get('mes') ?? '';
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(mes)) throw new ErroHttp(400, 'Informe o mês no formato AAAA-MM.');
+  const [a, m] = mes.split('-').map(Number);
+  const proximo = m === 12 ? `${a + 1}-01` : `${a}-${String(m + 1).padStart(2, '0')}`;
+  const modelo = url.searchParams.get('modelo');
+  const direcao = url.searchParams.get('direcao');
+  return {
+    mes,
+    de: `${mes}-01T00:00:00-03:00`,
+    ate: `${proximo}-01T00:00:00-03:00`,
+    modelo: modelo && ['55', '57', '65'].includes(modelo) ? modelo : null,
+    direcao: direcao && ['entrada', 'saida'].includes(direcao) ? direcao : null,
+  };
+}
+
+const COLUNAS_NOTA =
+  'chave,modelo,numero,serie,emitida_em,direcao,completo,emit_cnpj,emit_nome,dest_doc,dest_nome,valor,situacao,' +
+  'manifestacao_status,manifestacao_motivo,recebido_via,cfop,v_icms,v_st,v_ipi,v_pis,v_cofins,v_ibs,v_cbs,itens_extraidos';
+
+function consultaNotas(id: string, f: FiltroNotas, colunas: string) {
+  let q = db.from('documentos').select(colunas).eq('empresa_id', id).gte('emitida_em', f.de).lt('emitida_em', f.ate);
+  if (f.modelo) q = q.eq('modelo', f.modelo);
+  if (f.direcao) q = q.eq('direcao', f.direcao);
+  return q;
+}
+
+async function listarNotas(res: http.ServerResponse, id: string, f: FiltroNotas) {
+  const linhas = await buscarTodos<any>(
+    (de, ate) => consultaNotas(id, f, COLUNAS_NOTA).order('emitida_em', { ascending: false }).range(de, ate),
+    'listar notas',
+  );
+  const soma = (campo: string, filtro: (n: any) => boolean = () => true) =>
+    Math.round(linhas.filter((n) => n.situacao === 'autorizada' && filtro(n)).reduce((t, n) => t + Number(n[campo] ?? 0), 0) * 100) / 100;
+  const resumo = {
+    quantidade: linhas.length,
+    canceladas: linhas.filter((n) => n.situacao === 'cancelada').length,
+    soResumo: linhas.filter((n) => !n.completo).length,
+    entradas: soma('valor', (n) => n.direcao === 'entrada'),
+    saidas: soma('valor', (n) => n.direcao === 'saida'),
+    icms: soma('v_icms'),
+    st: soma('v_st'),
+    ipi: soma('v_ipi'),
+    pis: soma('v_pis'),
+    cofins: soma('v_cofins'),
+    ibs: soma('v_ibs'),
+    cbs: soma('v_cbs'),
+  };
+  responder(res, 200, { notas: linhas.slice(0, 1000), total: linhas.length, resumo });
+}
+
+async function lerXmlStorage(caminho: string): Promise<Buffer> {
+  const r = await db.storage.from(process.env.XML_BUCKET ?? 'xmls').download(caminho);
+  if (r.error || !r.data) throw new Error(r.error?.message ?? 'arquivo não encontrado');
+  return zlib.gunzipSync(Buffer.from(await r.data.arrayBuffer()));
+}
+
+async function baixarXml(res: http.ServerResponse, id: string, chave: string) {
+  if (!/^\d{44}$/.test(chave)) throw new ErroHttp(400, 'Chave inválida.');
+  const doc = ok(
+    await db.from('documentos').select('xml_path,xml_resumo_path').eq('empresa_id', id).eq('chave', chave).maybeSingle(),
+    'buscar nota',
+  ) as { xml_path: string | null; xml_resumo_path: string | null } | null;
+  const caminho = doc?.xml_path ?? doc?.xml_resumo_path;
+  if (!caminho) throw new ErroHttp(404, 'XML não encontrado.');
+  const xml = await lerXmlStorage(caminho);
+  res.writeHead(200, {
+    ...CABECALHOS_SEGURANCA,
+    'Content-Type': 'application/xml; charset=utf-8',
+    'Content-Disposition': `attachment; filename="${chave}${doc?.xml_path ? '' : '-resumo'}.xml"`,
+    'Cache-Control': 'no-store',
+  });
+  res.end(xml);
+}
+
+async function baixarZip(res: http.ServerResponse, id: string, f: FiltroNotas) {
+  const empresa = ok(await db.from('empresas').select('cnpj').eq('id', id).maybeSingle(), 'buscar empresa') as { cnpj: string } | null;
+  if (!empresa) throw new ErroHttp(404, 'Empresa não encontrada.');
+  const docs = await buscarTodos<any>(
+    (de, ate) => consultaNotas(id, f, 'chave,modelo,direcao,situacao,xml_path').not('xml_path', 'is', null).order('emitida_em').range(de, ate),
+    'listar XMLs',
+  );
+  if (!docs.length) throw new ErroHttp(404, 'Nenhum XML completo nesse período.');
+  if (docs.length > 20000) throw new ErroHttp(413, 'Período com XMLs demais. Filtre por modelo ou direção.');
+
+  res.writeHead(200, {
+    ...CABECALHOS_SEGURANCA,
+    'Content-Type': 'application/zip',
+    'Content-Disposition': `attachment; filename="${empresa.cnpj}_${f.mes}.zip"`,
+    'Cache-Control': 'no-store',
+  });
+  const zip = new Zip(res);
+  const pasta: Record<string, string> = { '55': 'NFe', '57': 'CTe', '65': 'NFCe' };
+  // Baixa do Storage em paralelo (8 por vez) e escreve no ZIP em ordem.
+  for (let i = 0; i < docs.length; i += 8) {
+    const bloco = docs.slice(i, i + 8);
+    const conteudos = await Promise.all(bloco.map((d: any) => lerXmlStorage(d.xml_path).catch(() => null)));
+    for (let j = 0; j < bloco.length; j++) {
+      const d = bloco[j];
+      const c = conteudos[j];
+      if (!c) continue;
+      const sub = d.situacao === 'cancelada' ? `${d.direcao}/canceladas` : d.direcao;
+      await zip.adicionar(`${pasta[d.modelo] ?? d.modelo}/${sub}/${d.chave}.xml`, c);
+    }
+  }
+  await zip.finalizar();
+  res.end();
 }
 
 function arquivoEstatico(res: http.ServerResponse, url: URL): boolean {
@@ -233,6 +364,11 @@ const servidor = http.createServer(async (req, res) => {
     if (req.method === 'GET' && arquivoEstatico(res, url)) return;
     responder(res, 404, { erro: 'Página não encontrada.' });
   } catch (e) {
+    if (res.headersSent) {
+      // Falha no meio de um download: não há como mandar JSON, então encerra a conexão.
+      log.error('download interrompido', { rota: url.pathname, erro: (e as Error).message });
+      return void res.destroy();
+    }
     if (e instanceof ErroHttp) return responder(res, e.status, { erro: e.message });
     log.error('erro no painel', { rota: url.pathname, erro: (e as Error).message });
     responder(res, 500, { erro: 'Erro inesperado no servidor. Tente de novo.' });

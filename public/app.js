@@ -210,7 +210,7 @@ function linhaEmpresa(e) {
 
   return h('div', { class: `empresa${e.ativo ? '' : ' pausada'}` },
     celula('Empresa',
-      h('span', { class: 'nome', text: e.razao_social }),
+      h('span', { class: 'nome' }, e.razao_social, e.escritorio ? h('span', { class: 'selo-mini', text: 'Escritório' }) : null),
       h('span', { class: 'cnpj' }, formatarCnpj(e.cnpj), ` · ${e.uf}`, e.regime ? ` · ${REGIMES[e.regime] || e.regime}` : '', e.codigo_erp ? ` · cód. ${e.codigo_erp}` : ''),
     ),
     celula('Situação',
@@ -221,6 +221,7 @@ function linhaEmpresa(e) {
     celula('Última sincronização', ...sincronizacao,
       h('span', { class: 'meta', text: `${e.documentos_30d} nota${Number(e.documentos_30d) === 1 ? '' : 's'} em 30 dias` })),
     h('div', { class: 'acoes' },
+      h('button', { type: 'button', class: 'botao pequeno primario', onclick: () => abrirNotas(e) }, 'Notas'),
       h('button', {
         type: 'button', class: 'botao pequeno', disabled: !e.ativo || e.sincronizacao_pedida || !e.certificado_valido_ate,
         onclick: () => sincronizar(e),
@@ -319,6 +320,7 @@ function limparFormulario() {
   $('razao').value = '';
   $('codigo-erp').value = '';
   $('cnpj').value = '';
+  $('escritorio').checked = false;
   $('form-erro').hidden = true;
   $('form-sucesso').hidden = true;
   $('form-enviar').disabled = false;
@@ -336,6 +338,7 @@ function abrirGaveta(empresa) {
     $('regime').value = empresa.regime || '';
     $('codigo-erp').value = empresa.codigo_erp || '';
     $('cnpj').value = empresa.cnpj;
+    $('escritorio').checked = !!empresa.escritorio;
   } else {
     ctx.hidden = true;
     $('uf').value = 'ES';
@@ -404,6 +407,7 @@ async function enviarEmpresa(ev) {
         razaoSocial: $('razao').value.trim() || null,
         codigoErp: $('codigo-erp').value.trim() || null,
         cnpj: soDigitos($('cnpj').value) || null,
+        escritorio: $('escritorio').checked,
       },
     });
     const titulo = r.novoCadastro ? 'Empresa cadastrada' : 'Certificado atualizado';
@@ -425,10 +429,165 @@ async function enviarEmpresa(ev) {
   }
 }
 
+
+/* ---------- notas de uma empresa ---------- */
+const MOEDA = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+const moeda = (v) => (v === null || v === undefined || v === '' ? '—' : MOEDA.format(Number(v)));
+const TIPO_DOC = { '55': 'NF-e', '57': 'CT-e', '65': 'NFC-e' };
+let empresaNotas = null;
+
+function mesAtual() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function filtroQuery() {
+  const p = new URLSearchParams({ mes: $('notas-mes').value || mesAtual() });
+  if ($('notas-modelo').value) p.set('modelo', $('notas-modelo').value);
+  if ($('notas-direcao').value) p.set('direcao', $('notas-direcao').value);
+  return p.toString();
+}
+
+function abrirNotas(e) {
+  empresaNotas = e;
+  pararAtualizacao();
+  $('tela-empresas').hidden = true;
+  $('tela-notas').hidden = false;
+  $('notas-titulo').textContent = e.razao_social;
+  $('notas-sub').textContent = `${formatarCnpj(e.cnpj)} · ${e.uf}${e.regime ? ' · ' + (REGIMES[e.regime] || e.regime) : ''}`;
+  if (!$('notas-mes').value) $('notas-mes').value = mesAtual();
+  window.scrollTo(0, 0);
+  carregarNotas();
+}
+
+function fecharNotas() {
+  empresaNotas = null;
+  $('tela-notas').hidden = true;
+  $('tela-empresas').hidden = false;
+  carregarEmpresas();
+  iniciarAtualizacao();
+}
+
+function cartao(rotulo, valor, meta) {
+  return h('div', { class: 'numero-cartao' },
+    h('span', { class: 'rotulo', text: rotulo }),
+    h('span', { class: 'valor', text: valor }),
+    meta ? h('span', { class: 'meta', text: meta }) : null);
+}
+
+function situacaoNota(n) {
+  if (n.situacao === 'cancelada') return h('span', { class: 'selo problema' }, 'Cancelada');
+  if (n.situacao === 'denegada') return h('span', { class: 'selo problema' }, 'Denegada');
+  if (!n.completo) {
+    const txt = n.manifestacao_status === 'ciencia' ? 'Ciência dada, aguardando XML'
+      : n.manifestacao_status === 'rejeitada' ? 'Ciência rejeitada' : 'Só resumo';
+    return h('span', { class: `selo ${n.manifestacao_status === 'rejeitada' ? 'problema' : 'atencao'}`, title: n.manifestacao_motivo || '' }, txt);
+  }
+  return h('span', { class: 'selo ok' }, 'Autorizada');
+}
+
+async function carregarNotas() {
+  if (!empresaNotas) return;
+  const lista = $('notas-lista');
+  const vazio = $('notas-vazio');
+  lista.replaceChildren();
+  $('notas-resumo').replaceChildren();
+  vazio.textContent = 'Carregando notas…';
+  vazio.hidden = false;
+  try {
+    const r = await chamar(`/api/empresas/${empresaNotas.id}/notas?${filtroQuery()}`);
+    const s = r.resumo;
+    $('notas-resumo').replaceChildren(
+      cartao('Notas', String(s.quantidade), [s.canceladas ? `${s.canceladas} canceladas` : '', s.soResumo ? `${s.soResumo} só resumo` : ''].filter(Boolean).join(' · ')),
+      cartao('Entradas', moeda(s.entradas)),
+      cartao('Saídas', moeda(s.saidas)),
+      cartao('ICMS', moeda(s.icms)),
+      cartao('ICMS-ST', moeda(s.st)),
+      cartao('IPI', moeda(s.ipi)),
+      cartao('PIS + COFINS', moeda(s.pis + s.cofins)),
+      cartao('IBS + CBS', moeda(s.ibs + s.cbs)),
+    );
+    if (!r.notas.length) {
+      vazio.textContent = 'Nenhuma nota nesse período com esses filtros.';
+      return;
+    }
+    vazio.hidden = true;
+    const linhas = r.notas.map((n) => {
+      const outraParte = n.direcao === 'entrada'
+        ? [n.emit_nome || '—', n.emit_cnpj ? formatarCnpj(n.emit_cnpj) : '']
+        : [n.dest_nome || '—', n.dest_doc ? formatarCnpj(n.dest_doc) : ''];
+      return h('tr', { class: n.situacao === 'cancelada' ? 'cancelada' : '' },
+        h('td', {}, dataCurta(n.emitida_em), h('span', { class: 'sub', text: new Date(n.emitida_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) })),
+        h('td', {}, `${TIPO_DOC[n.modelo] || n.modelo} ${n.numero || ''}`, h('span', { class: 'sub', text: `${n.direcao === 'entrada' ? 'Entrada' : 'Saída'}${n.serie ? ' · série ' + n.serie : ''}${n.recebido_via === 'autxml' ? ' · via escritório' : ''}` })),
+        h('td', {}, outraParte[0], h('span', { class: 'sub mono', text: outraParte[1] })),
+        h('td', {}, h('span', { class: 'mono', text: n.cfop || '—' })),
+        h('td', { class: 'num' }, h('span', { class: 'valor-nota', text: moeda(n.valor) })),
+        h('td', { class: 'num' }, moeda(n.v_icms), h('span', { class: 'sub', text: Number(n.v_st) ? `ST ${moeda(n.v_st)}` : '' })),
+        h('td', {}, situacaoNota(n)),
+        h('td', {}, h('button', { type: 'button', class: 'botao fantasma pequeno', onclick: () => baixarXml(n) }, 'XML')),
+      );
+    });
+    lista.replaceChildren(
+      h('table', { class: 'notas' },
+        h('thead', {}, h('tr', {},
+          h('th', { text: 'Emissão' }), h('th', { text: 'Documento' }), h('th', { text: 'Emitente / destinatário' }),
+          h('th', { text: 'CFOP' }), h('th', { class: 'num', text: 'Valor' }), h('th', { class: 'num', text: 'ICMS' }),
+          h('th', { text: 'Situação' }), h('th', { text: '' }))),
+        h('tbody', {}, ...linhas)),
+      ...(r.total > r.notas.length ? [h('div', { class: 'aviso-tabela', text: `Mostrando ${r.notas.length} de ${r.total} notas. O ZIP inclui todas.` })] : []),
+    );
+  } catch (e) {
+    vazio.textContent = e.message;
+  }
+}
+
+async function baixarArquivo(caminho, nomePadrao) {
+  const cab = sessao ? { Authorization: `Bearer ${sessao.accessToken}` } : {};
+  let resp = await fetch(caminho, { headers: cab });
+  if (resp.status === 401 && sessao) {
+    await chamar('/api/eu').catch(() => {}); // renova a sessão se preciso
+    resp = await fetch(caminho, { headers: { Authorization: `Bearer ${sessao.accessToken}` } });
+  }
+  if (!resp.ok) {
+    let msg = `Erro ${resp.status}`;
+    try { msg = (await resp.json()).erro || msg; } catch { /* corpo não é JSON */ }
+    throw new Error(msg);
+  }
+  const nome = (resp.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/)?.[1] || nomePadrao;
+  const url = URL.createObjectURL(await resp.blob());
+  const a = h('a', { href: url, download: nome });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+async function baixarXml(n) {
+  try { await baixarArquivo(`/api/empresas/${empresaNotas.id}/xml?chave=${n.chave}`, `${n.chave}.xml`); }
+  catch (e) { avisar(e.message); }
+}
+
+async function baixarZip() {
+  const botao = $('notas-zip');
+  botao.disabled = true;
+  botao.textContent = 'Preparando ZIP…';
+  try {
+    await baixarArquivo(`/api/empresas/${empresaNotas.id}/zip?${filtroQuery()}`, 'xmls.zip');
+  } catch (e) {
+    avisar(e.message);
+  } finally {
+    botao.disabled = false;
+    botao.textContent = 'Baixar XMLs do mês (ZIP)';
+  }
+}
+
 /* ---------- início ---------- */
 async function abrirApp() {
   $('tela-login').hidden = true;
   $('tela-app').hidden = false;
+  $('tela-notas').hidden = true;
+  $('tela-empresas').hidden = false;
+  empresaNotas = null;
   $('usuario-email').textContent = sessao.email || '';
   await carregarEmpresas();
   iniciarAtualizacao();
@@ -454,6 +613,10 @@ function ligarEventos() {
   area.addEventListener('dragover', (e) => { e.preventDefault(); area.classList.add('arrastando'); });
   area.addEventListener('dragleave', () => area.classList.remove('arrastando'));
   area.addEventListener('drop', (e) => { e.preventDefault(); area.classList.remove('arrastando'); escolherArquivo(e.dataTransfer.files[0]); });
+
+  $('notas-voltar').addEventListener('click', fecharNotas);
+  $('notas-zip').addEventListener('click', baixarZip);
+  for (const id of ['notas-mes', 'notas-modelo', 'notas-direcao']) $(id).addEventListener('change', carregarNotas);
 
   $('mostrar-senha').addEventListener('click', () => {
     const campo = $('senha');

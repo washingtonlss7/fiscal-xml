@@ -15,6 +15,8 @@ export interface DadosCadastro {
   razaoSocial?: string;
   regime?: string | null;
   codigoErp?: string | null;
+  /** Certificado do escritório (recebe as notas dos clientes pela tag autXML). */
+  escritorio?: boolean;
 }
 
 export interface EmpresaCadastrada {
@@ -59,9 +61,10 @@ export async function salvarEmpresaComCertificado(db: Db, masterKey: string, d: 
   }
 
   const existente = ok(
-    await db.from('empresas').select('id,razao_social').eq('cnpj', cnpj).maybeSingle(),
+    await db.from('empresas').select('id,razao_social,escritorio').eq('cnpj', cnpj).maybeSingle(),
     'consultar empresa',
-  ) as { id: string; razao_social: string } | null;
+  ) as { id: string; razao_social: string; escritorio: boolean } | null;
+  const escritorio = d.escritorio ?? existente?.escritorio ?? false;
 
   const razaoSocial = d.razaoSocial?.trim() || existente?.razao_social || cert.titular;
   const empresa = ok(
@@ -75,6 +78,9 @@ export async function salvarEmpresaComCertificado(db: Db, masterKey: string, d: 
           c_uf: codigoUf(uf),
           regime,
           codigo_erp: d.codigoErp?.trim() || null,
+          escritorio,
+          // O escritório não é destinatário das notas dos clientes: não dá ciência em nome deles.
+          manifestar_ciencia: !escritorio,
           ativo: true,
         },
         { onConflict: 'cnpj' },

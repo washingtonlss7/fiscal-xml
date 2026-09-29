@@ -93,6 +93,13 @@ O script lê o CNPJ e a validade do próprio certificado, cifra o PFX e a senha 
 
 Se você já rodou o teste da etapa 1 com o mesmo CNPJ, espere 1 hora antes da primeira rodada do coletor para não repetir a consulta.
 
+## Manifestação, notas do escritório e detalhamento
+
+- **Ciência da Operação automática:** NF-e de entrada que chegam só como resumo recebem o evento 210210 (assinado com o certificado do cliente, lotes de 20, Ambiente Nacional). O XML completo chega na consulta seguinte. Pode ser desligado por empresa (`empresas.manifestar_ciencia`).
+- **NF-e de saída pelo escritório:** cadastre o certificado do escritório marcando "Este é o certificado do escritório". As notas em que o CNPJ do escritório aparece na tag `autXML` são distribuídas para o cliente emitente (saída) ou destinatário (entrada). Os emissores dos clientes precisam incluir o CNPJ do escritório no `autXML`.
+- **Itens e tributos:** cada nota completa é detalhada em `documento_itens` (NCM, CFOP, CST/CSOSN, ICMS, ST, FCP, IPI, PIS, COFINS, IBS/CBS e o grupo `imposto` completo em JSON) e `documento_duplicatas`. Os totais vão para colunas de `documentos`. Notas antigas são detalhadas em segundo plano pelo coletor.
+- **Painel → Notas:** lista por mês, filtros por documento e direção, totais de tributos, download do XML e ZIP do mês (pastas `NFe|CTe/entrada|saida[/canceladas]`).
+
 ## Acompanhamento
 
 - `vw_saude_empresas`: status de cada empresa (`ok`, `sincronizacao_atrasada`, `certificado_vencendo`, `certificado_vencido`, `sem_certificado`).

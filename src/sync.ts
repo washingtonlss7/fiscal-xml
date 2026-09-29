@@ -2,6 +2,7 @@ import https from 'https';
 import { Db, ok, salvarXml } from './db';
 import { log } from './log';
 import { consultarDistNSU, DocZip, Modelo, RetornoDist } from './sefaz/distDFe';
+import { gravarExtracao } from './extrator';
 import { EVENTO_CANCELAMENTO, interpretar } from './sefaz/documentos';
 import { daquiA, emParalelo, esperar, minutos } from './util';
 
@@ -9,6 +10,8 @@ export interface EmpresaSync {
   id: string;
   cnpj: string;
   c_uf: number;
+  /** Certificado do escritório: recebe notas dos clientes pela tag autXML e as distribui. */
+  escritorio?: boolean;
 }
 
 export interface ContextoSync {
@@ -16,6 +19,8 @@ export interface ContextoSync {
   bucket: string;
   tpAmb: 1 | 2;
   maxChamadasPorRodada: number;
+  /** CNPJ -> empresa cadastrada, para distribuir as notas recebidas pelo escritório (autXML). */
+  clientes?: Map<string, { id: string; cnpj: string }>;
 }
 
 export interface ResultadoSync {
@@ -42,15 +47,27 @@ async function processarDoc(ctx: ContextoSync, empresa: EmpresaSync, modelo: Mod
   const info = interpretar(doc.schema, doc.xml);
 
   if (info.tipo === 'documento') {
+    // Nota recebida pelo escritório via autXML: pertence ao cliente emitente (saída) ou destinatário (entrada).
+    let alvo: { id: string; cnpj: string } = empresa;
+    let direcao: 'entrada' | 'saida' = info.emitCnpj === empresa.cnpj ? 'saida' : 'entrada';
+    let via: 'proprio' | 'autxml' = 'proprio';
+    if (empresa.escritorio && ctx.clientes) {
+      const porEmit = info.emitCnpj ? ctx.clientes.get(info.emitCnpj) : undefined;
+      const porDest = info.destDoc ? ctx.clientes.get(info.destDoc) : undefined;
+      if (porEmit && porEmit.id !== empresa.id) { alvo = porEmit; direcao = 'saida'; via = 'autxml'; }
+      else if (porDest && porDest.id !== empresa.id) { alvo = porDest; direcao = 'entrada'; via = 'autxml'; }
+    }
+
     const sufixo = info.completo ? 'completo' : 'resumo';
-    const caminho = `${empresa.cnpj}/${anoMes(info.emitidaEm)}/${info.modelo}/${info.chave}-${sufixo}.xml.gz`;
+    const caminho = `${alvo.cnpj}/${anoMes(info.emitidaEm)}/${info.modelo}/${info.chave}-${sufixo}.xml.gz`;
     await salvarXml(db, bucket, caminho, doc.xml);
 
     const linha = {
-      empresa_id: empresa.id,
+      empresa_id: alvo.id,
+      recebido_via: via,
       modelo: info.modelo,
       chave: info.chave,
-      direcao: info.emitCnpj === empresa.cnpj ? 'saida' : 'entrada',
+      direcao,
       completo: info.completo,
       numero: info.numero ?? null,
       serie: info.serie ?? null,
@@ -71,12 +88,11 @@ async function processarDoc(ctx: ContextoSync, empresa: EmpresaSync, modelo: Mod
         await db.from('documentos').upsert({ ...linha, xml_path: caminho }, { onConflict: 'empresa_id,chave' }),
         'upsert documento completo',
       );
-      // O XML completo diz "autorizada"; se já recebemos cancelamento, mantém cancelada.
+      // O XML completo diz "autorizada"; se já recebemos cancelamento (por qualquer empresa), mantém cancelada.
       const canc = ok(
         await db
           .from('eventos')
           .select('id')
-          .eq('empresa_id', empresa.id)
           .eq('chave', info.chave)
           .in('tp_evento', [...EVENTO_CANCELAMENTO])
           .limit(1),
@@ -84,9 +100,15 @@ async function processarDoc(ctx: ContextoSync, empresa: EmpresaSync, modelo: Mod
       );
       if (canc?.length) {
         ok(
-          await db.from('documentos').update({ situacao: 'cancelada' }).eq('empresa_id', empresa.id).eq('chave', info.chave),
+          await db.from('documentos').update({ situacao: 'cancelada' }).eq('empresa_id', alvo.id).eq('chave', info.chave),
           'marcar cancelada',
         );
+      }
+      // Itens, tributos e duplicatas. Se falhar aqui, o extrator em segundo plano tenta de novo.
+      try {
+        await gravarExtracao(db, alvo.id, info.chave, info.modelo, doc.xml);
+      } catch (e) {
+        log.warn('extração adiada', { chave: info.chave, erro: (e as Error).message });
       }
     } else {
       // Resumo nunca sobrescreve um documento que já existe (pode já estar completo).
@@ -121,11 +143,11 @@ async function processarDoc(ctx: ContextoSync, empresa: EmpresaSync, modelo: Mod
       'upsert evento',
     );
     if (EVENTO_CANCELAMENTO.has(info.tpEvento)) {
+      // O cancelamento vale para todas as cópias da nota (emitente e destinatário cadastrados).
       ok(
         await db
           .from('documentos')
           .update({ situacao: 'cancelada', atualizado_em: new Date().toISOString() })
-          .eq('empresa_id', empresa.id)
           .eq('chave', info.chave),
         'aplicar cancelamento',
       );

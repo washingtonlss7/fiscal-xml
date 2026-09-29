@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import { configWorker } from './config';
 import { criarDb, ok } from './db';
+import { extrairPendentes } from './extrator';
 import { log } from './log';
 import { executarRodada } from './rodada';
 
@@ -88,6 +89,9 @@ async function tique() {
   ocupadoComPedidos = true;
   try {
     await atenderPedidosManuais();
+    // Detalha (itens e tributos) notas completas ainda não extraídas, inclusive o histórico.
+    const extraidas = await extrairPendentes(db, cfg.bucket, 150);
+    if (extraidas) log.info('notas detalhadas', { quantidade: extraidas });
     // A cada 3 minutos, continua filas que ficaram pela metade (sem esperar a próxima rodada agendada).
     if (ciclo++ % 3 === 0 && !rodadaAtiva) {
       const ids = await empresasComFila();

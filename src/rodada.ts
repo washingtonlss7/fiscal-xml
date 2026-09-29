@@ -3,6 +3,7 @@ import { ConfigWorker } from './config';
 import { decifrar } from './cripto';
 import { buscarTodos, Db, ok } from './db';
 import { log } from './log';
+import { manifestarPendentes } from './manifestacao';
 import { Modelo } from './sefaz/distDFe';
 import { ContextoSync, ResultadoSync, sincronizarModelo } from './sync';
 import { emParalelo } from './util';
@@ -14,6 +15,8 @@ interface EmpresaRow {
   c_uf: number;
   captar_nfe: boolean;
   captar_cte: boolean;
+  escritorio: boolean;
+  manifestar_ciencia: boolean;
 }
 
 interface CertRow {
@@ -41,7 +44,7 @@ export async function executarRodada(
   const inicio = Date.now();
 
   const empresas = await buscarTodos<EmpresaRow>((de, ate) => {
-    let q = db.from('empresas').select('id,cnpj,razao_social,c_uf,captar_nfe,captar_cte').eq('ativo', true);
+    let q = db.from('empresas').select('id,cnpj,razao_social,c_uf,captar_nfe,captar_cte,escritorio,manifestar_ciencia').eq('ativo', true);
     if (somenteEmpresas?.length) q = q.in('id', somenteEmpresas);
     return q.order('cnpj').range(de, ate);
   }, 'listar empresas');
@@ -65,7 +68,19 @@ export async function executarRodada(
     );
   }
 
-  const ctx: ContextoSync = { db, bucket: cfg.bucket, tpAmb: cfg.tpAmb, maxChamadasPorRodada: cfg.maxChamadasPorRodada };
+  // Mapa CNPJ -> empresa, usado quando o escritório recebe notas dos clientes pela tag autXML.
+  let clientes: ContextoSync['clientes'];
+  if (empresas.some((e) => e.escritorio)) {
+    const todas = await buscarTodos<{ id: string; cnpj: string }>(
+      (de, ate) => db.from('empresas').select('id,cnpj').range(de, ate),
+      'mapa de clientes',
+    );
+    clientes = new Map(todas.map((e) => [e.cnpj, e]));
+  }
+
+  const ctx: ContextoSync = {
+    db, bucket: cfg.bucket, tpAmb: cfg.tpAmb, maxChamadasPorRodada: cfg.maxChamadasPorRodada, clientes,
+  };
   const resultados: Record<string, ResultadoSync[]> = {};
   let documentos = 0;
   let erros = 0;
@@ -90,7 +105,8 @@ export async function executarRodada(
     try {
       const pfx = decifrar(cert.pfx_cifrado, cfg.masterKey);
       const senha = decifrar(cert.senha_cifrada, cfg.masterKey).toString('utf8');
-      agente = criarAgente(lerPfx(pfx, senha));
+      const certificado = lerPfx(pfx, senha);
+      agente = criarAgente(certificado);
 
       const modelos: Modelo[] = [
         ...(empresa.captar_nfe ? (['nfe'] as const) : []),
@@ -102,6 +118,10 @@ export async function executarRodada(
         lista.push(r);
         documentos += r.documentos;
         if (r.status === 'erro') erros++;
+      }
+      // Notas que chegaram só como resumo: dá ciência para a SEFAZ liberar o XML completo.
+      if (empresa.captar_nfe && empresa.manifestar_ciencia && !empresa.escritorio) {
+        await manifestarPendentes(db, cfg.tpAmb, empresa, certificado, agente);
       }
       resultados[empresa.id] = lista;
       const total = lista.reduce((s, r) => s + r.documentos, 0);
