@@ -17,7 +17,8 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 COPY scripts ./scripts
-RUN sh scripts/baixar-cadeia-icp.sh /app/certs/icp-brasil.pem
+RUN sh scripts/baixar-cadeia-icp.sh /app/certs/icp-brasil.pem \
+ && mkdir -p /app/backup && chown node:node /app/backup
 
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist

@@ -1,4 +1,4 @@
-import zlib from 'zlib';
+import { Armazenamento } from './armazenamento';
 import { Db, ok } from './db';
 import { log } from './log';
 import { acharTag, parser } from './sefaz/distDFe';
@@ -104,7 +104,6 @@ function extrairItemNFe(det: Obj): ItemExtraido {
     v_ibs: num(g.vIBS),
     p_cbs: num(g.gCBS?.pCBS),
     v_cbs: num(g.gCBS?.vCBS),
-    imposto: imp,
   };
 }
 
@@ -225,7 +224,7 @@ export async function gravarExtracao(db: Db, empresaId: string, chave: string, m
  * Extrai notas completas que ainda não foram detalhadas (histórico ou falhas anteriores),
  * lendo o XML do Storage. Roda em segundo plano no coletor.
  */
-export async function extrairPendentes(db: Db, bucket: string, limite = 100): Promise<number> {
+export async function extrairPendentes(db: Db, arm: Armazenamento, limite = 100): Promise<number> {
   const pendentes = ok(
     await db
       .from('documentos')
@@ -242,9 +241,7 @@ export async function extrairPendentes(db: Db, bucket: string, limite = 100): Pr
   let feitos = 0;
   await emParalelo(pendentes, 5, async (d) => {
     try {
-      const baixado = await db.storage.from(bucket).download(d.xml_path);
-      if (baixado.error || !baixado.data) throw new Error(baixado.error?.message ?? 'arquivo não encontrado');
-      const xml = zlib.gunzipSync(Buffer.from(await baixado.data.arrayBuffer())).toString('utf8');
+      const xml = (await arm.ler(d.xml_path)).toString('utf8');
       await gravarExtracao(db, d.empresa_id, d.chave, d.modelo, xml);
       feitos++;
     } catch (e) {

@@ -1,13 +1,16 @@
 import cron from 'node-cron';
+import { Armazenamento, configArmazenamento } from './armazenamento';
 import { configWorker } from './config';
 import { criarDb, ok } from './db';
 import { auditarPendentes, reauditarRecentes } from './auditoria/motor';
 import { extrairPendentes } from './extrator';
+import { fazerBackup, migrarParaR2 } from './migracao';
 import { log } from './log';
 import { executarRodada } from './rodada';
 
 const cfg = configWorker();
 const db = criarDb(cfg.supabaseUrl, cfg.supabaseServiceKey);
+const arm = new Armazenamento(db, configArmazenamento(cfg.masterKey, cfg.bucket));
 
 let rodadaAtiva: Promise<unknown> | null = null;
 let ocupadoComPedidos = false;
@@ -19,7 +22,7 @@ async function rodadaCompleta(origem: string, somenteEmpresas?: string[]) {
     return;
   }
   log.info('disparando rodada', { origem, empresas: somenteEmpresas?.length });
-  rodadaAtiva = executarRodada(db, cfg, somenteEmpresas)
+  rodadaAtiva = executarRodada(db, cfg, arm, somenteEmpresas)
     .catch((e) => log.error('erro na rodada', { erro: (e as Error).message }))
     .finally(() => {
       rodadaAtiva = null;
@@ -39,7 +42,7 @@ async function atenderPedidosManuais() {
   ok(await db.from('sync_requests').update({ status: 'processando' }).in('id', ids), 'marcar processando');
 
   try {
-    const r = await executarRodada(db, cfg, [...new Set(pedidos.map((p) => p.empresa_id))]);
+    const r = await executarRodada(db, cfg, arm, [...new Set(pedidos.map((p) => p.empresa_id))]);
     for (const p of pedidos) {
       const res = r.resultados[p.empresa_id] ?? [];
       const docs = res.reduce((s, x) => s + x.documentos, 0);
@@ -92,10 +95,12 @@ async function tique() {
   try {
     await atenderPedidosManuais();
     // Detalha (itens e tributos) notas completas ainda não extraídas, inclusive o histórico.
-    const extraidas = await extrairPendentes(db, cfg.bucket, 150);
+    const extraidas = await extrairPendentes(db, arm, 150);
     if (extraidas) log.info('notas detalhadas', { quantidade: extraidas });
     // Audita os meses com notas novas ou alteradas.
     await auditarPendentes(db, 5);
+    // Move os XMLs antigos (Supabase Storage) para o R2 criptografado, aos poucos.
+    await migrarParaR2(db, arm, 200);
     // A cada 3 minutos, continua filas que ficaram pela metade (sem esperar a próxima rodada agendada).
     if (ciclo++ % 3 === 0 && !rodadaAtiva) {
       const ids = await empresasComFila();
@@ -113,6 +118,7 @@ async function iniciar() {
     ambiente: cfg.tpAmb === 1 ? 'produção' : 'homologação',
     rodadas: cfg.cronRodadas,
     concorrencia: cfg.concorrencia,
+    armazenamento: arm.usaR2 ? 'Cloudflare R2 (criptografado)' : 'Supabase Storage',
   });
 
   // Pedidos que estavam em andamento quando o serviço reiniciou voltam para a fila.
@@ -122,6 +128,11 @@ async function iniciar() {
     if (!cron.validate(expr)) throw new Error(`Expressão cron inválida em CRON_RODADAS: ${expr}`);
     cron.schedule(expr, () => void rodadaCompleta(`cron ${expr}`), { timezone: 'America/Sao_Paulo' });
   }
+
+  // Backup semanal dos XMLs (criptografados) no disco da VPS.
+  const pastaBackup = process.env.BACKUP_DIR?.trim() || '/app/backup';
+  cron.schedule(process.env.BACKUP_CRON?.trim() || '30 3 * * 0', () => void fazerBackup(db, arm, pastaBackup)
+    .catch((e) => log.error('erro no backup', { erro: (e as Error).message })), { timezone: 'America/Sao_Paulo' });
 
   // Todo dia às 6h reaudita o mês atual e o anterior (regras que dependem do tempo).
   cron.schedule('0 6 * * *', () => void reauditarRecentes(db).catch((e) => log.error('erro ao reabrir auditoria', { erro: (e as Error).message })), { timezone: 'America/Sao_Paulo' });

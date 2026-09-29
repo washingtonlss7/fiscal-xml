@@ -1,5 +1,6 @@
 import https from 'https';
-import { Db, ok, salvarXml } from './db';
+import { Armazenamento } from './armazenamento';
+import { Db, ok } from './db';
 import { log } from './log';
 import { consultarDistNSU, DocZip, Modelo, RetornoDist } from './sefaz/distDFe';
 import { gravarExtracao } from './extrator';
@@ -16,7 +17,7 @@ export interface EmpresaSync {
 
 export interface ContextoSync {
   db: Db;
-  bucket: string;
+  arm: Armazenamento;
   tpAmb: 1 | 2;
   maxChamadasPorRodada: number;
   /** CNPJ -> empresa cadastrada, para distribuir as notas recebidas pelo escritório (autXML). */
@@ -43,7 +44,7 @@ function anoMes(data?: string): string {
 
 /** Grava um documento já recebido (nota, resumo ou evento). Idempotente: pode ser reprocessado. */
 async function processarDoc(ctx: ContextoSync, empresa: EmpresaSync, modelo: Modelo, doc: DocZip): Promise<string | null> {
-  const { db, bucket } = ctx;
+  const { db, arm } = ctx;
   const info = interpretar(doc.schema, doc.xml);
 
   if (info.tipo === 'documento') {
@@ -59,8 +60,7 @@ async function processarDoc(ctx: ContextoSync, empresa: EmpresaSync, modelo: Mod
     }
 
     const sufixo = info.completo ? 'completo' : 'resumo';
-    const caminho = `${alvo.cnpj}/${anoMes(info.emitidaEm)}/${info.modelo}/${info.chave}-${sufixo}.xml.gz`;
-    await salvarXml(db, bucket, caminho, doc.xml);
+    const caminho = await arm.salvar(`${alvo.cnpj}/${anoMes(info.emitidaEm)}/${info.modelo}/${info.chave}-${sufixo}.xml`, doc.xml);
 
     const linha = {
       empresa_id: alvo.id,
@@ -123,8 +123,7 @@ async function processarDoc(ctx: ContextoSync, empresa: EmpresaSync, modelo: Mod
   }
 
   if (info.tipo === 'evento') {
-    const caminho = `${empresa.cnpj}/${anoMes(info.ocorridoEm)}/eventos/${info.chave}-${info.tpEvento}-${info.nSeq}.xml.gz`;
-    await salvarXml(db, bucket, caminho, doc.xml);
+    const caminho = await arm.salvar(`${empresa.cnpj}/${anoMes(info.ocorridoEm)}/eventos/${info.chave}-${info.tpEvento}-${info.nSeq}.xml`, doc.xml);
     ok(
       await db.from('eventos').upsert(
         {
@@ -155,7 +154,7 @@ async function processarDoc(ctx: ContextoSync, empresa: EmpresaSync, modelo: Mod
     return info.chave;
   }
 
-  await salvarXml(db, bucket, `${empresa.cnpj}/outros/${modelo}-${doc.nsu}.xml.gz`, doc.xml);
+  await arm.salvar(`${empresa.cnpj}/outros/${modelo}-${doc.nsu}.xml`, doc.xml);
   log.warn('schema não reconhecido', { cnpj: empresa.cnpj, schema: doc.schema, nsu: doc.nsu });
   return null;
 }

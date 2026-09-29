@@ -1,13 +1,13 @@
 import 'dotenv/config';
 import fs from 'fs';
 import http from 'http';
-import zlib from 'zlib';
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import { buscarTodos, criarDb, ok } from '../db';
 import { ErroValidacao, salvarEmpresaComCertificado } from '../empresas';
 import { log } from '../log';
 import { Zip } from './zip';
+import { Armazenamento, configArmazenamento } from '../armazenamento';
 import { auditarMes } from '../auditoria/motor';
 import { REGRAS } from '../auditoria/regras';
 
@@ -386,11 +386,8 @@ async function listarNotas(res: http.ServerResponse, id: string, f: FiltroNotas)
   responder(res, 200, { notas: linhas.slice(0, 1000), total: linhas.length, resumo });
 }
 
-async function lerXmlStorage(caminho: string): Promise<Buffer> {
-  const r = await db.storage.from(process.env.XML_BUCKET ?? 'xmls').download(caminho);
-  if (r.error || !r.data) throw new Error(r.error?.message ?? 'arquivo não encontrado');
-  return zlib.gunzipSync(Buffer.from(await r.data.arrayBuffer()));
-}
+const arm = new Armazenamento(db, configArmazenamento(cfg.masterKey, process.env.XML_BUCKET ?? 'xmls'));
+const lerXmlStorage = (caminho: string) => arm.ler(caminho);
 
 async function baixarXml(res: http.ServerResponse, id: string, chave: string) {
   if (!/^\d{44}$/.test(chave)) throw new ErroHttp(400, 'Chave inválida.');

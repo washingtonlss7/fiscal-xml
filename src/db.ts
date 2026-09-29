@@ -1,4 +1,3 @@
-import zlib from 'zlib';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 export type Db = SupabaseClient;
@@ -27,14 +26,4 @@ export async function buscarTodos<T>(
     todos.push(...pagina);
     if (pagina.length < tamanho) return todos;
   }
-}
-
-/** Grava o XML compactado (gzip) no Storage. Sobrescreve se já existir. */
-export async function salvarXml(db: Db, bucket: string, caminho: string, xml: string): Promise<void> {
-  const gz = zlib.gzipSync(Buffer.from(xml, 'utf8'));
-  const r = await db.storage.from(bucket).upload(caminho, gz, {
-    contentType: 'application/gzip',
-    upsert: true,
-  });
-  if (r.error) throw new Error(`Upload ${caminho}: ${r.error.message}`);
 }

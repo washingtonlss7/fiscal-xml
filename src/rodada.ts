@@ -1,4 +1,5 @@
 import { criarAgente, lerPfx } from './cert';
+import { Armazenamento } from './armazenamento';
 import { ConfigWorker } from './config';
 import { decifrar } from './cripto';
 import { buscarTodos, Db, ok } from './db';
@@ -39,6 +40,7 @@ export interface ResumoRodada {
 export async function executarRodada(
   db: Db,
   cfg: ConfigWorker,
+  arm: Armazenamento,
   somenteEmpresas?: string[],
 ): Promise<ResumoRodada & { resultados: Record<string, ResultadoSync[]> }> {
   const inicio = Date.now();
@@ -79,7 +81,7 @@ export async function executarRodada(
   }
 
   const ctx: ContextoSync = {
-    db, bucket: cfg.bucket, tpAmb: cfg.tpAmb, maxChamadasPorRodada: cfg.maxChamadasPorRodada, clientes,
+    db, arm, tpAmb: cfg.tpAmb, maxChamadasPorRodada: cfg.maxChamadasPorRodada, clientes,
   };
   const resultados: Record<string, ResultadoSync[]> = {};
   let documentos = 0;
