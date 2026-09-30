@@ -46,6 +46,7 @@
         <span>Appura</span>
       </div>
       <div class="topo-direita">
+        <button id="botao-usuarios" type="button" class="botao fantasma" hidden>Usuários</button>
         <span id="usuario-email" class="usuario"></span>
         <button id="botao-sair" type="button" class="botao fantasma">Sair</button>
       </div>
@@ -74,6 +75,22 @@
       <div id="lista" class="lista" aria-live="polite"></div>
       <p id="vazio" class="vazio" hidden></p>
      </div>
+
+     <section id="tela-usuarios" class="pilha" hidden>
+      <div class="cabecalho-pagina">
+        <div>
+          <button id="usuarios-voltar" type="button" class="botao fantasma pequeno voltar">← Empresas</button>
+          <h1>Usuários</h1>
+          <p class="subtitulo">Quem acessa o painel. A pessoa cadastrada cria a própria senha em "Primeiro acesso", na tela de login.</p>
+        </div>
+        <button id="usuarios-novo" type="button" class="botao primario">Novo usuário</button>
+      </div>
+      <div id="usuarios-lista" class="rolagem" aria-live="polite"></div>
+      <section class="pilha-pequena" aria-labelledby="usuarios-hist-titulo">
+        <h2 id="usuarios-hist-titulo" class="titulo-secao">Últimas alterações</h2>
+        <ul id="usuarios-historico" class="historico"></ul>
+      </section>
+     </section>
 
      <section id="tela-notas" class="pilha" hidden>
       <div class="cabecalho-pagina">
@@ -229,6 +246,62 @@
       <div class="gaveta-acoes">
         <button id="form-cancelar" type="button" class="botao fantasma">Cancelar</button>
         <button id="form-enviar" type="submit" class="botao primario">Salvar certificado</button>
+      </div>
+    </form>
+  </aside>
+
+  <div id="gu-fundo" class="gaveta-fundo" hidden></div>
+  <aside id="gu" class="gaveta" role="dialog" aria-modal="true" aria-labelledby="gu-titulo" hidden>
+    <div class="gaveta-topo">
+      <h2 id="gu-titulo">Novo usuário</h2>
+      <button id="gu-fechar" type="button" class="botao fantasma icone" aria-label="Fechar">✕</button>
+    </div>
+    <form id="gu-form" class="gaveta-corpo" novalidate>
+      <label class="campo">Nome
+        <input id="gu-nome" type="text" autocomplete="off" maxlength="120" required>
+      </label>
+      <label class="campo">E-mail
+        <input id="gu-email" type="email" autocomplete="off" maxlength="200" required>
+      </label>
+      <label class="campo">Perfil
+        <select id="gu-perfil"></select>
+      </label>
+      <p id="gu-perfil-dica" class="dica"></p>
+      <label id="gu-ativo-campo" class="marcar" hidden>
+        <input id="gu-ativo" type="checkbox"> Acesso ativo
+      </label>
+      <p id="gu-situacao" class="contexto" hidden></p>
+
+      <div id="gu-perigo" class="zona-perigo" hidden>
+        <div class="zona-linha">
+          <div>
+            <strong>Redefinir senha</strong>
+            <p class="dica">Apaga a senha atual. A pessoa cria outra em "Primeiro acesso".</p>
+          </div>
+          <button id="gu-redefinir" type="button" class="botao pequeno">Redefinir</button>
+        </div>
+        <div class="zona-linha">
+          <div>
+            <strong>Excluir usuário</strong>
+            <p class="dica">Remove o acesso e a conta de login. Para quem só saiu da equipe, prefira desativar.</p>
+          </div>
+          <button id="gu-excluir" type="button" class="botao pequeno perigo">Excluir</button>
+        </div>
+        <div id="gu-confirmar" class="confirmar-exclusao" hidden>
+          <label class="campo">Para confirmar, digite o e-mail do usuário
+            <input id="gu-confirmacao" type="email" autocomplete="off">
+          </label>
+          <div class="gaveta-acoes">
+            <button id="gu-excluir-cancelar" type="button" class="botao fantasma pequeno">Cancelar</button>
+            <button id="gu-excluir-ok" type="button" class="botao pequeno perigo-cheio">Excluir definitivamente</button>
+          </div>
+        </div>
+      </div>
+
+      <p id="gu-erro" class="erro" role="alert" hidden></p>
+      <div class="gaveta-acoes">
+        <button id="gu-cancelar" type="button" class="botao fantasma">Cancelar</button>
+        <button id="gu-salvar" type="submit" class="botao primario">Salvar</button>
       </div>
     </form>
   </aside>

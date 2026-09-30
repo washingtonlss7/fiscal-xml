@@ -16,6 +16,7 @@ import { Armazenamento, configArmazenamento } from '../armazenamento';
 import { auditarMes } from '../auditoria/motor';
 import { REGRAS } from '../auditoria/regras';
 import { dentroDaJanela, lerJanela } from '../util';
+import { authDoSupabase, ErroUsuario, GestaoUsuarios, PERFIS_INFO, PERMISSOES, permissaoDaRota } from './usuarios';
 
 function exigir(nome: string): string {
   const v = process.env[nome]?.trim();
@@ -125,20 +126,15 @@ function limitarTentativas(ip: string) {
 const ipDe = (req: http.IncomingMessage) =>
   String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim() || req.socket.remoteAddress || '';
 
-/** E-mails liberados: os fixos de PAINEL_EMAILS e os ativos na tabela painel_usuarios (lida a cada 1 min). */
-let cacheUsuarios: { em: number; emails: Set<string> } = { em: 0, emails: new Set() };
-async function autorizado(email: string): Promise<boolean> {
-  if (!email) return false;
-  if (cfg.emails.has(email)) return true;
-  if (Date.now() - cacheUsuarios.em > 60_000) {
-    const r = await db.from('painel_usuarios').select('email').eq('ativo', true);
-    if (!r.error) cacheUsuarios = { em: Date.now(), emails: new Set((r.data ?? []).map((u: { email: string }) => u.email.toLowerCase())) };
-  }
-  return cacheUsuarios.emails.has(email);
-}
-
 // Cache curto de tokens válidos para não consultar o Auth a cada requisição.
 const cacheTokens = new Map<string, { email: string; ate: number }>();
+
+/** Usuários: fixos de PAINEL_EMAILS (administradores) + ativos da tabela painel_usuarios (lida a cada 1 min). */
+const usuarios = new GestaoUsuarios(db, authDoSupabase(db), cfg.emails, (email) => {
+  for (const [t, c] of cacheTokens) if (c.email === email) cacheTokens.delete(t);
+});
+const autorizado = async (email: string) => (await usuarios.perfilDe(email)) !== null;
+
 async function usuarioAutenticado(req: http.IncomingMessage): Promise<string> {
   const token = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
   if (!token) throw new ErroHttp(401, 'Faça login para continuar.');
@@ -200,8 +196,42 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
 
   // Daqui para baixo, só usuários autorizados.
   const email = await usuarioAutenticado(req);
+  const perfil = (await usuarios.perfilDe(email)) ?? 'consulta';
+  const exigida = permissaoDaRota(metodo, rota);
+  if (exigida && !PERMISSOES[perfil].includes(exigida)) {
+    throw new ErroHttp(403, 'Seu perfil não permite esta ação. Fale com um administrador.');
+  }
 
-  if (metodo === 'GET' && rota === '/api/eu') return responder(res, 200, { email });
+  if (metodo === 'GET' && rota === '/api/eu') {
+    return responder(res, 200, { email, nome: await usuarios.nomeDe(email), perfil, permissoes: PERMISSOES[perfil] });
+  }
+
+  // Gestão de usuários (as regras de permissão ficam em GestaoUsuarios)
+  if (rota === '/api/usuarios') {
+    if (metodo === 'GET') {
+      return responder(res, 200, { usuarios: await usuarios.listar(), historico: await usuarios.historico(30), perfis: PERFIS_INFO });
+    }
+    if (metodo === 'POST') {
+      await usuarios.criar(email, await lerCorpo(req));
+      return responder(res, 200, { ok: true });
+    }
+  }
+  const rotaUsuario = rota.match(/^\/api\/usuarios\/([^/]+)(\/redefinir-senha)?$/);
+  if (rotaUsuario) {
+    const alvo = decodeURIComponent(rotaUsuario[1]);
+    if (metodo === 'PATCH' && !rotaUsuario[2]) {
+      await usuarios.editar(email, alvo, await lerCorpo(req));
+      return responder(res, 200, { ok: true });
+    }
+    if (metodo === 'POST' && rotaUsuario[2]) {
+      await usuarios.redefinirSenha(email, alvo);
+      return responder(res, 200, { ok: true });
+    }
+    if (metodo === 'DELETE' && !rotaUsuario[2]) {
+      await usuarios.excluir(email, alvo, (await lerCorpo(req)).confirmacao);
+      return responder(res, 200, { ok: true });
+    }
+  }
 
   // Avisos em tempo real para a tela (stream de texto). O navegador recarrega a lista quando chega "mudou".
   if (metodo === 'GET' && rota === '/api/eventos') return abrirEventos(req, res);
@@ -645,7 +675,7 @@ const servidor = http.createServer(async (req, res) => {
       log.error('download interrompido', { rota: url.pathname, erro: (e as Error).message });
       return void res.destroy();
     }
-    if (e instanceof ErroHttp) return responder(res, e.status, { erro: e.message });
+    if (e instanceof ErroHttp || e instanceof ErroUsuario) return responder(res, e.status, { erro: e.message });
     log.error('erro no painel', { rota: url.pathname, erro: (e as Error).message });
     responder(res, 500, { erro: 'Erro inesperado no servidor. Tente de novo.' });
   }

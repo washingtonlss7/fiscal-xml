@@ -160,10 +160,185 @@ function sair(mensagem) {
   $('tela-app').hidden = true;
   $('tela-login').hidden = false;
   fecharGaveta();
+  fecharGavetaUsuario();
+  perfilAtual = null;
+  permissoes = [];
   if (mensagem) {
     $('login-erro').textContent = mensagem;
     $('login-erro').hidden = false;
   }
+}
+
+/* ---------- usuários ---------- */
+let perfilAtual = null;
+let permissoes = [];
+const pode = (p) => permissoes.includes(p);
+let perfis = [];
+let usuarios = [];
+let usuarioEmEdicao = null;
+const SITUACAO_USUARIO = {
+  ativo: { tom: 'ok', texto: 'Ativo' },
+  aguardando: { tom: 'atencao', texto: 'Aguardando primeiro acesso' },
+  desativado: { tom: 'neutro', texto: 'Desativado' },
+};
+const ACOES_USUARIO = {
+  criar: 'cadastrou', editar: 'editou', desativar: 'desativou', reativar: 'reativou',
+  redefinir_senha: 'redefiniu a senha de', excluir: 'excluiu',
+};
+const nomePerfil = (id) => (perfis.find((p) => p.id === id) || {}).nome || id;
+
+function abrirUsuarios() {
+  pararAtualizacao();
+  $('tela-empresas').hidden = true;
+  $('tela-notas').hidden = true;
+  $('tela-usuarios').hidden = false;
+  window.scrollTo(0, 0);
+  carregarUsuarios();
+}
+
+function fecharUsuarios() {
+  fecharGavetaUsuario();
+  $('tela-usuarios').hidden = true;
+  $('tela-empresas').hidden = false;
+  carregarEmpresas();
+  iniciarAtualizacao();
+}
+
+async function carregarUsuarios() {
+  try {
+    const r = await chamar('/api/usuarios');
+    usuarios = r.usuarios;
+    perfis = r.perfis;
+    renderUsuarios();
+    renderHistorico(r.historico);
+  } catch (e) {
+    $('usuarios-lista').replaceChildren(h('p', { class: 'erro', text: e.message }));
+  }
+}
+
+function renderUsuarios() {
+  const eu = (sessao && sessao.email) || '';
+  const linhas = usuarios.map((u) => {
+    const sit = SITUACAO_USUARIO[u.situacao] || SITUACAO_USUARIO.ativo;
+    return h('tr', { class: u.situacao === 'desativado' ? 'desativado' : '' },
+      h('td', {}, h('strong', { text: u.nome || u.email }), u.email === eu ? h('span', { class: 'selo-mini', text: 'você' }) : null,
+        u.nome ? h('span', { class: 'sub', text: u.email }) : null),
+      h('td', {}, nomePerfil(u.perfil), u.fixo ? h('span', { class: 'sub', text: 'Fixo no servidor' }) : null),
+      h('td', {}, h('span', { class: `selo ${sit.tom}`, text: sit.texto })),
+      h('td', {}, u.ultimoAcesso ? quandoRelativo(u.ultimoAcesso) : '—'),
+      h('td', { class: 'acoes-u' }, u.fixo ? null : h('button', { type: 'button', class: 'botao pequeno', onclick: () => abrirGavetaUsuario(u), text: 'Editar' })),
+    );
+  });
+  $('usuarios-lista').replaceChildren(h('table', { class: 'usuarios' },
+    h('thead', {}, h('tr', {}, ...['Usuário', 'Perfil', 'Situação', 'Último acesso', ''].map((t) => h('th', { scope: 'col', text: t })))),
+    h('tbody', {}, ...linhas)));
+}
+
+function renderHistorico(hist) {
+  const itens = (hist || []).map((x) => {
+    const quem = usuarios.find((u) => u.email === x.por);
+    const alvo = usuarios.find((u) => u.email === x.alvo);
+    return h('li', {}, h('strong', { text: (quem && quem.nome) || x.por }), ` ${ACOES_USUARIO[x.acao] || x.acao} `,
+      h('strong', { text: (alvo && alvo.nome) || x.alvo }), ` · ${quandoRelativo(x.em)}`);
+  });
+  $('usuarios-historico').replaceChildren(...(itens.length ? itens : [h('li', { class: 'vazio-hist', text: 'Nenhuma alteração registrada ainda.' })]));
+}
+
+function preencherPerfis(atual) {
+  $('gu-perfil').replaceChildren(...perfis.map((p) => h('option', { value: p.id, text: p.nome, selected: p.id === atual })));
+  mostrarDicaPerfil();
+}
+function mostrarDicaPerfil() {
+  const p = perfis.find((x) => x.id === $('gu-perfil').value);
+  $('gu-perfil-dica').textContent = p ? p.descricao : '';
+}
+
+function abrirGavetaUsuario(u) {
+  usuarioEmEdicao = u;
+  const eu = (sessao && sessao.email) || '';
+  const proprio = !!u && u.email === eu;
+  $('gu-titulo').textContent = u ? 'Editar usuário' : 'Novo usuário';
+  $('gu-nome').value = u ? (u.nome || '') : '';
+  $('gu-email').value = u ? u.email : '';
+  $('gu-email').disabled = !!u;
+  preencherPerfis(u ? u.perfil : 'analista');
+  $('gu-perfil').disabled = proprio;
+  $('gu-ativo-campo').hidden = !u;
+  $('gu-ativo').checked = u ? u.ativo : true;
+  $('gu-ativo').disabled = proprio;
+  $('gu-situacao').hidden = !(u && (proprio || u.situacao === 'aguardando'));
+  $('gu-situacao').textContent = proprio
+    ? 'Este é o seu usuário: você pode mudar o nome, mas perfil e acesso só outro administrador altera.'
+    : 'Esta pessoa ainda não criou a senha. Peça para ela abrir o painel e usar "Primeiro acesso" com este e-mail.';
+  $('gu-perigo').hidden = !u || proprio;
+  $('gu-redefinir').disabled = !!u && u.situacao === 'aguardando';
+  $('gu-confirmar').hidden = true;
+  $('gu-confirmacao').value = '';
+  $('gu-erro').hidden = true;
+  $('gu-fundo').hidden = false;
+  $('gu').hidden = false;
+  (u ? $('gu-nome') : $('gu-nome')).focus();
+}
+
+function fecharGavetaUsuario() {
+  $('gu-fundo').hidden = true;
+  $('gu').hidden = true;
+  usuarioEmEdicao = null;
+}
+
+function erroUsuario(msg) {
+  $('gu-erro').textContent = msg;
+  $('gu-erro').hidden = false;
+}
+
+async function acaoUsuario(botao, fn, mensagem) {
+  $('gu-erro').hidden = true;
+  botao.disabled = true;
+  try {
+    await fn();
+    fecharGavetaUsuario();
+    avisar(mensagem);
+    await carregarUsuarios();
+  } catch (e) {
+    erroUsuario(e.message);
+  } finally {
+    botao.disabled = false;
+  }
+}
+
+function salvarUsuario(ev) {
+  ev.preventDefault();
+  const nome = $('gu-nome').value.trim();
+  const email = $('gu-email').value.trim().toLowerCase();
+  const perfil = $('gu-perfil').value;
+  if (nome.length < 2) return erroUsuario('Informe o nome da pessoa.');
+  const u = usuarioEmEdicao;
+  if (!u) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return erroUsuario('Informe um e-mail válido.');
+    return acaoUsuario($('gu-salvar'), () => chamar('/api/usuarios', { method: 'POST', body: { nome, email, perfil } }),
+      `${nome} cadastrado. Peça para usar "Primeiro acesso" com ${email}.`);
+  }
+  const corpo = { nome };
+  if (!$('gu-perfil').disabled) corpo.perfil = perfil;
+  if (!$('gu-ativo').disabled) corpo.ativo = $('gu-ativo').checked;
+  return acaoUsuario($('gu-salvar'), () => chamar(`/api/usuarios/${encodeURIComponent(u.email)}`, { method: 'PATCH', body: corpo }), 'Usuário atualizado.');
+}
+
+function redefinirSenhaUsuario() {
+  const u = usuarioEmEdicao;
+  if (!u) return;
+  if (!window.confirm(`Apagar a senha de ${u.nome || u.email}? A pessoa vai precisar criar outra em "Primeiro acesso".`)) return;
+  acaoUsuario($('gu-redefinir'), () => chamar(`/api/usuarios/${encodeURIComponent(u.email)}/redefinir-senha`, { method: 'POST' }),
+    'Senha apagada. A pessoa cria outra em "Primeiro acesso".');
+}
+
+function excluirUsuario() {
+  const u = usuarioEmEdicao;
+  if (!u) return;
+  const confirmacao = $('gu-confirmacao').value.trim().toLowerCase();
+  if (confirmacao !== u.email) return erroUsuario('O e-mail digitado não confere.');
+  acaoUsuario($('gu-excluir-ok'), () => chamar(`/api/usuarios/${encodeURIComponent(u.email)}`, { method: 'DELETE', body: { confirmacao } }),
+    'Usuário excluído.');
 }
 
 /* ---------- lista de empresas ---------- */
@@ -225,12 +400,12 @@ function linhaEmpresa(e) {
       h('span', { class: 'meta', text: `${e.documentos_30d} nota${Number(e.documentos_30d) === 1 ? '' : 's'} em 30 dias` })),
     h('div', { class: 'acoes' },
       h('button', { type: 'button', class: 'botao pequeno primario', onclick: () => abrirNotas(e) }, 'Notas'),
-      h('button', {
+      pode('operar') ? h('button', {
         type: 'button', class: 'botao pequeno', disabled: !e.ativo || e.sincronizacao_pedida || !e.certificado_valido_ate,
         onclick: () => sincronizar(e),
-      }, 'Sincronizar'),
-      h('button', { type: 'button', class: 'botao fantasma pequeno', onclick: () => abrirGaveta(e) }, 'Trocar certificado'),
-      botaoPausa,
+      }, 'Sincronizar') : null,
+      pode('certificados') ? h('button', { type: 'button', class: 'botao fantasma pequeno', onclick: () => abrirGaveta(e) }, 'Trocar certificado') : null,
+      pode('certificados') ? botaoPausa : null,
     ),
   );
 }
@@ -888,14 +1063,14 @@ function grupoRegra(regra, lista, info) {
   const temSugestao = abertos.some((a) => a.sugestao);
   const total = lista.reduce((t, a) => t + (a.quantidade || 1), 0);
   const acoes = [];
-  if (abertos.length && regra !== 'CFOP_ENTRADA_INDEFINIDO') {
+  if (pode('operar') && abertos.length && regra !== 'CFOP_ENTRADA_INDEFINIDO') {
     const chaveR = `${regra}:resolver`;
     acoes.push(h('button', {
       type: 'button', class: `botao pequeno${confirmandoLote.has(chaveR) ? ' perigo' : ''}`,
       onclick: () => loteConfirmar(chaveR, regra, 'resolver'),
     }, confirmandoLote.has(chaveR) ? `Confirmar (${abertos.length})` : temSugestao ? `Aplicar sugestão em todos (${abertos.length})` : `Marcar todos como tratados (${abertos.length})`));
   }
-  if (abertos.length) {
+  if (pode('operar') && abertos.length) {
     const chaveI = `${regra}:ignorar`;
     acoes.push(h('button', {
       type: 'button', class: `botao fantasma pequeno${confirmandoLote.has(chaveI) ? ' perigo' : ''}`,
@@ -934,6 +1109,7 @@ function linhaApontamento(a) {
       h('button', { type: 'button', class: 'botao fantasma pequeno', onclick: () => resolver(a, 'ignorar') }, 'Ignorar'),
     ];
   }
+  if (!pode('operar')) acoes = [];
   const decisao = resolvido
     ? `${a.status === 'ajustado' ? 'Tratado' : 'Ignorado'} por ${a.resolvido_por || '—'} em ${dataCurta(a.resolvido_em)}${a.observacao ? ` · ${a.observacao}` : ''}`
     : null;
@@ -990,7 +1166,20 @@ async function abrirApp() {
   $('tela-notas').hidden = true;
   $('tela-empresas').hidden = false;
   empresaNotas = null;
+  $('tela-usuarios').hidden = true;
   $('usuario-email').textContent = sessao.email || '';
+  try {
+    const eu = await chamar('/api/eu');
+    perfilAtual = eu.perfil;
+    permissoes = eu.permissoes || [];
+    if (eu.nome) $('usuario-email').textContent = eu.nome;
+    $('usuario-email').title = sessao.email || '';
+  } catch { perfilAtual = null; permissoes = []; }
+  $('botao-usuarios').hidden = !pode('usuarios');
+  $('botao-adicionar').hidden = !pode('certificados');
+  $('notas-importar').hidden = !pode('operar');
+  $('aud-refazer').hidden = !pode('operar');
+  $('st-tabela-enviar').hidden = !pode('configuracoes');
   await carregarEmpresas();
   iniciarAtualizacao();
 }
@@ -1004,7 +1193,23 @@ function ligarEventos() {
   $('gaveta-fechar').addEventListener('click', fecharGaveta);
   $('form-cancelar').addEventListener('click', fecharGaveta);
   $('gaveta-fundo').addEventListener('click', fecharGaveta);
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('gaveta').hidden) fecharGaveta(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (!$('gaveta').hidden) fecharGaveta();
+    if (!$('gu').hidden) fecharGavetaUsuario();
+  });
+  $('botao-usuarios').addEventListener('click', abrirUsuarios);
+  $('usuarios-voltar').addEventListener('click', fecharUsuarios);
+  $('usuarios-novo').addEventListener('click', () => abrirGavetaUsuario(null));
+  $('gu-fechar').addEventListener('click', fecharGavetaUsuario);
+  $('gu-cancelar').addEventListener('click', fecharGavetaUsuario);
+  $('gu-fundo').addEventListener('click', fecharGavetaUsuario);
+  $('gu-form').addEventListener('submit', salvarUsuario);
+  $('gu-perfil').addEventListener('change', mostrarDicaPerfil);
+  $('gu-redefinir').addEventListener('click', redefinirSenhaUsuario);
+  $('gu-excluir').addEventListener('click', () => { $('gu-confirmar').hidden = false; $('gu-confirmacao').focus(); });
+  $('gu-excluir-cancelar').addEventListener('click', () => { $('gu-confirmar').hidden = true; $('gu-confirmacao').value = ''; });
+  $('gu-excluir-ok').addEventListener('click', excluirUsuario);
   $('form-empresa').addEventListener('submit', enviarEmpresa);
   $('busca').addEventListener('input', (e) => { termo = e.target.value.trim(); renderLista(); });
 
