@@ -26,6 +26,8 @@ const base = (x: Record<string, any> = {}) => ({
     { status: 'ajustado', severidade: 'alerta', n: 6 }, { status: 'ignorado', severidade: 'erro', n: 1 },
   ],
   historico: x.historico ?? [],
+  sped: x.sped ?? null,
+  sugestao: x.sugestao ?? null,
 });
 
 // 1) Números da competência
@@ -49,7 +51,7 @@ const base = (x: Record<string, any> = {}) => ({
 // 3) Etapas e status igual ao da Central
 {
   const et = Object.fromEntries(e3.e360Etapas(base()).map((x: any) => [x.id, x.estado]));
-  assert.deepEqual(et, { xml: 'andamento', auditoria: 'pendencia', st: 'nao_iniciado', sped: 'indisponivel', validacao: 'indisponivel', guias: 'indisponivel' });
+  assert.deepEqual(et, { xml: 'andamento', auditoria: 'pendencia', st: 'nao_iniciado', sped: 'nao_iniciado', validacao: 'nao_iniciado', guias: 'indisponivel' });
   const bloq = e3.e360Etapas(base({ empresa: { status: 'certificado_vencido' } }));
   assert.equal(bloq[0].estado, 'bloqueado');
   const semNotas = e3.e360Etapas(base({ documentos: [], auditoria: [] }));
@@ -59,7 +61,15 @@ const base = (x: Record<string, any> = {}) => ({
   assert.equal(e3.e360Etapas(base({ empresa: { uf: 'MG' } }))[2].estado, 'indisponivel');
   assert.equal(vg.vgGeral(e3.e360LinhaCentral(base())).chave, 'pendencias', 'mesma regra da Central');
   assert.equal(vg.vgGeral(e3.e360LinhaCentral(base({ auditoria: [] }))).chave, 'andamento');
-  console.log('ok  etapas do fechamento e status geral pela mesma regra da Central');
+  const comSped = base({ auditoria: [], sped: { id: 1, erros: 0, alertas: 0, divergencias: 18 } });
+  const es = Object.fromEntries(e3.e360Etapas(comSped).map((x: any) => [x.id, x]));
+  assert.equal(es.sped.estado, 'concluido'); assert.equal(es.validacao.estado, 'pendencia');
+  assert.equal(es.validacao.texto, '18 divergências com os XMLs'); assert.equal(es.validacao.aba, 'sped');
+  assert.equal(vg.vgGeral(e3.e360LinhaCentral(comSped)).chave, 'pendencias', 'divergência do SPED também conta na Central');
+  const ok = Object.fromEntries(e3.e360Etapas(base({ sped: { erros: 0, alertas: 0, divergencias: 0 } })).map((x: any) => [x.id, x.estado]));
+  assert.equal(ok.validacao, 'concluido');
+  assert.equal(e3.e360Etapas(base({ sped: { erros: 3, alertas: 0, divergencias: 0 } }))[3].estado, 'pendencia');
+  console.log('ok  etapas do fechamento (com SPED guardado) e status geral pela mesma regra da Central');
 }
 
 // 4) Precisa de atenção
@@ -68,6 +78,7 @@ const base = (x: Record<string, any> = {}) => ({
   assert.deepEqual(ids(base()), ['auditoria', 'resumo']);
   assert.deepEqual(ids(base({ empresa: { status: 'certificado_vencido' }, certificado: { valido_ate: '2026-09-01T00:00:00Z' } })), ['cert', 'auditoria', 'resumo']);
   assert.deepEqual(ids(base({ empresa: { status: 'atrasada' }, auditoria: [], documentos: [] })), ['captacao']);
+  assert.deepEqual(ids(base({ auditoria: [], documentos: [], sped: { erros: 1, alertas: 0, divergencias: 4 }, sugestao: { id: 9 } })), ['sped-erros', 'sped', 'cadastro']);
   assert.deepEqual(ids(base({ auditoria: [], documentos: [] }), { uf: 'ES', total: 141.9 }), ['st']);
   assert.deepEqual(ids(base({ empresa: { ativo: false } })), [], 'pausada não gera pendência');
   assert.deepEqual(ids(base({ auditoria: [], documentos: [] })), [], 'sem nada: estado positivo');
@@ -81,7 +92,12 @@ const base = (x: Record<string, any> = {}) => ({
     { tipo: 'auditoria', em: '2026-09-29T19:32:00Z', por: 'fiscal03@contabilfarma.com.br', dados: { status: 'ajustado', n: 3, competencia: '2026-09-01' } },
     { tipo: 'importacao', em: '2026-09-29T18:07:00Z', dados: { n: 124 } },
     { tipo: 'certificado', em: '2026-09-28T12:12:00Z', dados: { titular: 'FARMA', valido_ate: '2027-05-10', ativo: true } },
+    { tipo: 'sped', em: '2026-09-27T12:00:00Z', por: 'fiscal03@contabilfarma.com.br', dados: { nome: 'sped.txt', competencia: '2026-07-01', erros: 0, divergencias: 18 } },
+    { tipo: 'cadastro', em: '2026-09-27T13:00:00Z', por: 'gustavo@contabilfarma.com.br', dados: { status: 'aprovado', campos: ['ie', 'cep'] } },
   ] }));
+  assert.equal(h[4].titulo, 'SPED Fiscal enviado: sped.txt');
+  assert.equal(h[4].detalhe, 'Competência 07/2026 · sem erros · 18 divergências');
+  assert.equal(h[5].titulo, 'Cadastro atualizado pelo SPED (2 campos)');
   assert.equal(h[0].titulo, 'Consulta SEFAZ (NF-e): 12 documentos recebidos');
   assert.equal(h[1].titulo, '3 apontamentos da auditoria tratados');
   assert.equal(h[1].por, 'fiscal03@contabilfarma.com.br');

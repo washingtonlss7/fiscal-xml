@@ -29,6 +29,8 @@ export function permissaoDaRota(metodo: string, rota: string): Permissao | null 
   if (metodo === 'GET' || metodo === 'HEAD') return null;
   if (rota === '/api/empresas' || /^\/api\/empresas\/[^/]+\/ativo$/.test(rota)) return 'certificados';
   if (rota === '/api/st-es/tabela') return 'configuracoes';
+  // Aprovar dados de cadastro (e criar cliente pré-cadastrado): mesmo nível de quem cadastra empresas
+  if (rota.startsWith('/api/cadastros/')) return 'certificados';
   return 'operar';
 }
 export type Situacao = 'ativo' | 'desativado' | 'aguardando';

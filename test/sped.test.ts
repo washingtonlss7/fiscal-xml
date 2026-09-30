@@ -6,6 +6,7 @@
 import assert from 'assert';
 import { analisarEfd, chaveValida, cnpjValido, decodificarSped } from '../src/sped/efd';
 import { compararXmlSped, XmlDoc } from '../src/sped/comparar';
+import { alteracaoAprovada, dadosDoSped, diferencasCadastro, nomeMunicipio } from '../src/sped/cadastro';
 
 const CNPJ = '55885998000140';
 const FORN = '11222333000181';
@@ -127,6 +128,33 @@ const docs = [
   const antes = compararXmlSped(efd, [], new Set(), '2026-09-01');
   assert.equal(antes.divergencias[0].nivel, 'info', 'nota anterior à captação vira informação');
   console.log('ok  comparação: entrada fora do SPED, valor, situação, CT-e tomado e cobertura da captação');
+}
+
+// 5) Pré-cadastro: dados do 0000/0005/0100 e diferença para o cadastro
+{
+  const comContador = docs.length ? montar(docs) : montar([]);
+  const txt = comContador.toString('latin1').replace('|0150|', '|0100|JOSE CONTADOR|12345678909|ES-012345/O|11222333000181||||||2733334444||contab@exemplo.com.br|3205309|\r\n|0150|');
+  const efd = analisarEfd(Buffer.from(txt, 'latin1')).efd;
+  const d = dadosDoSped(efd)!;
+  assert.equal(d.cnpj, CNPJ); assert.equal(d.uf, 'ES');
+  assert.equal(d.ie, '084358580');
+  assert.equal(d.cod_municipio, '3201209'); assert.equal(d.municipio, 'Cachoeiro de Itapemirim');
+  assert.equal(d.nome_fantasia, 'FARMA TESTE'); assert.equal(d.cep, '29306306'); assert.equal(d.logradouro, 'RUA A'); assert.equal(d.bairro, 'CENTRO');
+  assert.equal(d.fone, '2835224869');
+  assert.equal(d.contador_nome, 'JOSE CONTADOR'); assert.equal(d.contador_crc, 'ES-012345/O'); assert.equal(d.contador_email, 'contab@exemplo.com.br');
+  assert.equal(nomeMunicipio('3205309'), 'Vitória'); assert.equal(nomeMunicipio('9999999'), null);
+
+  const vazio = diferencasCadastro({ razao_social: 'Farma Teste Ltda.' }, d);
+  assert.ok(!vazio.some((x) => x.campo === 'razao_social'), 'mesma razão social com pontuação/caixa diferentes não é diferença');
+  assert.ok(vazio.every((x) => x.atual === null) && vazio.some((x) => x.campo === 'ie'));
+  const cadastrado = Object.fromEntries(vazio.map((x) => [x.campo, x.proposto]));
+  assert.deepEqual(diferencasCadastro({ ...cadastrado, razao_social: 'FARMA TESTE LTDA' }, d), [], 'cadastro igual ao SPED: nada a conferir');
+  const mudou = diferencasCadastro({ ...cadastrado, razao_social: 'FARMA TESTE LTDA', cep: '29300000' }, d);
+  assert.deepEqual(mudou.map((x) => [x.campo, x.atual, x.proposto]), [['cep', '29300000', '29306306']]);
+
+  const alt = alteracaoAprovada(d, ['ie', 'cod_municipio', 'campo_invalido', 'cep']);
+  assert.deepEqual(alt, { ie: '084358580', cod_municipio: '3201209', municipio: 'Cachoeiro de Itapemirim', cep: '29306306' });
+  console.log('ok  pré-cadastro: IE, município (IBGE), fantasia, endereço, contador; diferença e aprovação por campo');
 }
 
 console.log('\nTestes do SPED passaram.');

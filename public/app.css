@@ -1136,3 +1136,60 @@ button.e360-etapa-botao:hover { border-color: var(--linha-forte); background: va
   .sped-div-valores { margin-left: 0; flex-basis: 100%; }
   .sped-cards .e360-lista-num { display: flex; }
 }
+
+/* SPED guardado: envio, envios da competência e pré-cadastro */
+.sped-envio-info { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; }
+.sped-envio-acoes { display: flex; gap: 8px; flex-wrap: wrap; }
+.sped-envio-acoes .icone-svg { width: 15px; height: 15px; }
+.sped-envios { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.sped-envios li { display: flex; align-items: center; gap: 6px 12px; flex-wrap: wrap; padding: 10px 0; font-size: var(--t-m); }
+.sped-envios li + li { border-top: 1px solid var(--linha); }
+.sped-envios li .meta { flex: 1; min-width: 180px; }
+.e360-sugestao { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border-radius: var(--raio); background: var(--info-fundo); color: var(--info); }
+.e360-sugestao > .icone-svg { flex: none; width: 18px; height: 18px; margin-top: 2px; }
+.e360-sugestao > div { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.e360-sugestao .meta { color: inherit; opacity: .85; }
+#tela-sped.arrastando .vg-card:first-of-type { border-color: var(--primaria); box-shadow: 0 0 0 3px var(--primaria-suave); }
+.sp-envios { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.sp-envios:empty { display: none; }
+.sp-envio { display: flex; align-items: center; gap: 10px; padding: 10px 0; }
+.sp-envio + .sp-envio { border-top: 1px solid var(--linha); }
+.sp-envio-corpo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: var(--t-m); }
+.sp-envio-corpo .meta { overflow-wrap: anywhere; }
+.sp-cartao { border: 1px solid var(--linha); border-radius: var(--raio); padding: 14px; display: flex; flex-direction: column; gap: 12px; background: var(--superficie); scroll-margin-top: 90px; }
+.sp-cartao.foco { border-color: var(--primaria); box-shadow: 0 0 0 3px var(--primaria-suave); }
+.sp-cartao-topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px 12px; flex-wrap: wrap; }
+.sp-cartao-topo > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.sp-cartao-nome { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: var(--t-l, 16px); }
+.sp-cartao > p.meta { margin: 0; }
+.sp-tabela th[scope="row"] { font-weight: 550; white-space: nowrap; }
+.sp-tabela td { overflow-wrap: anywhere; }
+.sp-tabela .sp-check { width: 44px; text-align: center; }
+.sp-tabela input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
+.sp-muda { margin-left: 8px; font-size: var(--t-xs); }
+.sp-cartao-acoes { display: flex; align-items: flex-end; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.sp-regime { margin-right: auto; }
+@media (max-width: 760px) {
+  .sp-cartao-acoes .botao { flex: 1 1 auto; min-height: 44px; }
+  .sp-regime { flex-basis: 100%; }
+  .sp-tabela thead { display: none; }
+  .sp-tabela tr { display: grid; grid-template-columns: 44px 1fr; padding: 8px 0; }
+  .sp-tabela tr + tr { border-top: 1px solid var(--linha); }
+  .sp-tabela td, .sp-tabela th { border: 0; padding: 2px 6px; }
+  .sp-tabela .sp-check { grid-row: span 3; align-self: center; }
+  .sp-tabela td:nth-child(3)::before { content: "Cadastro: "; color: var(--tinta-3); }
+  .sp-tabela td:nth-child(4)::before { content: "SPED: "; color: var(--tinta-3); }
+}
+@media (max-width: 760px) {
+  .sp-cartao.novo .sp-tabela td:nth-child(3)::before { content: "SPED: "; }
+  .sp-cartao.novo .sp-tabela .sp-check { grid-row: span 2; }
+}
+.sp-tabela { min-width: 0; }
+#tela-sped .vg-card-topo { flex-wrap: wrap; }
+@media (max-width: 760px) {
+  .sp-cartao .vg-tabela-caixa { display: block; border: 0; }
+  .sp-tabela, .sp-tabela tbody { display: block; }
+  #tela-sped .vg-card-topo > div { flex: 1 1 100%; }
+  #tela-sped .sped-botoes, #tela-sped .sped-botoes .botao { width: 100%; }
+}
+@media (max-width: 760px) { .sp-tabela tr > * { min-width: 0; overflow-wrap: anywhere; } }

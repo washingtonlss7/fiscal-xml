@@ -367,9 +367,7 @@ const NAV = [
   { id: 'notas', rotulo: 'Notas Fiscais', icone: 'file-text' },
   { id: 'auditoria', rotulo: 'Auditoria', icone: 'shield-check' },
   { id: 'icms-st', rotulo: 'ICMS-ST', icone: 'calculator' },
-  { id: 'sped', rotulo: 'SPED', icone: 'file-spreadsheet', filhos: [
-    { rotulo: 'Arquivos' }, { rotulo: 'Comparar' }, { rotulo: 'Escrituração' }, { rotulo: 'Validação' },
-  ] },
+  { id: 'sped', rotulo: 'SPED e cadastro', icone: 'file-spreadsheet', rota: '#/sped' },
   { id: 'guias', rotulo: 'Guias', icone: 'receipt' },
   { id: 'fechamento', rotulo: 'Fechamento', icone: 'clipboard-check', rota: '#/fechamento' },
   { id: 'atendimento', rotulo: 'Atendimento', icone: 'message-circle' },
@@ -429,6 +427,7 @@ function rotaBase() {
   if (h.startsWith('#/usuarios')) return '#/usuarios';
   if (h.startsWith('#/empresas')) return '#/empresas';
   if (h.startsWith('#/fechamento')) return '#/fechamento';
+  if (h.startsWith('#/sped')) return '#/sped';
   return '#/visao-geral';
 }
 function marcarNav() {
@@ -570,7 +569,7 @@ async function aplicarRota() {
   const r = location.hash || '#/visao-geral';
   const emp = r.match(/^#\/empresas\/([0-9a-f-]{36})(?:\/(notas|auditoria|icms-st|sped|guias|arquivos|historico))?$/);
   const esconderTudo = (menos) => {
-    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios']) if (id !== menos) $(id).hidden = true;
+    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped']) if (id !== menos) $(id).hidden = true;
   };
   const fech = r.match(/^#\/fechamento(?:\?(.*))?$/);
   if (fech) {
@@ -578,6 +577,11 @@ async function aplicarRota() {
     empresaNotas = null;
     fecharGavetaUsuario();
     window.fcMostrar(fech[1] || '');
+  } else if (/^#\/sped(\?.*)?$/.test(r)) {
+    esconderTudo('tela-sped');
+    empresaNotas = null;
+    fecharGavetaUsuario();
+    window.spMostrar(r.split('?')[1] || '');
   } else if (r === '#/visao-geral') {
     esconderTudo('tela-visao');
     empresaNotas = null;
@@ -1280,7 +1284,7 @@ function recarregarAba() {
   if (abaAtual === 'notas') carregarNotas();
   carregarAuditoria();
   if (abaAtual === 'st') carregarST();
-  if (abaAtual === 'sped') window.spedRender();
+  if (abaAtual === 'sped') window.spedCarregar();
   // Dados da Empresa 360° (cabeçalho, visão geral, arquivos e histórico): uma chamada por empresa/competência
   const chave = `${empresaNotas.id}|${mesSelecionado()}`;
   if (window.e360Chave !== chave || ['visao', 'arquivos', 'historico'].includes(abaAtual)) { window.e360Chave = chave; window.e360Carregar(); }

@@ -46,8 +46,40 @@ const dados = {
   const et = Object.fromEntries(c.etapas.map((e: any) => [e.id, e]));
   assert.deepEqual([et.xml.feito, et.xml.total], [2, 4]);
   assert.deepEqual([et.auditoria.feito, et.auditoria.total], [1, 3], 'Gama auditada; Alfa com pendência; Delta ainda auditando');
-  for (const id of ['st', 'sped', 'validacao', 'guias']) assert.ok(et[id].indisponivel, id);
-  console.log('ok  etapas: captação e auditoria calculadas; ICMS-ST, SPED, validação e guias sem número inventado');
+  for (const id of ['st', 'guias']) assert.ok(et[id].indisponivel, id);
+  assert.deepEqual([et.sped.feito, et.sped.total, et.validacao.feito], [0, 4, 0], 'sem SPED enviado: 0 de 4, sem número inventado');
+  console.log('ok  etapas: captação, auditoria e SPED calculados; ICMS-ST e guias sem número inventado');
+}
+
+// 2b) SPED guardado: etapas, pendências, status e atenção
+{
+  const comSped = {
+    ...dados,
+    cadastrosPendentes: 2,
+    empresas: dados.empresas.map((e: any) =>
+      e.id === 'c' ? { ...e, status: 'ok', sped: { erros: 0, alertas: 1, divergencias: 18 } }
+        : e.id === 'd' ? { ...e, sped: { erros: 2, alertas: 0, divergencias: 0 } }
+          : e.id === 'b' ? { ...e, sped: { erros: 0, alertas: 0, divergencias: 0 } } : e),
+  };
+  const c = vg.vgCalcular(comSped, '', '2026-09-30');
+  const et = Object.fromEntries(c.etapas.map((e: any) => [e.id, e]));
+  assert.deepEqual([et.sped.feito, et.sped.total], [2, 4], 'Beta e Gama sem erro no arquivo; Delta com 2 erros');
+  assert.deepEqual([et.validacao.feito, et.validacao.total], [2, 4], 'Beta e Delta sem divergência; Gama com 18');
+  const at = Object.fromEntries(c.atencao.map((a: any) => [a.id, a]));
+  assert.equal(at.sped.n, 1); assert.equal(at.sped.breve, undefined);
+  assert.equal(at['sped-erros'].n, 1);
+  assert.equal(at.cadastros.n, 2);
+  const gama = comSped.empresas.find((e: any) => e.id === 'c');
+  assert.equal(vg.vgGeral(gama).chave, 'pendencias', 'divergência SPED × XML é pendência');
+  assert.deepEqual(vg.vgPendencias(gama).map((p: any) => [p.etapa, p.n]), [['validacao', 18]]);
+  assert.equal(vg.vgSped(gama).texto, 'Recebido · 1 alerta');
+  assert.equal(vg.vgValidacao(gama).texto, '18 divergências');
+  assert.equal(vg.vgSped(emp({})).texto, 'Não enviado');
+  assert.equal(vg.vgValidacao(emp({ sped: { erros: 0, alertas: 0, divergencias: 0 } })).tom, 'ok');
+  assert.equal(vg.vgValidacao(emp({ sped: { erros: 0, alertas: 0, divergencias: null } })).texto, 'Sem comparação');
+  assert.deepEqual(vg.fcFiltrar(c.lista, { etapa: 'validacao' }).map((e: any) => e.id), ['c']);
+  assert.deepEqual(vg.fcFiltrar(c.lista, { etapa: 'sped' }).map((e: any) => e.id), ['d']);
+  console.log('ok  SPED guardado: etapas, divergências na Central, pendências e cadastros para conferir');
 }
 
 // 3) Evolução acumulada até hoje; pausada não entra

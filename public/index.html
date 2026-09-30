@@ -207,6 +207,8 @@
               <option value="">Qualquer etapa</option>
               <option value="xml">XML (captação)</option>
               <option value="auditoria">Auditoria</option>
+              <option value="sped">SPED (erro no arquivo)</option>
+              <option value="validacao">Validação XML × SPED</option>
             </select>
           </label>
           <label class="fc-campo"><span>Ordenar por</span>
@@ -267,6 +269,44 @@
       <section class="pilha-pequena" aria-labelledby="usuarios-hist-titulo">
         <h2 id="usuarios-hist-titulo" class="titulo-secao">Últimas alterações</h2>
         <ul id="usuarios-historico" class="historico"></ul>
+      </section>
+     </section>
+
+     <section id="tela-sped" class="pilha sp" hidden>
+      <div class="cabecalho-pagina">
+        <div>
+          <h1>SPED e pré-cadastro</h1>
+          <p class="subtitulo">Envie o SPED Fiscal de qualquer cliente: o Appura identifica a empresa pelo CNPJ, guarda o arquivo e compara com os XMLs. Dados de cadastro diferentes ficam aqui para o escritório conferir.</p>
+        </div>
+      </div>
+      <section class="vg-card" aria-labelledby="sp-envio-titulo">
+        <div class="vg-card-topo">
+          <div>
+            <h2 id="sp-envio-titulo" class="vg-card-titulo">Enviar SPED Fiscal (EFD ICMS/IPI)</h2>
+            <p class="meta">Um ou vários arquivos .txt. CNPJ que ainda não é cliente vira um pré-cadastro para aprovar.</p>
+          </div>
+          <div class="sped-botoes">
+            <button id="sp-enviar" type="button" class="botao primario"><svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-file-spreadsheet"></use></svg>Escolher arquivos</button>
+            <input id="sp-arquivos" type="file" accept=".txt,text/plain" multiple hidden>
+          </div>
+        </div>
+        <p id="sp-sem-permissao" class="meta" hidden>Seu perfil só consulta: peça a um analista para enviar os arquivos.</p>
+        <ul id="sp-envios" class="sp-envios" aria-live="polite"></ul>
+      </section>
+      <section class="vg-card" aria-labelledby="sp-cad-titulo">
+        <div class="vg-card-topo">
+          <div>
+            <h2 id="sp-cad-titulo" class="vg-card-titulo">Cadastros para conferir</h2>
+            <p class="meta">Marque os dados que devem ir para o cadastro. Nada é gravado sem aprovação.</p>
+          </div>
+          <span id="sp-cad-n" class="selo neutro">—</span>
+        </div>
+        <p id="sp-cad-permissao" class="meta" hidden>Somente administradores e supervisores aprovam dados de cadastro.</p>
+        <div id="sp-cadastros" class="pilha-pequena" aria-live="polite"></div>
+      </section>
+      <section class="pilha-pequena" aria-labelledby="sp-hist-titulo">
+        <h2 id="sp-hist-titulo" class="titulo-secao">Últimas decisões</h2>
+        <ul id="sp-decididas" class="historico"></ul>
       </section>
      </section>
 
@@ -403,7 +443,7 @@
           <div class="vg-card-topo">
             <div>
               <h2 id="sped-titulo" class="vg-card-titulo">SPED Fiscal (EFD ICMS/IPI)</h2>
-              <p class="meta">Envie o arquivo .txt do SPED Fiscal. O Appura lê, confere a estrutura e a apuração e compara com os XMLs captados. O arquivo não fica guardado.</p>
+              <p class="meta">Envie o arquivo .txt do SPED Fiscal. O Appura guarda o arquivo (criptografado), confere a estrutura e a apuração e compara com os XMLs captados. O resultado entra na Central de Fechamento.</p>
             </div>
             <div class="sped-botoes">
               <button id="sped-enviar" type="button" class="botao primario"><svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-file-spreadsheet"></use></svg>Enviar SPED Fiscal (.txt)</button>
@@ -594,5 +634,6 @@
   <script src="/app.js"></script>
   <script src="/visao-geral.js"></script>
   <script src="/empresa-360.js"></script>
+  <script src="/sped.js"></script>
 </body>
 </html>

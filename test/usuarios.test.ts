@@ -157,6 +157,15 @@ const rejeita = async (p: Promise<unknown>, re: RegExp) => assert.rejects(p, (e:
     assert.ok(!pode('analista', 'POST', `/api/empresas/${id}/ativo`));
     assert.ok(!pode('analista', 'POST', '/api/st-es/tabela'));
     assert.ok(!pode('analista', 'GET', '/api/usuarios'));
+    // SPED: analista envia e refaz a comparação; aprovar cadastro é de supervisor/admin; consulta só lê
+    assert.ok(pode('analista', 'POST', '/api/sped'));
+    assert.ok(pode('analista', 'POST', `/api/empresas/${id}/sped`));
+    assert.ok(pode('analista', 'POST', '/api/sped/12/refazer'));
+    assert.ok(!pode('analista', 'POST', '/api/cadastros/3/aprovar'));
+    assert.ok(!pode('analista', 'POST', '/api/cadastros/3/rejeitar'));
+    assert.ok(pode('supervisor', 'POST', '/api/cadastros/3/aprovar'));
+    assert.ok(pode('consulta', 'GET', '/api/cadastros') && pode('consulta', 'GET', '/api/sped/12/arquivo'));
+    assert.ok(!pode('consulta', 'POST', '/api/sped'));
     // Supervisor: certificados e pausa sim; configuração e usuários não
     assert.ok(pode('supervisor', 'POST', '/api/empresas'));
     assert.ok(pode('supervisor', 'POST', `/api/empresas/${id}/ativo`));

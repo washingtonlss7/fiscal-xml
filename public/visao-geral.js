@@ -28,12 +28,31 @@ function vgAuditoria(e) {
   return { tom: 'ok', simbolo: '✓', texto: 'Auditada' };
 }
 
-/** Status geral do fechamento da empresa (sem "Concluído" enquanto SPED e guias não existirem). */
+const vgPlural = (n, s, p) => `${n} ${n === 1 ? s : p}`;
+
+/** SPED Fiscal da competência (o arquivo): não enviado, com erros de estrutura/apuração ou recebido. */
+function vgSped(e) {
+  const s = e.sped;
+  if (!s) return { tom: 'neutro', simbolo: '–', texto: 'Não enviado' };
+  if (s.erros > 0) return { tom: 'pendente', simbolo: '!', texto: vgPlural(s.erros, 'erro no arquivo', 'erros no arquivo') };
+  return { tom: 'ok', simbolo: '✓', texto: s.alertas ? `Recebido · ${vgPlural(s.alertas, 'alerta', 'alertas')}` : 'Recebido' };
+}
+
+/** Validação XML × SPED (comparação por chave de acesso). */
+function vgValidacao(e) {
+  const s = e.sped;
+  if (!s) return { tom: 'neutro', simbolo: '–', texto: 'Aguardando SPED' };
+  if (s.divergencias === null || s.divergencias === undefined) return { tom: 'neutro', simbolo: '–', texto: 'Sem comparação' };
+  if (s.divergencias > 0) return { tom: 'pendente', simbolo: '!', texto: vgPlural(s.divergencias, 'divergência', 'divergências') };
+  return { tom: 'ok', simbolo: '✓', texto: 'XML e SPED conferem' };
+}
+
+/** Status geral do fechamento da empresa (sem "Concluído" enquanto as guias não existirem). */
 function vgGeral(e) {
   if (!e.ativo) return { tom: 'neutro', chave: 'pausada', texto: 'Pausada' };
   const x = vgXml(e);
   if (x.tom === 'problema') return { tom: 'problema', chave: 'bloqueado', texto: 'Bloqueado' };
-  if (x.tom === 'atencao' || e.apont_abertos > 0) return { tom: 'pendente', chave: 'pendencias', texto: 'Com pendências' };
+  if (vgPendencias(e).length) return { tom: 'pendente', chave: 'pendencias', texto: 'Com pendências' };
   return { tom: 'info', chave: 'andamento', texto: 'Em andamento' };
 }
 
@@ -55,6 +74,7 @@ function vgCalcular(dados, regime, hojeISO) {
   const auditadas = comNotas.filter((e) => vgAuditoria(e).tom === 'ok').length;
   const comPendencias = conta((e) => vgGeral(e).chave === 'bloqueado' || vgGeral(e).chave === 'pendencias');
   const certVencidos = conta((e) => e.status === 'certificado_vencido');
+  const comSped = ativas.filter((e) => e.sped);
 
   const kpis = {
     empresas: base,
@@ -69,8 +89,8 @@ function vgCalcular(dados, regime, hojeISO) {
     { id: 'xml', nome: 'Captação de XML', icone: 'cloud-download', tom: 'info', feito: xmlEmDia, total: base },
     { id: 'auditoria', nome: 'Auditoria das notas', icone: 'shield-check', tom: 'ok', feito: auditadas, total: comNotas.length, semTotal: 'Nenhuma empresa com notas na competência' },
     { id: 'st', nome: 'ICMS-ST (entradas)', icone: 'calculator', indisponivel: 'Sob demanda' },
-    { id: 'sped', nome: 'SPED (geração)', icone: 'file-spreadsheet', indisponivel: 'Não disponível' },
-    { id: 'validacao', nome: 'Validação XML × SPED', icone: 'file-check', indisponivel: 'Não disponível' },
+    { id: 'sped', nome: 'SPED Fiscal recebido', icone: 'file-spreadsheet', tom: 'progresso', feito: comSped.filter((e) => !e.sped.erros).length, total: base },
+    { id: 'validacao', nome: 'Validação XML × SPED', icone: 'file-check', tom: 'ok', feito: comSped.filter((e) => e.sped.divergencias === 0).length, total: base },
     { id: 'guias', nome: 'Guias (DUA, DAS etc.)', icone: 'receipt', indisponivel: 'Não disponível' },
   ];
 
@@ -106,7 +126,9 @@ function vgCalcular(dados, regime, hojeISO) {
     { id: 'auditoria', texto: 'Auditorias pendentes', tom: 'pendente', icone: 'shield-alert', n: conta((e) => e.apont_abertos > 0), destino: { central: 'auditoria' } },
     { id: 'cert-vencendo', texto: 'Certificados vencendo em 30 dias', tom: 'pendente', icone: 'triangle-alert', n: kpis.certVencendo, destino: { empresasStatus: ['certificado_vencendo'] } },
     { id: 'lacunas', texto: 'Empresas com notas faltantes (NSU)', icone: 'file-warning', breve: true },
-    { id: 'sped', texto: 'Divergências SPED × XML', icone: 'file-spreadsheet', breve: true },
+    { id: 'sped', texto: 'Divergências SPED × XML', tom: 'pendente', icone: 'file-spreadsheet', n: conta((e) => e.sped && e.sped.divergencias > 0), destino: { central: 'validacao' } },
+    { id: 'sped-erros', texto: 'SPED com erros no arquivo', tom: 'pendente', icone: 'file-warning', n: conta((e) => e.sped && e.sped.erros > 0), destino: { central: 'sped' } },
+    { id: 'cadastros', texto: 'Cadastros do SPED para conferir', tom: 'info', icone: 'building-2', n: Number(dados.cadastrosPendentes || 0), destino: { rota: '#/sped' } },
     { id: 'st', texto: 'Empresas sem ST calculado', icone: 'calculator', breve: true },
     { id: 'guias', texto: 'Guias não geradas', icone: 'receipt', breve: true },
   ];
@@ -134,6 +156,8 @@ function vgPendencias(e) {
   const x = vgXml(e);
   if (x.tom === 'problema' || x.tom === 'atencao') lista.push({ etapa: 'xml', tom: x.tom, texto: x.texto, n: 1 });
   if (e.apont_abertos > 0) lista.push({ etapa: 'auditoria', tom: 'pendente', texto: `${e.apont_abertos} na auditoria`, n: e.apont_abertos });
+  if (e.sped && e.sped.erros > 0) lista.push({ etapa: 'sped', tom: 'pendente', texto: `SPED: ${vgPlural(e.sped.erros, 'erro', 'erros')} no arquivo`, n: e.sped.erros });
+  if (e.sped && e.sped.divergencias > 0) lista.push({ etapa: 'validacao', tom: 'pendente', texto: vgPlural(e.sped.divergencias, 'divergência SPED × XML', 'divergências SPED × XML'), n: e.sped.divergencias });
   return lista;
 }
 function vgQtdPendencias(e) { return vgPendencias(e).reduce((t, p) => t + p.n, 0); }
@@ -184,7 +208,7 @@ function fcOrdenar(lista, ordem = 'criticidade') {
   return [...lista].sort(cmp);
 }
 
-if (typeof module !== 'undefined') module.exports = { vgXml, vgAuditoria, vgGeral, vgCalcular, vgFiltrarCentral, vgPendencias, vgQtdPendencias, vgPrecisaAtencao, fcContadores, fcFiltrar, fcOrdenar };
+if (typeof module !== 'undefined') module.exports = { vgXml, vgAuditoria, vgSped, vgValidacao, vgGeral, vgCalcular, vgFiltrarCentral, vgPendencias, vgQtdPendencias, vgPrecisaAtencao, fcContadores, fcFiltrar, fcOrdenar };
 
 /* ---------- tela ---------- */
 if (typeof window !== 'undefined') {
@@ -300,7 +324,7 @@ if (typeof window !== 'undefined') {
       vgKpi('cloud-download', 'ok', vgNum(k.xmlEmDia), 'Captação regular', `${vgPctTexto(vgPct(k.xmlEmDia, b))} da base · situação atual`, null,
         'Empresas ativas com certificado válido cuja consulta à SEFAZ está funcionando: sem erro, sem atraso e já com a primeira captação feita. Mostra a situação de agora, não se todas as notas da competência já chegaram.'),
       vgKpi('triangle-alert', k.comPendencias ? 'atencao' : 'ok', vgNum(k.comPendencias), 'Com pendências', `${vgPctTexto(vgPct(k.comPendencias, b))} da base`, null,
-        'Empresas ativas com pelo menos uma destas situações: sem certificado ou certificado vencido; erro, atraso ou conflito na consulta à SEFAZ; ou apontamentos abertos na auditoria da competência.'),
+        'Empresas ativas com pelo menos uma destas situações: sem certificado ou certificado vencido; erro, atraso ou conflito na consulta à SEFAZ; apontamentos abertos na auditoria; ou SPED da competência com erro no arquivo ou divergência com os XMLs.'),
       vgKpi('shield-x', k.certVencidos ? 'problema' : 'ok', vgNum(k.certVencidos), 'Certificados vencidos', k.certVencendo ? `${k.certVencendo} vence${k.certVencendo === 1 ? '' : 'm'} em 30 dias` : 'Nenhum vencendo em 30 dias'),
       h('div', { class: 'vg-kpi vg-kpi-fechamento secundario', 'aria-disabled': 'true' },
         h('span', { class: 'vg-kpi-icone neutro' }, icone('gauge')),
@@ -356,7 +380,7 @@ if (typeof window !== 'undefined') {
       h('div', { class: 'vg-grafico-caixa' }, svg),
       h('ul', { class: 'vg-legenda' }, ...c.series.map((s) => h('li', { title: s.descricao },
         h('span', { class: `vg-legenda-ponto ${s.cor}` }), `${s.nome} `, h('strong', { text: vgPctTexto(s.valores[s.valores.length - 1]) }))),
-        h('li', { class: 'vg-legenda-breve', text: 'ICMS-ST, SPED e Guias: em breve' })));
+        h('li', { class: 'vg-legenda-breve', text: 'SPED: veja nas etapas · ICMS-ST e Guias: em breve' })));
   }
 
   function vgRenderEtapas(c) {
@@ -379,6 +403,7 @@ if (typeof window !== 'undefined') {
 
   function vgIrDestino(destino) {
     if (destino.central) { irPara(`#/fechamento?etapa=${destino.central}`); return; }
+    if (destino.rota) { irPara(destino.rota); return; }
     if (destino.empresasStatus) {
       filtro = `status:${destino.empresasStatus.join(',')}`;
       irPara('#/empresas');
@@ -417,7 +442,8 @@ if (typeof window !== 'undefined') {
       aud: () => vgCelula(vgAuditoria(e), e.notas_mes ? `${base}/auditoria` : null, 'Auditoria'),
       st: () => vgCelula(st, e.uf === 'ES' ? `${base}/icms-st` : null, 'ICMS-ST'),
       stTabela: () => vgCelula(stTabela, e.uf === 'ES' ? `${base}/icms-st` : null, 'ICMS-ST'),
-      sped: () => vgCelula(na, null, 'SPED'), val: () => vgCelula(na, null, 'Validação'), guias: () => vgCelula(na, null, 'Guias'),
+      sped: () => vgCelula({ ...vgSped(e), compacto: true }, `${base}/sped`, 'SPED'), val: () => vgCelula({ ...vgValidacao(e), compacto: true }, e.sped ? `${base}/sped` : null, 'Validação'),
+      guias: () => vgCelula(na, null, 'Guias'),
     };
     return { e, g, ult, cel };
   }
@@ -503,7 +529,7 @@ if (typeof window !== 'undefined') {
     $('fc-busca').value = '';
     $('fc-status').value = fc.status; $('fc-regime').value = fc.regime; $('fc-etapa').value = fc.etapa; $('fc-ordem').value = fc.ordem;
     $('fc-atencao').checked = fc.atencao; $('fc-bloqueados').checked = fc.soBloqueados;
-    for (const id of ['tela-visao', 'tela-empresas', 'tela-notas', 'tela-usuarios']) $(id).hidden = true;
+    for (const id of ['tela-visao', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped']) $(id).hidden = true;
     $('tela-fechamento').hidden = false;
     window.scrollTo(0, 0);
     iniciarAtualizacao();
@@ -551,7 +577,7 @@ if (typeof window !== 'undefined') {
       fcContador('bloqueado', 'Bloqueadas', cont.bloqueado, 'problema'),
       fcContador('pendencias', 'Com pendências', cont.pendencias, 'pendente'),
       fcContador('andamento', 'Em andamento', cont.andamento, 'info'),
-      fcContador('concluido', 'Concluídas', 0, 'ok', true, 'Uma empresa só fica concluída quando SPED, validação e guias da competência estiverem prontos. Esses módulos ainda não existem, então ninguém aparece como concluído.'),
+      fcContador('concluido', 'Concluídas', 0, 'ok', true, 'Uma empresa só fica concluída quando SPED, validação e guias da competência estiverem prontos. O módulo de guias ainda não existe, então ninguém aparece como concluído.'),
     );
     const filtradas = fcOrdenar(fcFiltrar(todas, fc), fc.ordem);
     const celular = ehCelularVg();
