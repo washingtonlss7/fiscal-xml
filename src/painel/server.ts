@@ -490,7 +490,9 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
   // Empresa 360°: cadastro, certificado, captação, números da competência e histórico numa chamada só
   // Guias pelo Integra Contador (SERPRO)
   if (rota.startsWith('/api/guias') || /^\/api\/empresas\/[0-9a-f-]{36}\/guias/.test(rota)) {
-    const mes = filtroNotas(url).mes;
+    // Mês é opcional aqui (situação, chaves, teste e PDF não dependem dele): sem mês válido, vale o mês corrente
+    const mesUrl = url.searchParams.get('mes') ?? '';
+    const mes = /^\d{4}-(0[1-9]|1[0-2])$/.test(mesUrl) ? mesUrl : new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }).slice(0, 7);
     if (metodo === 'GET' && rota === '/api/guias') return responder(res, 200, await servicoGuias.painel(mes));
     if (metodo === 'GET' && rota === '/api/guias/situacao') return responder(res, 200, await servicoGuias.situacao());
     if (metodo === 'POST' && rota === '/api/guias/testar') return responder(res, 200, await servicoGuias.testarConexao(email));
