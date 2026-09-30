@@ -1389,3 +1389,6 @@ body.com-dialogo { overflow: hidden; }
 .es-chaves { display: flex; flex-direction: column; gap: var(--esp-3); max-width: 560px; }
 .es-chaves .senha { display: flex; gap: var(--esp-2); }
 .es-chaves .senha input { flex: 1; }
+.gu-envio { margin-top: var(--esp-1); font-size: var(--t-xs); }
+.gu-envio-caixa { display: flex; flex-direction: column; gap: var(--esp-1); padding: var(--esp-2) var(--esp-3); border: var(--borda); border-radius: var(--raio-m); background: var(--superficie-2); }
+.gu-envio-erro { color: var(--pendente); overflow-wrap: anywhere; }

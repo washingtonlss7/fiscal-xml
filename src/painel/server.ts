@@ -20,6 +20,7 @@ import { dentroDaJanela, lerJanela } from '../util';
 import { ErroSped, ServicoSped } from './sped';
 import { ServicoGuias } from './guias';
 import { configIntegra, ErroIntegra, IntegraContador, transporteHttps } from '../integra/cliente';
+import { ErroAcessorias, ServicoAcessorias } from '../integra/acessorias';
 import { authDoSupabase, ErroUsuario, GestaoUsuarios, PERFIS_INFO, PERMISSOES, permissaoDaRota } from './usuarios';
 
 function exigir(nome: string): string {
@@ -488,6 +489,15 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
   }
 
   // Empresa 360°: cadastro, certificado, captação, números da competência e histórico numa chamada só
+  // Integração com o Sistema Acessórias (token cifrado; só administrador altera)
+  if (rota === '/api/acessorias' || rota === '/api/acessorias/testar') {
+    if (metodo === 'GET' && rota === '/api/acessorias') return responder(res, 200, await servicoAcessorias.situacao());
+    if (metodo === 'POST' && rota === '/api/acessorias') return responder(res, 200, await servicoAcessorias.salvar(await lerCorpo(req, 10_000), email));
+    if (metodo === 'DELETE' && rota === '/api/acessorias') return responder(res, 200, await servicoAcessorias.remover(email));
+    if (metodo === 'POST' && rota === '/api/acessorias/testar') return responder(res, 200, await servicoAcessorias.testar(email));
+    throw new ErroHttp(404, 'Rota não encontrada.');
+  }
+
   // Guias pelo Integra Contador (SERPRO)
   if (rota.startsWith('/api/guias') || /^\/api\/empresas\/[0-9a-f-]{36}\/guias/.test(rota)) {
     // Mês é opcional aqui (situação, chaves, teste e PDF não dependem dele): sem mês válido, vale o mês corrente
@@ -498,6 +508,16 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
     if (metodo === 'POST' && rota === '/api/guias/testar') return responder(res, 200, await servicoGuias.testarConexao(email));
     if (metodo === 'POST' && rota === '/api/guias/chaves') return responder(res, 200, await servicoGuias.salvarChaves(await lerCorpo(req, 10_000), email));
     if (metodo === 'DELETE' && rota === '/api/guias/chaves') return responder(res, 200, await servicoGuias.removerChaves(email));
+    if (metodo === 'POST' && rota === '/api/guias/enviar-pendentes') {
+      const c = await lerCorpo(req);
+      const ids = Array.isArray(c.ids) ? c.ids.map(String).filter((x: string) => /^[0-9a-f-]{36}$/.test(x)) : undefined;
+      return responder(res, 200, await servicoAcessorias.enviarPendentes(/^\d{4}-\d{2}$/.test(String(c.mes)) ? String(c.mes) : mes, email, ids));
+    }
+    const envio = rota.match(/^\/api\/guias\/(\d+)\/enviar$/);
+    if (metodo === 'POST' && envio) {
+      const c = await lerCorpo(req);
+      return responder(res, 200, await servicoAcessorias.enviarGuia(Number(envio[1]), email, c.forcar === true));
+    }
     if (metodo === 'POST' && rota === '/api/guias/lote') {
       const c = await lerCorpo(req);
       const acao = c.acao === 'das' ? 'das' : c.acao === 'procuracao' ? 'procuracao' : null;
@@ -680,6 +700,8 @@ const cfgIntegra = configIntegra();
 // Chaves do SERPRO: as cadastradas no painel (cifradas no banco) têm prioridade; as variáveis do servidor são opcionais
 const servicoGuias = new ServicoGuias(db, arm, cfg.masterKey, (c, contratante, registrar) => new IntegraContador(c, contratante, transporteHttps, registrar), cfgIntegra);
 if (cfgIntegra) log.info('Integra Contador com chaves do servidor', { ambiente: cfgIntegra.ambiente });
+const servicoAcessorias = new ServicoAcessorias(db, arm, cfg.masterKey);
+servicoGuias.acessorias = servicoAcessorias;
 
 async function baixarXml(res: http.ServerResponse, id: string, chave: string) {
   if (!/^\d{44}$/.test(chave)) throw new ErroHttp(400, 'Chave inválida.');
@@ -840,6 +862,7 @@ const servidor = http.createServer(async (req, res) => {
       return void res.destroy();
     }
     if (e instanceof ErroIntegra) return responder(res, e.status, { erro: e.message, ...(e.codigo ? { codigo: e.codigo } : {}) });
+    if (e instanceof ErroAcessorias) return responder(res, e.status, { erro: e.message });
     if (e instanceof ErroHttp || e instanceof ErroUsuario || e instanceof ErroSped) return responder(res, e.status, { erro: e.message });
     log.error('erro no painel', { rota: url.pathname, erro: (e as Error).message });
     responder(res, 500, { erro: 'Erro inesperado no servidor. Tente de novo.' });

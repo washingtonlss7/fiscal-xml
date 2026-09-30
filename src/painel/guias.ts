@@ -4,6 +4,7 @@ import { cifrar, decifrar } from '../cripto';
 import { buscarTodos, Db, ok } from '../db';
 import { log } from '../log';
 import { Ambiente, ConfigIntegra, Contratante, ErroIntegra, IntegraContador, RegistroChamada } from '../integra/cliente';
+import type { ServicoAcessorias } from '../integra/acessorias';
 import { Guia, lerGuias, lerProcuracoes, lerUltimaDeclaracao, periodoApuracao, situacaoProcuracao, temErro, textoMensagens } from '../integra/respostas';
 
 /**
@@ -34,6 +35,8 @@ export class ServicoGuias {
   private certCache: { id: string; c: Contratante; validoAte: string } | null = null;
   /** Cliente do SERPRO em uso e a versão da configuração que o criou (recriado quando as chaves mudam). */
   private clienteCache: { versao: string; integra: IntegraContador | null; origem: OrigemChaves; lidoEm: number } | null = null;
+  /** Envio das guias ao Sistema Acessórias (opcional). */
+  acessorias: ServicoAcessorias | null = null;
 
   constructor(
     private readonly db: Db,
@@ -269,6 +272,13 @@ export class ServicoGuias {
     const salvas = [];
     for (const g of guias) salvas.push(await this.gravarGuia(e, comp, t.tipo, g, email));
     log.info('DAS gerado', { cnpj: e.cnpj, competencia: comp, tipo: t.tipo, guias: salvas.length, por: email });
+    // Envio automático à Acessórias: falha no envio não desfaz a guia (fica "Reenviar" na tela)
+    if (this.acessorias && await this.acessorias.envioAutomaticoAtivo().catch(() => false)) {
+      for (const g of salvas as any[]) {
+        if (!g.caminho) continue;
+        try { g.envio = await this.acessorias.enviarGuia(g.id, email); } catch (err) { g.envio = { status: 'erro', mensagem: (err as Error).message }; }
+      }
+    }
     return { guias: salvas, avisos: r.mensagens.filter((m) => /aviso/i.test(m.codigo)).map((m) => m.texto) };
   }
 
@@ -298,7 +308,9 @@ export class ServicoGuias {
       this.db.from('guias').select(COLUNAS_GUIA).eq('empresa_id', empresaId).order('gerado_em', { ascending: false }).limit(60).then((r) => ok(r, 'guias')),
       this.situacao(),
     ]);
-    return { integra: situacao, procuracao, declaracao, guias };
+    const envios = this.acessorias ? await this.acessorias.ultimosEnvios((guias as any[]).map((x) => x.id)) : new Map();
+    for (const x of guias as any[]) x.envio = envios.get(x.id) ?? null;
+    return { integra: situacao, procuracao, declaracao, guias, acessorias: this.acessorias ? await this.acessorias.situacao() : null };
   }
 
   /** Todas as empresas ativas com procuração, declaração e guia da competência (tela Guias). */
@@ -313,8 +325,12 @@ export class ServicoGuias {
     ]);
     const porEmpresa = <T extends { empresa_id: string }>(l: T[]) => { const m = new Map<string, T>(); for (const x of l) if (!m.has(x.empresa_id)) m.set(x.empresa_id, x); return m; };
     const p = porEmpresa(procs); const d = porEmpresa(decls); const g = porEmpresa(guias);
+    if (this.acessorias) {
+      const envios = await this.acessorias.ultimosEnvios([...g.values()].map((x: any) => x.id));
+      for (const x of g.values()) (x as any).envio = envios.get((x as any).id) ?? null;
+    }
     return {
-      competencia: comp.slice(0, 7), integra: situacao,
+      competencia: comp.slice(0, 7), integra: situacao, acessorias: this.acessorias ? await this.acessorias.situacao() : null,
       empresas: empresas.filter((e) => !e.escritorio).map((e) => ({
         id: e.id, cnpj: e.cnpj, razao_social: e.razao_social, regime: e.regime,
         procuracao: p.get(e.id) ?? null, declaracao: d.get(e.id) ?? null, guia: g.get(e.id) ?? null,

@@ -186,7 +186,16 @@ async function testeGuias() {
   assert.deepEqual([pedidoDas.contribuinte.numero, pedidoDas.pedidoDados.dados], [CLI, '{"periodoApuracao":"202609"}']);
   // Segunda vez: não gera de novo sem confirmar (cada chamada é cobrada)
   await assert.rejects(s.gerarDas('e-sn', '2026-09', 'a@x.com'), (e: any) => e.status === 409 && e.codigo === 'DAS_EXISTENTE');
-  assert.equal((await s.gerarDas('e-sn', '2026-09', 'a@x.com', true)).guias.length, 1, 'gerar de novo com confirmação');
+  // Envio automático à Acessórias depois de gerar (falha no envio não desfaz a guia)
+  const enviadas: number[] = [];
+  s.acessorias = { envioAutomaticoAtivo: async () => true, enviarGuia: async (id: number) => { enviadas.push(id); return { status: 'enviado', mensagem: 'ok' }; } } as any;
+  const refeito = await s.gerarDas('e-sn', '2026-09', 'a@x.com', true);
+  assert.equal(refeito.guias.length, 1, 'gerar de novo com confirmação');
+  assert.deepEqual(enviadas, [(refeito.guias[0] as any).id]); assert.equal((refeito.guias[0] as any).envio.status, 'enviado');
+  s.acessorias = { envioAutomaticoAtivo: async () => true, enviarGuia: async () => { throw new Error('Acessórias fora do ar'); } } as any;
+  const comFalha = await s.gerarDas('e-sn', '2026-09', 'a@x.com', true);
+  assert.deepEqual([(comFalha.guias[0] as any).envio.status, (comFalha.guias[0] as any).envio.mensagem], ['erro', 'Acessórias fora do ar'], 'guia gerada mesmo com falha no envio');
+  s.acessorias = null;
   // MEI, regime sem DAS e competência futura
   assert.equal((await s.gerarDas('e-mei', '2026-09', 'a@x.com')).guias[0].tipo, 'das_mei');
   assert.ok(pedidos.some((x) => x.pedidoDados.idSistema === 'PGMEI' && x.pedidoDados.idServico === 'GERARDASPDF21'));
@@ -199,7 +208,7 @@ async function testeGuias() {
   const sn = painel.empresas.find((e: any) => e.id === 'e-sn')!;
   assert.equal(sn.procuracao.situacao, 'ativa'); assert.equal(sn.declaracao.situacao, 'transmitida'); assert.equal(Number(sn.guia.total), 1520.33);
   const emp = await s.daEmpresa('e-sn', '2026-09');
-  assert.equal(emp.guias.length, 2);
+  assert.equal(emp.guias.length, 3, 'três DAS do Simples gerados (1º, gerar de novo e com falha no envio)');
   const lote = await s.lote('das', ['e-sn', 'e-lp', 'e-mei'], '2026-09', 'a@x.com');
   assert.deepEqual(lote.resultados.map((x) => x.ok), [false, false, false], 'já gerados (não gera de novo) e regime sem DAS');
   assert.match(lote.resultados[1].mensagem, /Simples Nacional e do MEI/);

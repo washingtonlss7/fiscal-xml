@@ -49,4 +49,15 @@ const sp = (t: string) => t.replace(/\u00a0/g, ' ');
   console.log('ok  números da tela (só Simples e MEI) e filtros por grupo, nome e CNPJ');
 }
 
+// 3) Envio à Acessórias
+{
+  assert.equal(g.guEnvio(null, false), null, 'sem integração: não mostra nada');
+  assert.equal(g.guEnvio(null, true).texto, 'Não enviada à Acessórias');
+  assert.equal(g.guEnvio({ status: 'enviado' }, true).tom, 'ok');
+  assert.equal(g.guEnvio({ status: 'erro', mensagem: 'Entrega inexistente' }, true).texto, 'Erro no envio à Acessórias');
+  const l = [{ id: 'a', guia: { id: 1, envio: { status: 'enviado' } } }, { id: 'b', guia: { id: 2, envio: { status: 'erro' } } }, { id: 'c', guia: { id: 3, envio: null } }, { id: 'd', guia: null }];
+  assert.deepEqual(g.guPendentesEnvio(l).map((e: any) => e.id), ['b', 'c']);
+  console.log('ok  envio à Acessórias: situação da guia e pendentes para o lote');
+}
+
 console.log('\nTestes da tela de Guias passaram.');

@@ -37,6 +37,18 @@ function guDas(g, regime, hoje) {
   return { tom: 'ok', simbolo: '✓', texto: `${guMoeda(g.total)}${venc ? ` · vence ${guData(venc)}` : ''}` };
 }
 
+/** Envio da guia ao Sistema Acessórias. `configurada`: a integração tem token. */
+function guEnvio(envio, configurada) {
+  if (!envio) return configurada ? { tom: 'neutro', simbolo: '–', texto: 'Não enviada à Acessórias' } : null;
+  if (envio.status === 'enviado') return { tom: 'ok', simbolo: '✓', texto: 'Enviada à Acessórias' };
+  return { tom: 'pendente', simbolo: '!', texto: 'Erro no envio à Acessórias' };
+}
+
+/** Guias vigentes da lista ainda não aceitas pela Acessórias (com PDF). */
+function guPendentesEnvio(empresas) {
+  return empresas.filter((e) => e.guia && e.guia.id && (!e.guia.envio || e.guia.envio.status !== 'enviado'));
+}
+
 /** Números da tela: só empresas do Simples e MEI (as que têm DAS nesta etapa). */
 function guResumo(empresas) {
   const alvo = empresas.filter((e) => GU_REGIMES.includes(e.regime));
@@ -70,7 +82,7 @@ function guFiltrar(empresas, f = {}) {
   });
 }
 
-if (typeof module !== 'undefined') module.exports = { guProcuracao, guDeclaracao, guDas, guResumo, guFiltrar };
+if (typeof module !== 'undefined') module.exports = { guProcuracao, guDeclaracao, guDas, guEnvio, guPendentesEnvio, guResumo, guFiltrar };
 
 /* ---------- telas ---------- */
 if (typeof window !== 'undefined') {
@@ -196,12 +208,17 @@ if (typeof window !== 'undefined') {
         type: 'button', class: `vg-chip-f${gu.filtro.grupo === k ? ' ativo' : ''}`, 'aria-pressed': String(gu.filtro.grupo === k),
         onclick: () => { gu.filtro.grupo = k; guRender(); },
       }, t))));
+    const ac = d.acessorias && d.acessorias.configurado;
+    const pendEnvio = ac ? guPendentesEnvio(lista) : [];
     const acoes = pronto ? h('div', { class: 'gu-acoes' },
       h('span', { class: 'meta', text: sel.length ? `${sel.length} selecionada${sel.length === 1 ? '' : 's'}` : 'Selecione empresas para agir em lote' }),
       h('button', { type: 'button', class: 'botao pequeno', disabled: !sel.length, onclick: () => { gu.confirmar = { acao: 'procuracao', ids: sel }; guRender(); } }, icone('key-round'), `Verificar procuração${sel.length ? ` (${sel.length})` : ''}`),
-      h('button', { type: 'button', class: 'botao pequeno primario', disabled: !sel.length, onclick: () => { gu.confirmar = { acao: 'das', ids: sel }; guRender(); } }, icone('receipt'), `Gerar DAS${sel.length ? ` (${sel.length})` : ''}`)) : null;
+      h('button', { type: 'button', class: 'botao pequeno primario', disabled: !sel.length, onclick: () => { gu.confirmar = { acao: 'das', ids: sel }; guRender(); } }, icone('receipt'), `Gerar DAS${sel.length ? ` (${sel.length})` : ''}`),
+      ac ? h('button', { type: 'button', class: 'botao pequeno', disabled: !pendEnvio.length, title: 'Envia o PDF das guias desta lista que ainda não foram aceitas pela Acessórias', onclick: () => { gu.confirmar = { acao: 'enviar', ids: pendEnvio.map((e) => e.id) }; guRender(); } }, icone('arrow-right'), `Enviar à Acessórias${pendEnvio.length ? ` (${pendEnvio.length})` : ''}`) : null) : null;
     const conf = gu.confirmar ? h('div', { class: 'sped-aviso gu-confirmar', role: 'alertdialog', 'aria-label': 'Confirmar ação em lote' }, icone('triangle-alert'),
-      h('span', { text: `${gu.confirmar.acao === 'das' ? 'Gerar o DAS de' : 'Verificar a procuração de'} ${gu.confirmar.ids.length} empresa${gu.confirmar.ids.length === 1 ? '' : 's'}: são ${gu.confirmar.ids.length} chamada${gu.confirmar.ids.length === 1 ? '' : 's'} ao SERPRO, cobradas no contrato do escritório.${gu.confirmar.acao === 'das' ? ' Quem já tem DAS da competência dentro do vencimento fica de fora.' : ''}${gu.confirmar.ids.length > 100 ? ' Máximo de 100 por vez.' : ''}` }),
+      h('span', { text: gu.confirmar.acao === 'enviar'
+        ? `Enviar à Acessórias o PDF de ${gu.confirmar.ids.length} guia${gu.confirmar.ids.length === 1 ? '' : 's'} (a mais recente de cada empresa). O que já foi aceito não é enviado de novo.`
+        : `${gu.confirmar.acao === 'das' ? 'Gerar o DAS de' : 'Verificar a procuração de'} ${gu.confirmar.ids.length} empresa${gu.confirmar.ids.length === 1 ? '' : 's'}: são ${gu.confirmar.ids.length} chamada${gu.confirmar.ids.length === 1 ? '' : 's'} ao SERPRO, cobradas no contrato do escritório.${gu.confirmar.acao === 'das' ? ' Quem já tem DAS da competência dentro do vencimento fica de fora.' : ''}${gu.confirmar.ids.length > 100 ? ' Máximo de 100 por vez.' : ''}` }),
       h('button', { type: 'button', class: 'botao pequeno fantasma', onclick: () => { gu.confirmar = null; guRender(); } }, 'Cancelar'),
       h('button', { type: 'button', class: 'botao pequeno primario', onclick: (ev) => guLote(ev.currentTarget) }, h('span', { text: 'Confirmar' }))) : null;
     const marcarTodos = h('input', { type: 'checkbox', 'aria-label': 'Selecionar todas as empresas da lista', checked: lista.filter(podeSel).length > 0 && lista.filter(podeSel).every((e) => gu.selecionados.has(e.id)),
@@ -220,7 +237,7 @@ if (typeof window !== 'undefined') {
         h('td', { text: GU_REGIME_TEXTO[e.regime] || 'Não informado' }),
         h('td', {}, guCelula(guProcuracao(e.procuracao))),
         h('td', {}, guCelula(guDeclaracao(e.declaracao, e.regime))),
-        h('td', {}, guCelula(guDas(e.guia, e.regime, hoje)), resultado(e)),
+        h('td', {}, guCelula(guDas(e.guia, e.regime, hoje)), e.guia && guEnvio(e.guia.envio, ac) ? h('div', { class: 'gu-envio' }, guCelula(guEnvio(e.guia.envio, ac))) : null, resultado(e)),
         h('td', { class: 'vg-acoes' }, abrir(e)))))));
     const cartoes = h('ul', { class: 'fc-cartoes gu-cartoes' }, ...lista.map((e) => h('li', { class: 'fc-cartao' },
       h('div', { class: 'fc-cartao-topo' },
@@ -229,7 +246,8 @@ if (typeof window !== 'undefined') {
       h('ul', { class: 'fc-cartao-pend' },
         h('li', {}, h('span', { class: 'meta gu-rotulo', text: 'Procuração' }), guCelula(guProcuracao(e.procuracao))),
         e.regime === 'simples' ? h('li', {}, h('span', { class: 'meta gu-rotulo', text: 'PGDAS-D' }), guCelula(guDeclaracao(e.declaracao, e.regime))) : null,
-        h('li', {}, h('span', { class: 'meta gu-rotulo', text: 'DAS' }), guCelula(guDas(e.guia, e.regime, hoje)))),
+        h('li', {}, h('span', { class: 'meta gu-rotulo', text: 'DAS' }), guCelula(guDas(e.guia, e.regime, hoje))),
+        e.guia && guEnvio(e.guia.envio, ac) ? h('li', {}, h('span', { class: 'meta gu-rotulo', text: 'Acessórias' }), guCelula(guEnvio(e.guia.envio, ac))) : null),
       resultado(e),
       h('div', { class: 'fc-cartao-rodape' }, h('span'), abrir(e)))));
     return h('section', { class: 'vg-card gu-lista', 'aria-labelledby': 'gu-lista-titulo' },
@@ -248,6 +266,16 @@ if (typeof window !== 'undefined') {
 
   async function guLote(botao) {
     const { acao, ids } = gu.confirmar;
+    if (acao === 'enviar') {
+      await comOcupado(botao, 'Enviando…', async () => {
+        const r = await chamar('/api/guias/enviar-pendentes', { method: 'POST', body: { mes: competencia, ids } });
+        const okN = r.resultados.filter((x) => x.ok).length;
+        gu.confirmar = null;
+        avisar(`${okN} de ${r.resultados.length} guia${r.resultados.length === 1 ? '' : 's'} aceita${okN === 1 ? '' : 's'} pela Acessórias.${okN < r.resultados.length ? ' Veja os erros na aba Guias de cada empresa.' : ''}`, { tipo: okN === r.resultados.length ? 'ok' : 'erro' });
+        await guCarregar();
+      }, 'gu-enviar');
+      return;
+    }
     await comOcupado(botao, acao === 'das' ? 'Gerando…' : 'Verificando…', async () => {
       const r = await chamar('/api/guias/lote', { method: 'POST', body: { acao, ids, mes: competencia } });
       for (const x of r.resultados) gu.resultados.set(x.id, x);
@@ -346,6 +374,7 @@ if (typeof window !== 'undefined') {
         Number(guiaMes.multa) || Number(guiaMes.juros) ? h('li', {}, h('span', { text: 'Multa / juros' }), h('strong', { text: `${guMoeda(guiaMes.multa)} / ${guMoeda(guiaMes.juros)}` })) : null,
         guiaMes.numero_documento ? h('li', {}, h('span', { text: 'Nº do documento' }), h('strong', { class: 'mono', text: guiaMes.numero_documento })) : null,
         h('li', {}, h('span', { text: 'Gerado' }), h('strong', { text: `${guQuando(guiaMes.gerado_em)} · ${guiaMes.gerado_por}` }))) : null,
+      guiaMes ? guLinhaEnvio(guiaMes, d.acessorias) : null,
       guiaMes && Array.isArray(guiaMes.composicao) && guiaMes.composicao.length ? h('details', { class: 'gu-composicao' }, h('summary', { text: 'Composição por tributo' }),
         h('ul', { class: 'e360-lista-num' }, ...guiaMes.composicao.map((c) => h('li', {}, h('span', { text: c.denominacao || c.codigo }), h('strong', { text: guMoeda(c.total) }))))) : null,
       h('div', { class: 'gu-botoes' },
@@ -363,14 +392,36 @@ if (typeof window !== 'undefined') {
       h('ul', { class: 'sped-envios' }, ...outras.map((g) => h('li', {},
         h('span', { class: 'selo neutro', text: textoCompetencia(String(g.competencia).slice(0, 7)) }),
         h('strong', { text: `${guMoeda(g.total)}${g.vencimento ? ` · vence ${guData(g.vencimento)}` : ''}` }),
-        h('span', { class: 'meta', text: `${guQuando(g.gerado_em)} · ${g.gerado_por}${g.numero_documento ? ` · nº ${g.numero_documento}` : ''}` }),
+        h('span', { class: 'meta', text: `${guQuando(g.gerado_em)} · ${g.gerado_por}${g.numero_documento ? ` · nº ${g.numero_documento}` : ''}${g.envio ? ` · ${g.envio.status === 'enviado' ? 'enviada à Acessórias' : 'erro no envio à Acessórias'}` : ''}` }),
         g.caminho ? h('button', { type: 'button', class: 'botao pequeno', onclick: (ev) => guBaixar(g.id, ev.currentTarget) }, h('span', { text: 'Baixar' })) : null)))) : null;
     const semPermissao = pronto && !pode('operar') ? h('p', { class: 'meta', text: 'Seu perfil só consulta: peça a um analista para verificar procurações e gerar guias.' }) : null;
     alvo.replaceChildren(...[guIntegraCard(d.integra, true), semPermissao, h('div', { class: 'sped-cards' }, cardProc, cardDecl, cardDas), historico].filter(Boolean));
   }
 
+  /** Situação do envio à Acessórias de uma guia, com Enviar/Reenviar. */
+  function guLinhaEnvio(g, ac) {
+    const configurada = ac && ac.configurado;
+    const info = guEnvio(g.envio, configurada);
+    if (!info) return null;
+    const podeEnviar = configurada && pode('operar') && g.caminho;
+    const enviar = (forcar) => async () => {
+      const r = await chamar(`/api/guias/${g.id}/enviar`, { method: 'POST', body: { forcar } });
+      avisar(r.status === 'enviado' ? 'Guia aceita pela Acessórias.' : `A Acessórias não aceitou: ${r.mensagem}`, { tipo: r.status === 'enviado' ? 'ok' : 'erro' });
+      await guEmpresaCarregar();
+    };
+    const e = g.envio;
+    return h('div', { class: 'gu-envio-caixa' },
+      guCelula(info),
+      e ? h('span', { class: 'meta', text: `${guQuando(e.enviado_em)} · ${e.enviado_por}${e.status === 'enviado' && e.caminho_destino ? ` · ${e.caminho_destino}` : ''}` }) : null,
+      e && e.status === 'erro' ? h('p', { class: 'meta gu-envio-erro', text: e.mensagem }) : null,
+      e && e.status === 'erro' && /inexistente/i.test(e.mensagem || '') ? h('p', { class: 'meta', text: 'A Acessórias só aceita a guia quando a obrigação (entrega) desta competência existe para a empresa lá. Confira a obrigação do DAS no cadastro da empresa na Acessórias e reenvie.' }) : null,
+      podeEnviar ? h('div', { class: 'gu-botoes' }, !e
+        ? h('button', { type: 'button', class: 'botao pequeno', onclick: (ev) => comOcupado(ev.currentTarget, 'Enviando…', enviar(false), `gu-env-${g.id}`) }, icone('arrow-right'), h('span', { text: 'Enviar à Acessórias' }))
+        : h('button', { type: 'button', class: 'botao pequeno', onclick: (ev) => comOcupado(ev.currentTarget, 'Enviando…', enviar(true), `gu-env-${g.id}`) }, icone('refresh-cw'), h('span', { text: e.status === 'enviado' ? 'Enviar de novo' : 'Reenviar' }))) : null);
+  }
+
   /* ----- Administração › Escritório (#/escritorio) ----- */
-  var es = { dados: null, erro: null, editandoChaves: false, confirmarRemover: false };
+  var es = { dados: null, acessorias: null, erro: null, editandoChaves: false, confirmarRemover: false, editandoAcessorias: false, confirmarRemoverAc: false };
   function esMostrar() {
     for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias']) $(id).hidden = true;
     $('tela-escritorio').hidden = false;
@@ -379,7 +430,10 @@ if (typeof window !== 'undefined') {
   }
 
   async function esCarregar() {
-    try { es.dados = await chamar('/api/guias/situacao'); es.erro = null; } catch (e) { es.erro = e.message; }
+    try {
+      const [sit, ac] = await Promise.all([chamar('/api/guias/situacao'), chamar('/api/acessorias')]);
+      es.dados = sit; es.acessorias = ac; es.erro = null;
+    } catch (e) { es.erro = e.message; }
     esRender();
   }
 
@@ -425,7 +479,71 @@ if (typeof window !== 'undefined') {
           h('button', { type: 'button', class: 'botao primario', onclick: () => abrirGaveta(empresa, 'escritorio') }, icone('key-round'), 'Trocar certificado'),
           h('a', { class: 'botao', href: `#/empresas/${esc.id}` }, 'Abrir empresa')));
     }
-    alvo.replaceChildren(card, esCardChaves(s), guIntegraCard(s, false));
+    alvo.replaceChildren(card, esCardChaves(s), guIntegraCard(s, false), esCardAcessorias(es.acessorias));
+  }
+
+  /** Sistema Acessórias: API Token (cifrado) e envio automático das guias pelo e-Contínuo. */
+  function esCardAcessorias(a) {
+    if (!a) return null;
+    const podeEditar = pode('configuracoes');
+    const aberto = es.editandoAcessorias || (!a.configurado && podeEditar);
+    const topo = h('div', { class: 'vg-card-topo' },
+      h('div', {}, h('h2', { class: 'vg-card-titulo', text: 'Sistema Acessórias' }),
+        h('p', { class: 'meta', text: 'As guias em PDF vão para a Acessórias pelo e-Contínuo: ela lê CNPJ, competência, vencimento e valor do PDF e baixa a entrega da obrigação da empresa.' })),
+      h('span', { class: `selo ${a.configurado ? 'ok' : 'neutro'}`, text: a.configurado ? 'Conectado' : 'Não configurado' }));
+    const partes = [topo];
+    if (a.configurado) {
+      partes.push(h('ul', { class: 'e360-lista-num' },
+        h('li', {}, h('span', { text: 'API Token' }), h('strong', { text: `••••${a.finalToken || ''}` })),
+        h('li', {}, h('span', { text: 'Envio automático do DAS' }), h('span', { class: `selo ${a.envioAutomatico ? 'ok' : 'neutro'}`, text: a.envioAutomatico ? 'Ligado' : 'Desligado' })),
+        h('li', {}, h('span', { text: 'Envios nos últimos 30 dias' }), h('strong', { text: `${a.envios30d.total}${a.envios30d.erros ? ` (${a.envios30d.erros} com erro)` : ''}` })),
+        h('li', {}, h('span', { text: 'Cadastrado' }), h('strong', { text: `${guQuando(a.atualizadoEm)} · ${a.atualizadoPor}` }))));
+    }
+    if (!podeEditar) {
+      partes.push(h('p', { class: 'meta', text: 'Só um administrador configura a integração.' }));
+    } else if (!aberto) {
+      partes.push(h('div', { class: 'gu-botoes' },
+        h('button', { type: 'button', class: 'botao pequeno', onclick: (ev) => comOcupado(ev.currentTarget, 'Testando…', async () => { const r = await chamar('/api/acessorias/testar', { method: 'POST' }); avisar(r.mensagem, { tipo: r.ok ? 'ok' : 'erro' }); }, 'es-ac-testar') }, icone('refresh-cw'), h('span', { text: 'Testar token' })),
+        h('button', { type: 'button', class: 'botao pequeno', onclick: (ev) => comOcupado(ev.currentTarget, 'Salvando…', async () => {
+          es.acessorias = await chamar('/api/acessorias', { method: 'POST', body: { envioAutomatico: !a.envioAutomatico } }); esRender();
+        }, 'es-ac-auto') }, h('span', { text: a.envioAutomatico ? 'Desligar envio automático' : 'Ligar envio automático' })),
+        h('button', { type: 'button', class: 'botao pequeno', onclick: () => { es.editandoAcessorias = true; esRender(); } }, icone('key-round'), 'Trocar token'),
+        es.confirmarRemoverAc
+          ? h('span', { class: 'gu-botoes' }, h('button', { type: 'button', class: 'botao pequeno fantasma', onclick: () => { es.confirmarRemoverAc = false; esRender(); } }, 'Cancelar'),
+            h('button', { type: 'button', class: 'botao pequeno perigo-cheio', onclick: (ev) => comOcupado(ev.currentTarget, 'Removendo…', async () => {
+              es.acessorias = await chamar('/api/acessorias', { method: 'DELETE' }); es.confirmarRemoverAc = false; avisar('Integração com a Acessórias removida.', { tipo: 'ok' }); esRender();
+            }, 'es-ac-remover') }, h('span', { text: 'Confirmar remoção' })))
+          : h('button', { type: 'button', class: 'botao pequeno perigo', onclick: () => { es.confirmarRemoverAc = true; esRender(); } }, 'Remover')));
+    } else {
+      const form = h('form', { class: 'es-chaves', autocomplete: 'off', novalidate: true, onsubmit: (ev) => { ev.preventDefault(); esSalvarAcessorias(form); } },
+        h('p', { class: 'meta', text: 'Na Acessórias: ícone de engrenagem (canto superior direito) › API Token. O envio usa as permissões desse usuário.' }),
+        h('label', { class: 'campo' }, h('span', { text: 'API Token' }),
+          h('div', { class: 'senha' }, h('input', { id: 'es-ac-token', type: 'password', required: true, autocomplete: 'new-password', spellcheck: 'false', maxlength: '500' }),
+            h('button', { type: 'button', class: 'botao fantasma pequeno', 'aria-pressed': 'false', onclick: (ev) => { const i = $('es-ac-token'); const m = i.type === 'password'; i.type = m ? 'text' : 'password'; ev.currentTarget.textContent = m ? 'Ocultar' : 'Mostrar'; ev.currentTarget.setAttribute('aria-pressed', String(m)); } }, 'Mostrar'))),
+        h('label', { class: 'checar' }, h('input', { id: 'es-ac-auto', type: 'checkbox', checked: a.configurado ? a.envioAutomatico : true }),
+          h('span', {}, h('strong', { text: 'Enviar cada DAS assim que for gerado' }), h('small', { text: 'Sem isso, o envio é pelo botão na guia ou em lote na tela Guias.' }))),
+        h('p', { id: 'es-ac-erro', class: 'erro', role: 'alert', hidden: true }),
+        h('div', { class: 'gu-botoes' },
+          a.configurado ? h('button', { type: 'button', class: 'botao fantasma', onclick: () => { es.editandoAcessorias = false; esRender(); } }, 'Cancelar') : null,
+          h('button', { type: 'submit', class: 'botao primario' }, h('span', { text: 'Salvar token' }))));
+      partes.push(form);
+    }
+    return h('section', { class: 'vg-card' }, ...partes);
+  }
+
+  async function esSalvarAcessorias(form) {
+    const erro = $('es-ac-erro');
+    const token = $('es-ac-token').value.trim();
+    erro.hidden = true;
+    if (!token) { erro.textContent = 'Cole o API Token da Acessórias.'; erro.hidden = false; $('es-ac-token').setAttribute('aria-invalid', 'true'); return; }
+    await comOcupado(form.querySelector('button[type=submit]'), 'Salvando…', async () => {
+      try {
+        es.acessorias = await chamar('/api/acessorias', { method: 'POST', body: { token, envioAutomatico: $('es-ac-auto').checked } });
+      } catch (e) { erro.textContent = e.message; erro.hidden = false; return; }
+      es.editandoAcessorias = false;
+      avisar('Token da Acessórias salvo. Use "Testar token" para conferir.', { tipo: 'ok' });
+      esRender();
+    }, 'es-ac-salvar');
   }
 
   /** Consumer Key e Secret do contrato do SERPRO: só o administrador cadastra; ninguém vê o valor depois de salvo. */
