@@ -244,3 +244,11 @@ Toda área que depende da API trata os estados abaixo:
 - **Folha inferior:** "+ Ações" abre a folha com alça, título, itens de 52px, fechar, ESC e fundo clicável. Rola se houver muitas ações.
 - **Toque:** botões, campos, selects e ícones com 44px no mínimo. O "?" usa área de toque estendida.
 - **Safe areas:** topo no header, base na barra inferior, na folha e no aviso.
+
+---
+
+## 12. Decisões registradas na aprovação do Checkpoint 5 (30/09/2026)
+- O redesign está encerrado. Daqui em diante, as fases são fiscais e constroem sobre este Design System, sem reinventar interface.
+- Trocar de aba na Empresa 360° **não** cria passo no histórico do navegador: "voltar" leva à página anterior, como aprovado no CP4.
+- Os breakpoints legados (374, 560, 700 e 900px) ficam como estão enquanto funcionarem. Telas novas usam 760, 1024, 1280 e 1600px.
+- A tela Empresas mantém o layout aprovado, inclusive os cabeçalhos em caixa alta. Não haverá mudança só estética.
