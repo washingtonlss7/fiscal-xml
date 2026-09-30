@@ -48,6 +48,7 @@ const ARQUIVOS: Record<string, [string, string]> = {
   '/': ['index.html', 'text/html; charset=utf-8'],
   '/index.html': ['index.html', 'text/html; charset=utf-8'],
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
+  '/visao-geral.js': ['visao-geral.js', 'text/javascript; charset=utf-8'],
   '/app.css': ['app.css', 'text/css; charset=utf-8'],
   '/manifest.webmanifest': ['manifest.webmanifest', 'application/manifest+json; charset=utf-8'],
   '/sw.js': ['sw.js', 'text/javascript; charset=utf-8'],
@@ -246,6 +247,15 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
 
   // Avisos em tempo real para a tela (stream de texto). O navegador recarrega a lista quando chega "mudou".
   if (metodo === 'GET' && rota === '/api/eventos') return abrirEventos(req, res);
+
+  // Visão Geral: tudo agregado numa chamada só ao banco (painel_visao_geral)
+  if (metodo === 'GET' && rota === '/api/visao-geral') {
+    const mes = url.searchParams.get('mes') ?? '';
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(mes)) throw new ErroHttp(400, 'Competência inválida. Use AAAA-MM.');
+    const { data, error } = await db.rpc('painel_visao_geral', { p_competencia: `${mes}-01` });
+    if (error) throw new Error(`visão geral: ${error.message}`);
+    return responder(res, 200, data);
+  }
 
   if (metodo === 'GET' && rota === '/api/empresas') {
     const linhas = await buscarTodos(

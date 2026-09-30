@@ -359,7 +359,7 @@ function trocarIcone(svg, nome) { svg.querySelector('use').setAttribute('href', 
  * "permissao" esconde o item de quem não pode usar (o servidor confere de novo em cada chamada).
  */
 const NAV = [
-  { id: 'visao-geral', rotulo: 'Visão Geral', icone: 'layout-dashboard' },
+  { id: 'visao-geral', rotulo: 'Visão Geral', icone: 'layout-dashboard', rota: '#/visao-geral' },
   { id: 'empresas', rotulo: 'Empresas', icone: 'building-2', rota: '#/empresas' },
   { id: 'captacao', rotulo: 'Captação', icone: 'cloud-download', filhos: [
     { rotulo: 'Monitor' }, { rotulo: 'Lacunas / NSU' }, { rotulo: 'Importações' }, { rotulo: 'Histórico' },
@@ -424,9 +424,15 @@ function renderNav() {
   marcarNav();
 }
 
+function rotaBase() {
+  const h = location.hash;
+  if (h.startsWith('#/usuarios')) return '#/usuarios';
+  if (h.startsWith('#/empresas')) return '#/empresas';
+  return '#/visao-geral';
+}
 function marcarNav() {
-  const r = location.hash.startsWith('#/usuarios') ? '#/usuarios' : '#/empresas';
-  for (const a of document.querySelectorAll('#nav-principal a.nav-item')) {
+  const r = rotaBase();
+  for (const a of document.querySelectorAll('#nav-principal a.nav-item, #nav-inferior a[data-rota]')) {
     if (a.dataset.rota === r) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   }
 }
@@ -502,6 +508,7 @@ function definirCompetencia(v, recarregar = true) {
   try { sessionStorage.setItem('appura-competencia', v); } catch { /* ok */ }
   if ($('notas-mes').value !== v) $('notas-mes').value = v;
   if (mudou && recarregar && !$('tela-notas').hidden) recarregarAba();
+  if (mudou) window.dispatchEvent(new CustomEvent('appura:competencia', { detail: v }));
 }
 
 /* Busca global: filtra a lista de empresas */
@@ -527,6 +534,7 @@ function atualizarSino() {
 }
 function abrirSino() {
   filtro = 'problema';
+  termo = ''; $('busca').value = '';
   irPara('#/empresas');
   renderResumo();
   renderLista();
@@ -557,23 +565,38 @@ async function aplicarRota() {
   if (!sessao || $('tela-app').hidden) return;
   fecharMenuCelular();
   alternarMenuUsuario(false);
-  const r = location.hash || '#/empresas';
-  const emp = r.match(/^#\/empresas\/([0-9a-f-]{36})$/);
-  if (r === '#/usuarios' && pode('usuarios')) {
-    if ($('tela-usuarios').hidden) { empresaNotas = null; abrirUsuarios(); }
+  const r = location.hash || '#/visao-geral';
+  const emp = r.match(/^#\/empresas\/([0-9a-f-]{36})(\/auditoria)?$/);
+  const esconderTudo = (menos) => {
+    for (const id of ['tela-visao', 'tela-empresas', 'tela-notas', 'tela-usuarios']) if (id !== menos) $(id).hidden = true;
+  };
+  if (r === '#/visao-geral') {
+    esconderTudo('tela-visao');
+    empresaNotas = null;
+    fecharGavetaUsuario();
+    window.vgMostrar();
+  } else if (r === '#/usuarios' && pode('usuarios')) {
+    if ($('tela-usuarios').hidden) { esconderTudo('tela-usuarios'); empresaNotas = null; abrirUsuarios(); }
   } else if (emp) {
     let e = empresas.find((x) => x.id === emp[1]);
     if (!e) { await carregarEmpresas(); e = empresas.find((x) => x.id === emp[1]); }
     if (!e) { location.replace('#/empresas'); return; }
+    const aba = emp[2] ? 'auditoria' : 'notas';
     if (!empresaNotas || empresaNotas.id !== e.id || $('tela-notas').hidden) {
-      $('tela-usuarios').hidden = true;
+      esconderTudo('tela-notas');
       fecharGavetaUsuario();
-      abrirNotas(e);
-    }
+      abrirNotas(e, aba);
+    } else if (abaAtual !== aba) trocarAba(aba, false);
+  } else if (r === '#/empresas') {
+    const vindoDeOutra = $('tela-empresas').hidden;
+    esconderTudo('tela-empresas');
+    $('tela-empresas').hidden = false;
+    empresaNotas = null;
+    fecharGavetaUsuario();
+    if (vindoDeOutra) { window.scrollTo(0, 0); carregarEmpresas(); iniciarAtualizacao(); }
   } else {
-    if (r !== '#/empresas') { location.replace('#/empresas'); return; }
-    if (!$('tela-usuarios').hidden) fecharUsuarios();
-    else if (!$('tela-notas').hidden) fecharNotas();
+    location.replace('#/visao-geral');
+    return;
   }
   marcarNav();
 }
@@ -597,6 +620,13 @@ function ligarShell() {
   $('busca-global-form').addEventListener('submit', (e) => { e.preventDefault(); buscarGlobal(true); });
   $('busca-global').addEventListener('input', () => buscarGlobal(false));
   $('botao-sino').addEventListener('click', abrirSino);
+  $('filtro-status-limpar').addEventListener('click', () => { filtro = 'todas'; renderResumo(); renderLista(); });
+  $('nav-inf-notificacoes').addEventListener('click', abrirSino);
+  $('nav-inf-mais').addEventListener('click', () => { $('tela-app').classList.add('menu-aberto'); atualizarBotaoLateral(); });
+  $('nav-inf-pendencias').addEventListener('click', () => {
+    if (location.hash !== '#/visao-geral') irPara('#/visao-geral');
+    window.vgFocarPendencias();
+  });
 
   $('usuario-botao').addEventListener('click', (e) => { e.stopPropagation(); alternarMenuUsuario(); });
   document.addEventListener('click', (e) => { if (!e.target.closest('.usuario-menu')) alternarMenuUsuario(false); });
@@ -681,11 +711,17 @@ function renderLista() {
   const t = termo.toLowerCase();
   const td = soDigitos(termo);
   const visiveis = empresas.filter((e) =>
-    (filtro === 'todas' || grupoDe(e) === filtro) &&
+    (filtro === 'todas' || grupoDe(e) === filtro || (filtro.startsWith('status:') && filtro.slice(7).split(',').includes(e.status))) &&
     (!t || e.razao_social.toLowerCase().includes(t) || (td && e.cnpj.includes(td)) || (e.codigo_erp || '').toLowerCase().includes(t)));
 
   const lista = $('lista');
   const vazio = $('vazio');
+  const chip = $('filtro-status');
+  chip.hidden = !filtro.startsWith('status:');
+  if (!chip.hidden) {
+    const nomes = filtro.slice(7).split(',').map((st) => (STATUS[st] ? STATUS[st].texto({ dias_para_vencer: 30 }) : st));
+    $('filtro-status-texto').textContent = `Mostrando: ${nomes.join(', ')}`;
+  }
   if (!empresas.length) {
     lista.replaceChildren();
     vazio.textContent = 'Nenhuma empresa cadastrada ainda. Use "Adicionar empresa" para enviar o primeiro certificado.';
@@ -736,6 +772,7 @@ function recarregarPorEvento() {
   recargaPendente = setTimeout(() => {
     if (document.hidden) return;
     if (!$('tela-empresas').hidden) carregarEmpresas();
+    else if (!$('tela-visao').hidden) { carregarEmpresas(); window.vgCarregar(); }
     else if (empresaNotas && abaAtual === 'auditoria') carregarAuditoria();
   }, 400);
 }
@@ -957,7 +994,7 @@ function filtroQuery() {
   return p.toString();
 }
 
-function abrirNotas(e) {
+function abrirNotas(e, aba = 'notas') {
   empresaNotas = e;
   pararAtualizacao();
   $('tela-empresas').hidden = true;
@@ -967,7 +1004,7 @@ function abrirNotas(e) {
   $('notas-sub').textContent = `${formatarCnpj(e.cnpj)} · ${e.uf}${e.regime ? ' · ' + (REGIMES[e.regime] || e.regime) : ''}`;
   $('notas-mes').value = competencia || mesAtual();
   window.scrollTo(0, 0);
-  trocarAba('notas');
+  trocarAba(aba, false);
 }
 
 function fecharNotas() {
@@ -1163,8 +1200,11 @@ const ORDEM_SEV = { erro: 0, alerta: 1, info: 2 };
 const SEV_TEXTO = { erro: 'Erro', alerta: 'Alerta', info: 'Informativo' };
 const SEV_TOM = { erro: 'problema', alerta: 'atencao', info: 'neutro' };
 
-function trocarAba(aba) {
+function trocarAba(aba, atualizarEndereco = true) {
   abaAtual = aba;
+  if (atualizarEndereco && empresaNotas) {
+    history.replaceState(null, '', `#/empresas/${empresaNotas.id}${aba === 'auditoria' ? '/auditoria' : ''}`);
+  }
   $('aba-notas').classList.toggle('ativa', aba === 'notas');
   $('aba-auditoria').classList.toggle('ativa', aba === 'auditoria');
   $('aba-notas').setAttribute('aria-selected', String(aba === 'notas'));
@@ -1172,7 +1212,7 @@ function trocarAba(aba) {
   $('painel-notas').hidden = aba !== 'notas';
   $('painel-auditoria').hidden = aba !== 'auditoria';
   $('notas-zip').hidden = aba !== 'notas';
-  $('notas-importar').hidden = aba !== 'notas';
+  $('notas-importar').hidden = aba !== 'notas' || !pode('operar');
   for (const el of document.querySelectorAll('.so-notas')) el.hidden = aba !== 'notas';
   recarregarAba();
 }
@@ -1432,7 +1472,7 @@ async function abrirApp() {
   $('tela-login').hidden = true;
   $('tela-app').hidden = false;
   $('tela-notas').hidden = true;
-  $('tela-empresas').hidden = false;
+  $('tela-empresas').hidden = true;
   empresaNotas = null;
   $('tela-usuarios').hidden = true;
   $('tela-app').classList.toggle('recolhida', lerPreferenciaLateral());
@@ -1453,7 +1493,7 @@ async function abrirApp() {
   $('aud-refazer').hidden = !pode('operar');
   $('st-tabela-enviar').hidden = !pode('configuracoes');
   await carregarEmpresas();
-  iniciarAtualizacao();
+  if (!location.hash) history.replaceState(null, '', '#/visao-geral');
   aplicarRota();
 }
 

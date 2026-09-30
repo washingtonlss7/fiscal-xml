@@ -1,0 +1,95 @@
+/**
+ * Visão Geral: cálculo dos indicadores só com dados reais.
+ *
+ *   npx tsx test/visao-geral.test.ts
+ */
+import assert from 'assert';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const vg = require('../public/visao-geral.js');
+
+const emp = (x: Record<string, unknown>) => ({
+  id: 'e', cnpj: '55885998000140', razao_social: 'Empresa', uf: 'ES', regime: 'simples', ativo: true, escritorio: false,
+  criado_em: '2026-01-10T10:00:00Z', status: 'ok', certificado_valido_ate: '2027-01-01', dias_para_vencer: 90,
+  ultima_sync_ok_em: '2026-09-29T05:00:00Z', notas_mes: 10, nao_auditadas: 0, ultima_nota_em: '2026-09-28T05:00:00Z',
+  apont_abertos: 0, apont_total: 0, ...x,
+});
+
+const dados = {
+  competencia: '2026-09-01',
+  geradoEm: '2026-09-30T05:00:00Z',
+  empresas: [
+    emp({ id: 'a', razao_social: 'Alfa', status: 'ok', notas_mes: 100, apont_abertos: 3, apont_total: 10, criado_em: '2026-09-03T10:00:00Z' }),
+    emp({ id: 'b', razao_social: 'Beta', status: 'certificado_vencido', regime: 'presumido', notas_mes: 0 }),
+    emp({ id: 'c', razao_social: 'Gama', status: 'atrasada', notas_mes: 5 }),
+    emp({ id: 'd', razao_social: 'Delta', status: 'certificado_vencendo', notas_mes: 8, nao_auditadas: 2, regime: null }),
+    emp({ id: 'p', razao_social: 'Pausada', ativo: false, status: 'pausada' }),
+  ],
+  captacao: [{ empresa_id: 'a', dia: '2026-09-02' }, { empresa_id: 'c', dia: '2026-09-02' }, { empresa_id: 'd', dia: '2026-09-10' }, { empresa_id: 'p', dia: '2026-09-01' }],
+  auditoria: [{ empresa_id: 'a', dia: '2026-09-05', n: 4 }, { empresa_id: 'a', dia: '2026-09-20', n: 3 }],
+};
+
+// 1) KPIs
+{
+  const c = vg.vgCalcular(dados, '', '2026-09-30');
+  assert.equal(c.kpis.empresas, 4, 'pausada fora da base');
+  assert.equal(c.kpis.novas, 1);
+  assert.equal(c.kpis.xmlEmDia, 2, 'ok + vencendo contam como em dia');
+  assert.equal(c.kpis.certVencidos, 1);
+  assert.equal(c.kpis.certVencendo, 1);
+  assert.equal(c.kpis.comPendencias, 3, 'bloqueada, atrasada e com auditoria aberta');
+  console.log('ok  KPIs só com empresas ativas e situações reais');
+}
+
+// 2) Etapas: captação e auditoria reais; o resto indisponível
+{
+  const c = vg.vgCalcular(dados, '', '2026-09-30');
+  const et = Object.fromEntries(c.etapas.map((e: any) => [e.id, e]));
+  assert.deepEqual([et.xml.feito, et.xml.total], [2, 4]);
+  assert.deepEqual([et.auditoria.feito, et.auditoria.total], [1, 3], 'Gama auditada; Alfa com pendência; Delta ainda auditando');
+  for (const id of ['st', 'sped', 'validacao', 'guias']) assert.ok(et[id].indisponivel, id);
+  console.log('ok  etapas: captação e auditoria calculadas; ICMS-ST, SPED, validação e guias sem número inventado');
+}
+
+// 3) Evolução acumulada até hoje; pausada não entra
+{
+  const c = vg.vgCalcular(dados, '', '2026-09-15');
+  assert.equal(c.dias.length, 15);
+  const xml = c.series.find((s: any) => s.id === 'xml');
+  assert.equal(xml.valores[0], 0);
+  assert.equal(xml.valores[1], 50, 'dia 2: 2 de 4');
+  assert.equal(xml.valores[14], 75, 'dia 10: 3 de 4');
+  const aud = c.series.find((s: any) => s.id === 'auditoria');
+  assert.equal(aud.valores[4], 40, 'dia 5: 4 de 10 apontamentos');
+  assert.equal(aud.valores[14], 40, 'dia 20 ainda não chegou');
+  const fechado = vg.vgCalcular(dados, '', '2026-10-05');
+  assert.equal(fechado.dias.length, 30, 'mês passado mostra o mês inteiro');
+  const semHist = vg.vgCalcular({ ...dados, captacao: [], auditoria: [], empresas: dados.empresas.map((e: any) => ({ ...e, apont_total: 0 })) }, '', '2026-09-30');
+  assert.equal(semHist.series.length, 0, 'sem histórico: nenhuma curva inventada');
+  console.log('ok  evolução acumulada por dia, só com séries que têm dados');
+}
+
+// 4) Filtro de regime e da Central
+{
+  const c = vg.vgCalcular(dados, 'presumido', '2026-09-30');
+  assert.equal(c.kpis.empresas, 1);
+  assert.equal(vg.vgCalcular(dados, 'nao_informado', '2026-09-30').kpis.empresas, 1);
+  const todas = vg.vgCalcular(dados, '', '2026-09-30').lista;
+  assert.deepEqual(vg.vgFiltrarCentral(todas, { status: 'bloqueado' }).map((e: any) => e.id), ['b']);
+  assert.deepEqual(vg.vgFiltrarCentral(todas, { status: 'pendencias' }).map((e: any) => e.id), ['a', 'c']);
+  assert.deepEqual(vg.vgFiltrarCentral(todas, { foco: 'auditoria' }).map((e: any) => e.id), ['a']);
+  assert.deepEqual(vg.vgFiltrarCentral(todas, { termo: '55.885' }).length, 5);
+  assert.deepEqual(vg.vgFiltrarCentral(todas, { termo: 'gam' }).map((e: any) => e.id), ['c']);
+  console.log('ok  filtros de regime, status, auditoria pendente e busca');
+}
+
+// 5) Situação por coluna
+{
+  assert.equal(vg.vgXml(emp({ status: 'sem_certificado' })).tom, 'problema');
+  assert.equal(vg.vgXml(emp({ status: 'conflito_nsu' })).tom, 'atencao');
+  assert.equal(vg.vgAuditoria(emp({ notas_mes: 0 })).texto, 'Sem notas');
+  assert.equal(vg.vgAuditoria(emp({ apont_abertos: 1 })).texto, '1 pendência');
+  assert.equal(vg.vgGeral(emp({})).chave, 'andamento', 'nunca "Concluído" sem SPED e guias');
+  console.log('ok  situação de cada coluna e status geral');
+}
+
+console.log('\nTestes da Visão Geral passaram.');
