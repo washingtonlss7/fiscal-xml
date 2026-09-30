@@ -290,6 +290,7 @@ if (typeof window !== 'undefined') {
     $('e360-status').className = `selo ${g.tom}`;
     $('e360-status').textContent = g.texto;
     $('e360-selos').replaceChildren(...e360SelosBase(e));
+    spedAjustarAba();
   }
 
   function e360Esqueleto(n) { return Array.from({ length: n }, () => h('div', { class: 'vg-skel', 'aria-hidden': 'true' })); }
@@ -439,7 +440,7 @@ if (typeof window !== 'undefined') {
       h('td', { text: origem }), h('td', { text: usuario }), h('td', { class: 'vg-acoes' }, acao || h('span', { class: 'meta', text: '—' })));
     const linhas = [
       linha(`XMLs da competência (${e3Num(docs.total)})`, 'XML (NF-e, NFC-e, CT-e)', comp, 'Atualizado continuamente', 'SEFAZ e importações', '—',
-        docs.total ? h('button', { type: 'button', class: 'botao pequeno', onclick: () => baixarZip() }, 'Baixar ZIP') : null),
+        docs.total ? h('button', { type: 'button', class: 'botao pequeno', onclick: (ev) => baixarZip(ev.currentTarget) }, 'Baixar ZIP') : null),
       ...importacoes.map((x) => linha(`Importação de ${e3Num(x.dados.n)} documento${Number(x.dados.n) === 1 ? '' : 's'}`, 'XML/ZIP importado', '—', e3Quando(x.em), 'Importação pelo painel', 'Não registrado', null)),
     ];
     for (const a of d.spedArquivos || []) {
@@ -556,6 +557,9 @@ if (typeof window !== 'undefined') {
   /** Simples Nacional e MEI: a aba é do SINTEGRA (a não ser que já exista SPED enviado para a empresa no mês). */
   function spedModoSintegra() {
     if (!empresaNotas || !['simples', 'mei'].includes(empresaNotas.regime)) return false;
+    // Já existe SPED no mês (pelos dados da Empresa 360° ou pela aba carregada): a aba continua sendo SPED
+    const d = e3.dados;
+    if (d && d.empresa && d.empresa.id === empresaNotas.id && (d.sped || d.contrib)) return false;
     const est = e3.sped;
     return !(est && est.id === empresaNotas.id && ((est.fiscal && est.fiscal.r) || (est.contrib && est.contrib.r)));
   }
@@ -841,10 +845,10 @@ if (typeof window !== 'undefined') {
     if (!e) return [];
     const lista = [];
     if (pode('operar')) {
-      lista.push({ id: 'sincronizar', texto: e.sincronizacao_pedida ? 'Sincronização já pedida' : 'Sincronizar XML', icone: 'refresh-cw', desabilitado: !e.ativo || e.sincronizacao_pedida || !e.certificado_valido_ate, fn: () => sincronizar(e).then(e360AtualizarAcoes), celular: true });
+      lista.push({ id: 'sincronizar', texto: e.sincronizacao_pedida ? 'Sincronização já pedida' : 'Sincronizar XML', icone: 'refresh-cw', desabilitado: !e.ativo || e.sincronizacao_pedida || !e.certificado_valido_ate, fn: (b) => sincronizar(e, b).then(e360AtualizarAcoes), celular: true });
       lista.push({ id: 'importar', texto: 'Importar arquivos', icone: 'cloud-download', fn: () => $('notas-importar-arquivos').click(), celular: true });
     }
-    lista.push({ id: 'zip', texto: 'Baixar XMLs do mês (ZIP)', icone: 'file-text', fn: () => baixarZip(), menu: true, celular: true });
+    lista.push({ id: 'zip', texto: 'Baixar XMLs do mês (ZIP)', icone: 'file-text', fn: (b) => baixarZip(b), menu: true, celular: true });
     if (pode('certificados')) {
       lista.push({ id: 'certificado', texto: 'Trocar certificado', icone: 'key-round', fn: () => abrirGaveta(e), menu: true, celular: true });
       lista.push({ id: 'pausar', texto: e3.confirmarPausa ? (e.ativo ? 'Confirmar pausa' : 'Confirmar reativação') : (e.ativo ? 'Pausar empresa' : 'Reativar empresa'), icone: 'clock-alert', perigo: e.ativo, menu: true, manterAberto: !e3.confirmarPausa, fn: e360Pausar });
@@ -870,7 +874,7 @@ if (typeof window !== 'undefined') {
     $('notas-importar').hidden = !acoes.some((a) => a.id === 'importar');
     const itemMenu = (a, fechar) => h('button', {
       type: 'button', role: 'menuitem', class: a.perigo && e3.confirmarPausa && a.id === 'pausar' ? 'perigo' : '', disabled: a.desabilitado,
-      onclick: async (ev) => { ev.stopPropagation(); if (!a.manterAberto) fechar(); await a.fn(); },
+      onclick: async (ev) => { ev.stopPropagation(); if (!a.manterAberto) fechar(); await a.fn(a.id === 'sincronizar' ? $('e360-sincronizar') : null); },
     }, icone(a.icone), a.texto);
     $('e360-menu').replaceChildren(...acoes.filter((a) => a.menu).map((a) => itemMenu(a, () => e360Menu(false))));
     $('e360-folha-itens').replaceChildren(...acoes.filter((a) => a.celular).map((a) => itemMenu(a, () => e360Folha(false))));
@@ -883,13 +887,17 @@ if (typeof window !== 'undefined') {
     $('e360-mais').setAttribute('aria-expanded', String(ab));
   }
   function e360Folha(abrir) {
+    const estavaAberta = !$('e360-folha').hidden;
+    if (abrir) abrirDialogo($('e360-folha'));
     $('e360-folha').hidden = !abrir;
     $('e360-folha-fundo').hidden = !abrir;
+    $('e360-acoes-celular').setAttribute('aria-expanded', String(!!abrir));
     if (abrir) { const b = $('e360-folha-itens').querySelector('button:not([disabled])'); if (b) b.focus(); }
+    else if (estavaAberta) fecharDialogo($('e360-folha'));
   }
 
   function e360Ligar() {
-    $('e360-sincronizar').addEventListener('click', () => { const a = e360ListaAcoes().find((x) => x.id === 'sincronizar'); if (a) a.fn(); });
+    $('e360-sincronizar').addEventListener('click', (ev) => { const a = e360ListaAcoes().find((x) => x.id === 'sincronizar'); if (a) a.fn(ev.currentTarget); });
     $('e360-mais').addEventListener('click', (ev) => { ev.stopPropagation(); e360Menu(); });
     document.addEventListener('click', (ev) => { if (!ev.target.closest('.menu-acoes')) e360Menu(false); });
     $('e360-acoes-celular').addEventListener('click', () => e360Folha(true));

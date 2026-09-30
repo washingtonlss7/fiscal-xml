@@ -19,7 +19,6 @@ function h(tag, props, ...filhos) {
   return el;
 }
 
-const formatarCnpj = (c) => String(c || '').replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
 const soDigitos = (s) => String(s || '').replace(/\D/g, '');
 
 function dataCurta(iso) {
@@ -44,9 +43,9 @@ const UFS = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','P
 const REGIMES = { simples: 'Simples Nacional', presumido: 'Lucro Presumido', real: 'Lucro Real', mei: 'MEI' };
 
 const STATUS = {
-  ok:                   { grupo: 'ok',       tom: 'ok',       texto: () => 'Em dia' },
-  aguardando:           { grupo: 'ok',       tom: 'neutro',   texto: () => 'Aguardando 1ª sincronização' },
-  atrasada:             { grupo: 'atencao',  tom: 'atencao',  texto: () => 'Sincronização atrasada' },
+  ok:                   { grupo: 'ok',       tom: 'ok',       texto: () => 'Captação regular' },
+  aguardando:           { grupo: 'ok',       tom: 'neutro',   texto: () => 'Aguardando 1ª captação' },
+  atrasada:             { grupo: 'atencao',  tom: 'atencao',  texto: () => 'Captação atrasada' },
   certificado_vencendo: { grupo: 'atencao',  tom: 'atencao',  texto: (e) => `Certificado vence em ${e.dias_para_vencer} dia${e.dias_para_vencer === 1 ? '' : 's'}` },
   conflito_nsu:         { grupo: 'atencao',  tom: 'atencao',  texto: () => 'Outro sistema consultou a SEFAZ' },
   erro:                 { grupo: 'problema', tom: 'problema', texto: () => 'Erro na consulta' },
@@ -57,7 +56,7 @@ const STATUS = {
 
 const FILTROS = [
   { id: 'todas',    rotulo: 'Todas',     ponto: '' },
-  { id: 'ok',       rotulo: 'Em dia',    ponto: 'ok' },
+  { id: 'ok',       rotulo: 'Captação regular', ponto: 'ok' },
   { id: 'atencao',  rotulo: 'Atenção',   ponto: 'atencao' },
   { id: 'problema', rotulo: 'Problemas', ponto: 'problema' },
   { id: 'pausada',  rotulo: 'Pausadas',  ponto: '' },
@@ -76,10 +75,16 @@ function gravarSessao(s) {
   } catch { /* sem armazenamento: a sessão fica só em memória */ }
 }
 
+/** Falha de rede vira mensagem compreensível (nunca "Failed to fetch"). */
+const SEM_CONEXAO = 'Sem conexão com o servidor. Verifique a internet e tente de novo.';
+async function buscar(caminho, opcoes) {
+  try { return await fetch(caminho, opcoes); } catch { throw new Error(SEM_CONEXAO); }
+}
+
 async function chamar(caminho, opcoes = {}, tentouRenovar = false) {
   const cab = { 'Content-Type': 'application/json' };
   if (sessao) cab.Authorization = `Bearer ${sessao.accessToken}`;
-  const resp = await fetch(caminho, {
+  const resp = await buscar(caminho, {
     method: opcoes.method || 'GET',
     headers: cab,
     body: opcoes.body ? JSON.stringify(opcoes.body) : undefined,
@@ -99,18 +104,67 @@ async function chamar(caminho, opcoes = {}, tentouRenovar = false) {
     sair('Sua sessão expirou. Entre de novo.');
     throw new Error('Sessão expirada.');
   }
-  if (!resp.ok) throw new Error(dados.erro || `Erro ${resp.status}`);
+  if (!resp.ok) throw new Error(mensagemDeErro(resp.status, dados.erro));
   return dados;
 }
 
+/** Mensagem para o usuário a partir da resposta (sem detalhe técnico). */
+function mensagemDeErro(status, erro) {
+  if (erro) return erro;
+  if (status === 403) return 'Seu perfil não permite esta ação.';
+  if (status === 404) return 'Não encontrado.';
+  if (status >= 500) return 'O servidor não conseguiu concluir. Tente de novo em instantes.';
+  return 'Não foi possível concluir a ação.';
+}
+
 /* ---------- aviso ---------- */
+/**
+ * Aviso flutuante. tipo: 'info' (padrão), 'ok' ou 'erro' (ícone + texto, não só cor).
+ * acao: { texto, fn } mostra um botão (ex.: "Tentar de novo").
+ */
 let timerAviso;
-function avisar(texto) {
+function avisar(texto, opcoes = {}) {
   const el = $('aviso');
-  el.textContent = texto;
+  const tipo = opcoes.tipo || 'info';
+  const iconeTipo = { ok: 'check', erro: 'circle-alert', info: null }[tipo];
+  el.className = `aviso${tipo === 'erro' ? ' erro-aviso' : tipo === 'ok' ? ' ok-aviso' : ''}`;
+  el.setAttribute('role', tipo === 'erro' ? 'alert' : 'status');
+  el.replaceChildren(...[
+    iconeTipo ? icone(iconeTipo) : null,
+    h('span', { text: texto }),
+    opcoes.acao ? h('button', { type: 'button', onclick: () => { el.hidden = true; opcoes.acao.fn(); } }, opcoes.acao.texto) : null,
+  ].filter(Boolean));
   el.hidden = false;
   clearTimeout(timerAviso);
-  timerAviso = setTimeout(() => { el.hidden = true; }, 4000);
+  timerAviso = setTimeout(() => { el.hidden = true; }, opcoes.acao || tipo === 'erro' ? 8000 : 4000);
+}
+
+/**
+ * Executa uma ação assíncrona com o botão ocupado: desabilita (evita duplo clique), mostra o giro e o texto
+ * "durante" e devolve o rótulo no fim. Em erro, avisa com "Tentar de novo".
+ */
+const emAndamento = new Set();
+async function comOcupado(botao, durante, fn, chave) {
+  const k = chave || botao;
+  if (k && emAndamento.has(k)) return undefined;
+  if (k) emAndamento.add(k);
+  // O rótulo é o <span> do botão ou o último texto dele (o ícone <svg> fica intacto)
+  const rotulo = !botao ? null : botao.querySelector('span:not(.contagem)')
+    || [...botao.childNodes].reverse().find((n) => n.nodeType === 3 && n.nodeValue.trim())
+    || botao;
+  const ler = () => (rotulo ? (rotulo.nodeType === 3 ? rotulo.nodeValue : rotulo.textContent) : '');
+  const escrever = (t) => { if (!rotulo) return; if (rotulo.nodeType === 3) rotulo.nodeValue = t; else rotulo.textContent = t; };
+  const textoAntes = ler();
+  if (botao) { botao.disabled = true; botao.setAttribute('aria-busy', 'true'); if (durante) escrever(durante); }
+  try {
+    return await fn();
+  } catch (err) {
+    avisar(err.message, { tipo: 'erro', acao: { texto: 'Tentar de novo', fn: () => comOcupado(botao && botao.isConnected ? botao : null, durante, fn, chave) } });
+    return undefined;
+  } finally {
+    if (k) emAndamento.delete(k);
+    if (botao) { botao.disabled = false; botao.removeAttribute('aria-busy'); if (durante && ler() === durante) escrever(textoAntes); }
+  }
 }
 
 /* ---------- login ---------- */
@@ -275,16 +329,44 @@ function abrirGavetaUsuario(u) {
   $('gu-confirmar').hidden = true;
   $('gu-confirmacao').value = '';
   $('gu-erro').hidden = true;
+  abrirDialogo($('gu'));
   $('gu-fundo').hidden = false;
   $('gu').hidden = false;
-  (u ? $('gu-nome') : $('gu-nome')).focus();
+  $('gu-nome').focus();
 }
 
 function fecharGavetaUsuario() {
+  const estavaAberta = !$('gu').hidden;
   $('gu-fundo').hidden = true;
   $('gu').hidden = true;
   usuarioEmEdicao = null;
+  if (estavaAberta) fecharDialogo($('gu'));
 }
+
+/* ---------- diálogos (gaveta e folha inferior): foco preso dentro, rolagem travada e foco devolvido ao fechar ---------- */
+const focoAnterior = new Map();
+function abrirDialogo(el) {
+  if (!focoAnterior.has(el)) focoAnterior.set(el, document.activeElement);
+  document.body.classList.add('com-dialogo');
+}
+function fecharDialogo(el) {
+  document.body.classList.toggle('com-dialogo', [...document.querySelectorAll('[aria-modal="true"]')].some((d) => !d.hidden));
+  const antes = focoAnterior.get(el);
+  focoAnterior.delete(el);
+  if (antes && antes.isConnected && typeof antes.focus === 'function') antes.focus();
+}
+document.addEventListener('keydown', (ev) => {
+  if (ev.key !== 'Tab') return;
+  const d = [...document.querySelectorAll('[aria-modal="true"]')].find((x) => !x.hidden);
+  if (!d) return;
+  const focaveis = [...d.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea, [tabindex]:not([tabindex="-1"])')]
+    .filter((x) => x.offsetParent !== null);
+  if (!focaveis.length) return;
+  const primeiro = focaveis[0]; const ultimo = focaveis[focaveis.length - 1];
+  if (!d.contains(document.activeElement)) { ev.preventDefault(); primeiro.focus(); return; }
+  if (ev.shiftKey && document.activeElement === primeiro) { ev.preventDefault(); ultimo.focus(); }
+  else if (!ev.shiftKey && document.activeElement === ultimo) { ev.preventDefault(); primeiro.focus(); }
+});
 
 function erroUsuario(msg) {
   $('gu-erro').textContent = msg;
@@ -379,7 +461,6 @@ const NAV = [
 ];
 const NAV_RODAPE = [{ id: 'ajuda', rotulo: 'Ajuda', icone: 'circle-help' }];
 const PERFIL_NOME = { admin: 'Administrador', supervisor: 'Supervisor', analista: 'Analista', consulta: 'Consulta' };
-const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
 let gruposAbertos = new Set(['administracao']);
 try { gruposAbertos = new Set(JSON.parse(localStorage.getItem('appura-grupos') || '["administracao"]')); } catch { /* sem armazenamento */ }
@@ -423,12 +504,7 @@ function renderNav() {
 }
 
 function rotaBase() {
-  const h = location.hash;
-  if (h.startsWith('#/usuarios')) return '#/usuarios';
-  if (h.startsWith('#/empresas')) return '#/empresas';
-  if (h.startsWith('#/fechamento')) return '#/fechamento';
-  if (h.startsWith('#/sped')) return '#/sped';
-  return '#/visao-geral';
+  return resolverRota(location.hash, pode).base || '#/visao-geral';
 }
 function marcarNav() {
   const r = rotaBase();
@@ -489,10 +565,6 @@ function esconderDica() { if (dicaEl) { dicaEl.remove(); dicaEl = null; } }
 
 /* Competência (mês de trabalho). Controla o mês das notas, auditoria e ST da empresa. */
 let competencia = null;
-function textoCompetencia(v) {
-  const [a, m] = v.split('-').map(Number);
-  return `${MESES[m - 1]} / ${a}`;
-}
 function somarMes(v, n) {
   const [a, m] = v.split('-').map(Number);
   const d = new Date(a, m - 1 + n, 1);
@@ -566,49 +638,41 @@ async function aplicarRota() {
   if (!sessao || $('tela-app').hidden) return;
   fecharMenuCelular();
   alternarMenuUsuario(false);
-  const r = location.hash || '#/visao-geral';
-  const emp = r.match(/^#\/empresas\/([0-9a-f-]{36})(?:\/(notas|auditoria|icms-st|sped|guias|arquivos|historico))?$/);
+  const rota = resolverRota(location.hash, pode);
+  if (rota.redirecionar) {
+    if (rota.semPermissao) avisar(`Seu perfil não tem acesso a ${rota.semPermissao}. Fale com um administrador.`, { tipo: 'erro' });
+    location.replace(rota.redirecionar);
+    return;
+  }
   const esconderTudo = (menos) => {
     for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped']) if (id !== menos) $(id).hidden = true;
   };
-  const fech = r.match(/^#\/fechamento(?:\?(.*))?$/);
-  if (fech) {
+  if (rota.tela !== 'empresa') { empresaNotas = null; fecharGavetaUsuario(); }
+  if (rota.tela === 'fechamento') {
     esconderTudo('tela-fechamento');
-    empresaNotas = null;
-    fecharGavetaUsuario();
-    window.fcMostrar(fech[1] || '');
-  } else if (/^#\/sped(\?.*)?$/.test(r)) {
+    window.fcMostrar(rota.consulta);
+  } else if (rota.tela === 'sped') {
     esconderTudo('tela-sped');
-    empresaNotas = null;
-    fecharGavetaUsuario();
-    window.spMostrar(r.split('?')[1] || '');
-  } else if (r === '#/visao-geral') {
+    window.spMostrar(rota.consulta);
+  } else if (rota.tela === 'visao') {
     esconderTudo('tela-visao');
-    empresaNotas = null;
-    fecharGavetaUsuario();
     window.vgMostrar();
-  } else if (r === '#/usuarios' && pode('usuarios')) {
-    if ($('tela-usuarios').hidden) { esconderTudo('tela-usuarios'); empresaNotas = null; abrirUsuarios(); }
-  } else if (emp) {
-    let e = empresas.find((x) => x.id === emp[1]);
-    if (!e) { await carregarEmpresas(); e = empresas.find((x) => x.id === emp[1]); }
-    if (!e) { location.replace('#/empresas'); return; }
-    const aba = { notas: 'notas', auditoria: 'auditoria', 'icms-st': 'st', sped: 'sped', guias: 'guias', arquivos: 'arquivos', historico: 'historico' }[emp[2]] || 'visao';
+  } else if (rota.tela === 'usuarios') {
+    if ($('tela-usuarios').hidden) { esconderTudo('tela-usuarios'); abrirUsuarios(); }
+  } else if (rota.tela === 'empresa') {
+    let e = empresas.find((x) => x.id === rota.id);
+    if (!e) { await carregarEmpresas(); e = empresas.find((x) => x.id === rota.id); }
+    if (!e) { avisar('Empresa não encontrada.', { tipo: 'erro' }); location.replace('#/empresas'); return; }
     if (!empresaNotas || empresaNotas.id !== e.id || $('tela-notas').hidden) {
       esconderTudo('tela-notas');
       fecharGavetaUsuario();
-      abrirNotas(e, aba);
-    } else if (abaAtual !== aba) trocarAba(aba, false);
-  } else if (r === '#/empresas') {
+      abrirNotas(e, rota.aba);
+    } else if (abaAtual !== rota.aba) trocarAba(rota.aba, false);
+  } else if (rota.tela === 'empresas') {
     const vindoDeOutra = $('tela-empresas').hidden;
     esconderTudo('tela-empresas');
     $('tela-empresas').hidden = false;
-    empresaNotas = null;
-    fecharGavetaUsuario();
     if (vindoDeOutra) { window.scrollTo(0, 0); carregarEmpresas(); iniciarAtualizacao(); }
-  } else {
-    location.replace('#/visao-geral');
-    return;
   }
   marcarNav();
 }
@@ -637,6 +701,10 @@ function ligarShell() {
   $('nav-inf-mais').addEventListener('click', () => { $('tela-app').classList.add('menu-aberto'); atualizarBotaoLateral(); });
 
   $('usuario-botao').addEventListener('click', (e) => { e.stopPropagation(); alternarMenuUsuario(); });
+  for (const b of document.querySelectorAll('.menu-tema [data-tema]')) {
+    b.addEventListener('click', (ev) => { ev.stopPropagation(); aplicarTema(b.dataset.tema); });
+  }
+  try { aplicarTema(localStorage.getItem('appura-tema') || 'auto'); } catch { aplicarTema('auto'); }
   document.addEventListener('click', (e) => { if (!e.target.closest('.usuario-menu')) alternarMenuUsuario(false); });
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
@@ -686,7 +754,7 @@ function linhaEmpresa(e) {
   ];
 
   const botaoPausa = confirmando.has(e.id)
-    ? h('button', { type: 'button', class: 'botao pequeno perigo', onclick: () => alternarAtivo(e) }, e.ativo ? 'Confirmar pausa' : 'Confirmar')
+    ? h('button', { type: 'button', class: 'botao pequeno perigo', onclick: (ev) => alternarAtivo(e, ev.currentTarget) }, e.ativo ? 'Confirmar pausa' : 'Confirmar')
     : h('button', { type: 'button', class: 'botao fantasma pequeno', onclick: () => { confirmando.add(e.id); renderLista(); setTimeout(() => { confirmando.delete(e.id); renderLista(); }, 5000); } }, e.ativo ? 'Pausar' : 'Reativar');
 
   return h('div', { class: `empresa${e.ativo ? '' : ' pausada'}` },
@@ -701,13 +769,13 @@ function linhaEmpresa(e) {
       Number(e.pendencias_auditoria) ? h('span', { class: 'meta', text: `${e.pendencias_auditoria} pendência${Number(e.pendencias_auditoria) === 1 ? '' : 's'} na auditoria` }) : null,
     ),
     celula('Certificado', ...certificado),
-    celula('Última sincronização', ...sincronizacao,
+    celula('Última captação', ...sincronizacao,
       h('span', { class: 'meta', text: `${e.documentos_30d} nota${Number(e.documentos_30d) === 1 ? '' : 's'} em 30 dias` })),
     h('div', { class: 'acoes' },
       h('button', { type: 'button', class: 'botao pequeno primario', onclick: () => irPara(`#/empresas/${e.id}`) }, 'Abrir'),
       pode('operar') ? h('button', {
         type: 'button', class: 'botao pequeno', disabled: !e.ativo || e.sincronizacao_pedida || !e.certificado_valido_ate,
-        onclick: () => sincronizar(e),
+        onclick: (ev) => sincronizar(e, ev.currentTarget),
       }, 'Sincronizar') : null,
       pode('certificados') ? h('button', { type: 'button', class: 'botao fantasma pequeno', onclick: () => abrirGaveta(e) }, 'Trocar certificado') : null,
       pode('certificados') ? botaoPausa : null,
@@ -746,7 +814,7 @@ function renderLista() {
   lista.replaceChildren(
     h('div', { class: 'cabecalho-lista', 'aria-hidden': 'true' },
       h('span', { text: 'Empresa' }), h('span', { text: 'Situação' }), h('span', { text: 'Certificado' }),
-      h('span', { text: 'Última sincronização' }), h('span', { text: '' })),
+      h('span', { text: 'Última captação' }), h('span', { text: '' })),
     ...visiveis.map(linhaEmpresa),
   );
 }
@@ -837,22 +905,22 @@ function pararAtualizacao() {
 // Ao voltar para a aba, atualiza na hora (o navegador pode ter pausado a conexão)
 document.addEventListener('visibilitychange', () => { if (!document.hidden && sessao && !$('tela-app').hidden) recarregarPorEvento(); });
 
-async function sincronizar(e) {
-  try {
+async function sincronizar(e, botao) {
+  return comOcupado(botao, 'Sincronizando…', async () => {
     const r = await chamar(`/api/empresas/${e.id}/sincronizar`, { method: 'POST' });
     e.sincronizacao_pedida = true;
     renderLista();
-    avisar(r.mensagem);
-  } catch (err) { avisar(err.message); }
+    avisar(r.mensagem, { tipo: 'ok' });
+  }, `sincronizar:${e.id}`);
 }
 
-async function alternarAtivo(e) {
+async function alternarAtivo(e, botao) {
   confirmando.delete(e.id);
-  try {
+  return comOcupado(botao, e.ativo ? 'Pausando…' : 'Reativando…', async () => {
     await chamar(`/api/empresas/${e.id}/ativo`, { method: 'POST', body: { ativo: !e.ativo } });
-    avisar(e.ativo ? 'Empresa pausada. O coletor deixa de consultá-la.' : 'Empresa reativada.');
+    avisar(e.ativo ? 'Empresa pausada. O coletor deixa de consultá-la.' : 'Empresa reativada.', { tipo: 'ok' });
     await carregarEmpresas();
-  } catch (err) { avisar(err.message); }
+  }, `ativo:${e.id}`);
 }
 
 /* ---------- gaveta de cadastro ---------- */
@@ -901,15 +969,18 @@ function abrirGaveta(empresa) {
     $('uf').value = 'ES';
     $('regime').value = '';
   }
+  abrirDialogo($('gaveta'));
   $('gaveta-fundo').hidden = false;
   $('gaveta').hidden = false;
   $('area-arquivo').focus();
 }
 
 function fecharGaveta() {
+  const estavaAberta = !$('gaveta').hidden;
   $('gaveta-fundo').hidden = true;
   $('gaveta').hidden = true;
   limparFormulario();
+  if (estavaAberta) fecharDialogo($('gaveta'));
 }
 
 function escolherArquivo(f) {
@@ -988,8 +1059,6 @@ async function enviarEmpresa(ev) {
 
 
 /* ---------- notas de uma empresa ---------- */
-const MOEDA = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
-const moeda = (v) => (v === null || v === undefined || v === '' ? '—' : MOEDA.format(Number(v)));
 const TIPO_DOC = { '55': 'NF-e', '57': 'CT-e', '65': 'NFC-e' };
 let empresaNotas = null;
 
@@ -1152,15 +1221,15 @@ function renderNotas() {
 
 async function baixarArquivo(caminho, nomePadrao) {
   const cab = sessao ? { Authorization: `Bearer ${sessao.accessToken}` } : {};
-  let resp = await fetch(caminho, { headers: cab });
+  let resp = await buscar(caminho, { headers: cab });
   if (resp.status === 401 && sessao) {
     await chamar('/api/eu').catch(() => {}); // renova a sessão se preciso
-    resp = await fetch(caminho, { headers: { Authorization: `Bearer ${sessao.accessToken}` } });
+    resp = await buscar(caminho, { headers: { Authorization: `Bearer ${sessao.accessToken}` } });
   }
   if (!resp.ok) {
-    let msg = `Erro ${resp.status}`;
-    try { msg = (await resp.json()).erro || msg; } catch { /* corpo não é JSON */ }
-    throw new Error(msg);
+    let erro = null;
+    try { erro = (await resp.json()).erro; } catch { /* corpo não é JSON */ }
+    throw new Error(mensagemDeErro(resp.status, erro));
   }
   const nome = (resp.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/)?.[1] || nomePadrao;
   const url = URL.createObjectURL(await resp.blob());
@@ -1178,7 +1247,7 @@ async function baixarXml(n) {
 
 /* ---------- importação de XML/ZIP ---------- */
 async function enviarArquivo(caminho, arquivo) {
-  const faz = () => fetch(caminho, {
+  const faz = () => buscar(caminho, {
     method: 'POST',
     headers: { Authorization: `Bearer ${sessao.accessToken}`, 'Content-Type': 'application/octet-stream' },
     body: arquivo,
@@ -1187,7 +1256,7 @@ async function enviarArquivo(caminho, arquivo) {
   if (resp.status === 401) { await chamar('/api/eu').catch(() => {}); resp = await faz(); }
   let dados = {};
   try { dados = await resp.json(); } catch { /* sem corpo */ }
-  if (!resp.ok) throw new Error(dados.erro || `Erro ${resp.status}`);
+  if (!resp.ok) throw new Error(mensagemDeErro(resp.status, dados.erro));
   return dados;
 }
 
@@ -1239,13 +1308,9 @@ async function importarArquivos(lista) {
   if (novas) { window.e360Chave = null; recarregarAba(); }
 }
 
-async function baixarZip() {
-  avisar('Preparando o ZIP dos XMLs da competência…');
-  try {
-    await baixarArquivo(`/api/empresas/${empresaNotas.id}/zip?mes=${mesSelecionado()}`, 'xmls.zip');
-  } catch (e) {
-    avisar(e.message);
-  }
+async function baixarZip(botao) {
+  if (!emAndamento.has('zip')) avisar('Preparando o ZIP dos XMLs da competência…');
+  return comOcupado(botao, 'Preparando ZIP…', () => baixarArquivo(`/api/empresas/${empresaNotas.id}/zip?mes=${mesSelecionado()}`, 'xmls.zip'), 'zip');
 }
 
 
@@ -1259,7 +1324,6 @@ const SEV_TEXTO = { erro: 'Erro', alerta: 'Alerta', info: 'Informativo' };
 const SEV_TOM = { erro: 'problema', alerta: 'atencao', info: 'neutro' };
 
 const ABAS_EMPRESA = ['visao', 'notas', 'auditoria', 'st', 'sped', 'guias', 'arquivos', 'historico'];
-const ABA_NO_ENDERECO = { visao: '', notas: '/notas', auditoria: '/auditoria', st: '/icms-st', sped: '/sped', guias: '/guias', arquivos: '/arquivos', historico: '/historico' };
 
 function trocarAba(aba, atualizarEndereco = true) {
   if (!ABAS_EMPRESA.includes(aba)) aba = 'visao';
@@ -1338,17 +1402,7 @@ async function carregarST() {
 }
 
 async function baixarPlanilhaST() {
-  const botao = $('st-planilha');
-  botao.disabled = true;
-  botao.textContent = 'Gerando planilha…';
-  try {
-    await baixarArquivo(`/api/empresas/${empresaNotas.id}/st?${stQuery()}&formato=xlsx`, 'st.xlsx');
-  } catch (e) {
-    avisar(e.message);
-  } finally {
-    botao.disabled = false;
-    botao.textContent = 'Baixar planilha de ST (Excel)';
-  }
+  return comOcupado($('st-planilha'), 'Gerando planilha…', () => baixarArquivo(`/api/empresas/${empresaNotas.id}/st?${stQuery()}&formato=xlsx`, 'st.xlsx'), 'planilha-st');
 }
 
 async function enviarTabelaST(arquivo) {
@@ -1472,19 +1526,19 @@ function linhaApontamento(a) {
   const resolvido = a.status !== 'aberto';
   let acoes;
   if (resolvido) {
-    acoes = [h('button', { type: 'button', class: 'botao fantasma pequeno', onclick: () => resolver(a, 'reabrir') }, 'Reabrir')];
+    acoes = [h('button', { type: 'button', class: 'botao fantasma pequeno', onclick: (ev) => resolver(a, 'reabrir', null, ev.currentTarget) }, 'Reabrir')];
   } else if (a.regra === 'CFOP_ENTRADA_INDEFINIDO') {
     const campo = h('input', { class: 'cfop', type: 'text', inputmode: 'numeric', maxlength: '4', placeholder: 'CFOP', 'aria-label': 'CFOP de entrada' });
     acoes = [
       campo,
-      h('button', { type: 'button', class: 'botao pequeno', onclick: () => resolver(a, 'resolver', campo.value.trim()) }, 'Salvar'),
-      h('button', { type: 'button', class: 'botao fantasma pequeno', onclick: () => resolver(a, 'ignorar') }, 'Ignorar'),
+      h('button', { type: 'button', class: 'botao pequeno', onclick: (ev) => resolver(a, 'resolver', campo.value.trim(), ev.currentTarget) }, 'Salvar'),
+      h('button', { type: 'button', class: 'botao fantasma pequeno', onclick: (ev) => resolver(a, 'ignorar', null, ev.currentTarget) }, 'Ignorar'),
     ];
   } else {
     acoes = [
-      h('button', { type: 'button', class: 'botao pequeno', onclick: () => resolver(a, 'resolver') },
+      h('button', { type: 'button', class: 'botao pequeno', onclick: (ev) => resolver(a, 'resolver', null, ev.currentTarget) },
         a.sugestao ? `Aplicar CST ${a.sugestao.valor}` : 'Tratado'),
-      h('button', { type: 'button', class: 'botao fantasma pequeno', onclick: () => resolver(a, 'ignorar') }, 'Ignorar'),
+      h('button', { type: 'button', class: 'botao fantasma pequeno', onclick: (ev) => resolver(a, 'ignorar', null, ev.currentTarget) }, 'Ignorar'),
     ];
   }
   if (!pode('operar')) acoes = [];
@@ -1496,11 +1550,11 @@ function linhaApontamento(a) {
     h('div', { class: 'acoes-ap' }, ...acoes));
 }
 
-async function resolver(a, acao, valor) {
-  try {
+async function resolver(a, acao, valor, botao) {
+  return comOcupado(botao, null, async () => {
     await chamar(`/api/apontamentos/${a.id}`, { method: 'POST', body: { acao, valor: valor || null } });
     await carregarAuditoria();
-  } catch (e) { avisar(e.message); }
+  }, `apontamento:${a.id}`);
 }
 
 async function loteConfirmar(chave, regra, acao) {
@@ -1511,23 +1565,19 @@ async function loteConfirmar(chave, regra, acao) {
     return;
   }
   confirmandoLote.delete(chave);
-  try {
+  return comOcupado(null, null, async () => {
     const r = await chamar(`/api/empresas/${empresaNotas.id}/auditoria/lote`, { method: 'POST', body: { mes: mesSelecionado(), regra, acao } });
-    avisar(`${r.quantidade} apontamento(s) ${acao === 'ignorar' ? 'ignorados' : 'tratados'}.`);
+    avisar(`${r.quantidade} apontamento(s) ${acao === 'ignorar' ? 'ignorados' : 'tratados'}.`, { tipo: 'ok' });
     await carregarAuditoria();
-  } catch (e) { avisar(e.message); }
+  }, `lote:${chave}`);
 }
 
 async function refazerAuditoria() {
-  const b = $('aud-refazer');
-  b.disabled = true;
-  b.textContent = 'Auditando…';
-  try {
+  return comOcupado($('aud-refazer'), 'Auditando…', async () => {
     const r = await chamar(`/api/empresas/${empresaNotas.id}/auditoria/refazer`, { method: 'POST', body: { mes: mesSelecionado() } });
-    avisar(`Auditoria refeita: ${r.apontamentos} apontamento(s).`);
+    avisar(`Auditoria refeita: ${r.apontamentos} apontamento(s).`, { tipo: 'ok' });
     await carregarAuditoria();
-  } catch (e) { avisar(e.message); }
-  finally { b.disabled = false; b.textContent = 'Refazer auditoria do mês'; }
+  }, 'refazer-auditoria');
 }
 
 function marcarSegmento() {

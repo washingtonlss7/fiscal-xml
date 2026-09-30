@@ -7,13 +7,14 @@
   <meta name="description" content="Appura — suas notas, apuradas.">
   <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="manifest" href="/manifest.webmanifest">
-  <meta name="theme-color" content="#ffffff">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#111a2b" media="(prefers-color-scheme: dark)">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Appura">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-  <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/app.css?v=__VERSAO__">
 </head>
 <body>
   <!-- Login -->
@@ -100,6 +101,14 @@
             </button>
             <div id="usuario-menu" class="menu-suspenso" role="menu" hidden>
               <div id="usuario-email" class="menu-info"></div>
+              <div class="menu-grupo" role="group" aria-labelledby="menu-tema-rotulo">
+                <span id="menu-tema-rotulo" class="menu-rotulo">Tema</span>
+                <div class="menu-tema">
+                  <button type="button" role="menuitemradio" data-tema="auto" aria-checked="true">Automático</button>
+                  <button type="button" role="menuitemradio" data-tema="claro" aria-checked="false">Claro</button>
+                  <button type="button" role="menuitemradio" data-tema="escuro" aria-checked="false">Escuro</button>
+                </div>
+              </div>
               <button id="botao-sair" type="button" role="menuitem">
                 <svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-log-out"></use></svg> Sair
               </button>
@@ -333,7 +342,7 @@
               <button id="e360-mais" type="button" class="botao" aria-haspopup="menu" aria-expanded="false" aria-controls="e360-menu">Mais ações<svg class="icone-svg nav-seta" aria-hidden="true"><use href="/icones.svg#i-chevron-down"></use></svg></button>
               <div id="e360-menu" class="menu-suspenso" role="menu" hidden></div>
             </div>
-            <button id="e360-acoes-celular" type="button" class="botao primario e360-acoes-celular" aria-haspopup="dialog" aria-controls="e360-folha">+ Ações</button>
+            <button id="e360-acoes-celular" type="button" class="botao primario e360-acoes-celular" aria-haspopup="dialog" aria-expanded="false" aria-controls="e360-folha">+ Ações</button>
           </div>
         </div>
         <input id="notas-mes" type="month" hidden>
@@ -633,9 +642,10 @@
 
   <div id="aviso" class="aviso" role="status" hidden></div>
 
-  <script src="/app.js"></script>
-  <script src="/visao-geral.js"></script>
-  <script src="/empresa-360.js"></script>
-  <script src="/sped.js"></script>
+  <script src="/nucleo.js?v=__VERSAO__"></script>
+  <script src="/app.js?v=__VERSAO__"></script>
+  <script src="/visao-geral.js?v=__VERSAO__"></script>
+  <script src="/empresa-360.js?v=__VERSAO__"></script>
+  <script src="/sped.js?v=__VERSAO__"></script>
 </body>
 </html>

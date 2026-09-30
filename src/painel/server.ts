@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import crypto from 'crypto';
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
@@ -52,6 +53,7 @@ const ARQUIVOS: Record<string, [string, string]> = {
   '/visao-geral.js': ['visao-geral.js', 'text/javascript; charset=utf-8'],
   '/empresa-360.js': ['empresa-360.js', 'text/javascript; charset=utf-8'],
   '/sped.js': ['sped.js', 'text/javascript; charset=utf-8'],
+  '/nucleo.js': ['nucleo.js', 'text/javascript; charset=utf-8'],
   '/app.css': ['app.css', 'text/css; charset=utf-8'],
   '/manifest.webmanifest': ['manifest.webmanifest', 'application/manifest+json; charset=utf-8'],
   '/sw.js': ['sw.js', 'text/javascript; charset=utf-8'],
@@ -680,17 +682,32 @@ async function baixarZip(res: http.ServerResponse, id: string, f: FiltroNotas) {
   res.end();
 }
 
+/**
+ * Versão dos arquivos do painel (hash do conteúdo). Entra no endereço dos CSS/JS (?v=) e no nome do cache do
+ * service worker: uma publicação nova nunca mistura HTML novo com JS/CSS antigo, nem fica presa no app instalado.
+ */
+const VERSAO_ESTATICA = (() => {
+  const h = crypto.createHash('sha256');
+  for (const [nome] of Object.values(ARQUIVOS)) {
+    try { h.update(fs.readFileSync(path.join(PASTA_PUBLICA, nome))); } catch { /* arquivo ausente em teste */ }
+  }
+  return h.digest('hex').slice(0, 12);
+})();
+const COM_VERSAO = new Set(['index.html', 'sw.js']);
+
 function arquivoEstatico(res: http.ServerResponse, url: URL): boolean {
   const alvo = ARQUIVOS[url.pathname];
   if (!alvo) return false;
   const [nome, tipo] = alvo;
+  const versionado = url.searchParams.get('v') === VERSAO_ESTATICA;
   res.writeHead(200, {
     ...CABECALHOS_SEGURANCA,
     'Content-Type': tipo,
-    // index e service worker sempre revalidados, para uma publicação nova chegar logo em quem instalou o app
-    'Cache-Control': nome === 'index.html' || nome === 'sw.js' ? 'no-cache' : 'public, max-age=300',
+    // index e service worker sempre revalidados; CSS/JS com ?v=<versão> podem ficar em cache (o endereço muda a cada publicação)
+    'Cache-Control': COM_VERSAO.has(nome) ? 'no-cache' : versionado ? 'public, max-age=31536000, immutable' : 'public, max-age=300',
   });
-  res.end(fs.readFileSync(path.join(PASTA_PUBLICA, nome)));
+  const conteudo = fs.readFileSync(path.join(PASTA_PUBLICA, nome));
+  res.end(COM_VERSAO.has(nome) ? conteudo.toString('utf8').replaceAll('__VERSAO__', VERSAO_ESTATICA) : conteudo);
   return true;
 }
 
