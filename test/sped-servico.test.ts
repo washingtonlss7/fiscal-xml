@@ -65,7 +65,7 @@ const arm = {
 
 /* ---------- SPED sintético ---------- */
 const CNPJ = '55885998000140';
-function sped(periodo: string, opts: { cep?: string; chaves?: string[] } = {}) {
+function sped(periodo: string, opts: { cep?: string; chaves?: string[]; e110?: [number, number] } = {}) {
   const [a, m] = periodo.split('-');
   const ult = new Date(Number(a), Number(m), 0).getDate();
   const ini = `01${m}${a}`; const fim = `${ult}${m}${a}`;
@@ -78,7 +78,7 @@ function sped(periodo: string, opts: { cep?: string; chaves?: string[] } = {}) {
     `|0005|FARMA TESTE|${opts.cep ?? '29306306'}|RUA A|10||CENTRO|2835224869|||`,
     '|0150|F1|FORNECEDOR SA|1058|11222333000181||123|3550308||RUA B|1|||', '|0990|5|',
     '|C001|0|', ...c100, `|C990|${c100.length + 2}|`, '|D001|1|', '|D990|2|',
-    '|E001|0|', `|E100|${ini}|${fim}|`, '|E110|0|0|0|0|0|0|0|0|0|0|0|0|0|0|', '|E990|4|',
+    '|E001|0|', `|E100|${ini}|${fim}|`, `|E110|0|0|0|0|0|0|0|0|${String(opts.e110?.[0] ?? 0).replace('.', ',')}|0|0|0|${String(opts.e110?.[1] ?? 0).replace('.', ',')}|0|`, '|E990|4|',
   ];
   const cont = new Map<string, number>();
   for (const x of l) { const r = x.split('|')[1]; cont.set(r, (cont.get(r) ?? 0) + 1); }
@@ -159,6 +159,12 @@ function chave(num: number, mes: string) {
   assert.equal(agosto!.nome, 'farma-08-retificador.txt', 'vigente é o envio mais recente');
   assert.equal(agosto!.divergencias, 0, 'agosto: a nota escriturada tem XML (emitido em julho)');
   assert.equal((await s.historico(emp.id, '2026-08-01')).length, 3);
+  // 5) Saldo credor: anterior do E110 × a transportar do mês anterior guardado
+  await s.receber('farma-10.txt', sped('2026-10', { e110: [0, 100] }), 'analista@x.com');
+  const nov = await s.receber('farma-11.txt', sped('2026-11', { e110: [80, 80] }), 'analista@x.com');
+  assert.ok(nov.valido && nov.ocorrencias.some((o: any) => o.codigo === 'E110_SALDO_ANTERIOR' && /Diferença de R\$\s?20,00/.test(o.mensagem)));
+  const dez = await s.receber('farma-12.txt', sped('2026-12', { e110: [80, 0] }), 'analista@x.com');
+  assert.ok(dez.valido && !dez.ocorrencias.some((o: any) => o.codigo === 'E110_SALDO_ANTERIOR'));
   console.log('ok  SPED guardado, cliente novo aprovado, sugestões (recusa, mais nova, só diferenças) e comparação com o mês seguinte');
   console.log('\nTestes do serviço de SPED passaram.');
 })().catch((e) => { console.error(e); process.exit(1); });

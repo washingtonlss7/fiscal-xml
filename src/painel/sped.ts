@@ -113,6 +113,17 @@ export class ServicoSped {
     const empresa = await this.empresaPorCnpj(cnpj);
     const competencia = `${r.resumo.periodo}-01`;
     const sha256 = crypto.createHash('sha256').update(corpo).digest('hex');
+    // Saldo credor anterior (E110) × saldo a transportar do SPED do mês anterior guardado no Appura
+    if (empresa && r.resumo.apuracao) {
+      const mesAnt = await this.vigente(empresa.id, mesVizinho(competencia, -1));
+      const transp = mesAnt?.resumo?.apuracao?.saldoCredorTransportar;
+      const ant = r.resumo.apuracao.saldoCredorAnterior;
+      if (typeof transp === 'number' && Math.abs(transp - ant) > 0.05) {
+        const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        r.ocorrencias.push({ nivel: 'alerta', codigo: 'E110_SALDO_ANTERIOR',
+          mensagem: `O saldo credor anterior do E110 (${brl(ant)}) não bate com o saldo credor a transportar do SPED de ${String(mesAnt!.competencia).slice(5, 7)}/${String(mesAnt!.competencia).slice(0, 4)} guardado no Appura (${brl(transp)}). Diferença de ${brl(Math.abs(transp - ant))}.` });
+      }
+    }
     const nErros = r.ocorrencias.filter((o) => o.nivel === 'erro').length;
     const nAlertas = r.ocorrencias.filter((o) => o.nivel === 'alerta').length;
 
