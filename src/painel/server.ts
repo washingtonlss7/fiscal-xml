@@ -23,6 +23,7 @@ import { configIntegra, ErroIntegra, IntegraContador, transporteHttps } from '..
 import { ErroAcessorias, ServicoAcessorias } from '../integra/acessorias';
 import { ErroOAuth, ServicoOAuth } from '../mcp/oauth';
 import { rotaMcp, OpcoesMcpHttp } from '../mcp/http';
+import { Confirmacoes } from '../mcp/acoes';
 import { authDoSupabase, ErroUsuario, GestaoUsuarios, PERFIS_INFO, PERMISSOES, permissaoDaRota } from './usuarios';
 
 function exigir(nome: string): string {
@@ -498,8 +499,10 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
   }
   if (rota === '/api/mcp/tokens' && metodo === 'POST') {
     const c = await lerCorpo(req, 10_000);
-    const r = await servicoOAuth.criarPessoal(email, String(c.nome ?? ''), Number(c.dias), `${urlPublica(req)}/mcp`);
-    log.info('MCP: token pessoal criado', { email, nome: r.nome });
+    const querAcoes = c.acoes === true;
+    if (querAcoes && !PERMISSOES[perfil].includes('operar')) throw new ErroHttp(403, 'Seu perfil é de consulta: o token só pode ser de leitura.');
+    const r = await servicoOAuth.criarPessoal(email, String(c.nome ?? ''), Number(c.dias), `${urlPublica(req)}/mcp`, querAcoes);
+    log.info('MCP: token pessoal criado', { email, nome: r.nome, acoes: querAcoes });
     return responder(res, 200, r);
   }
   const conexao = rota.match(/^\/api\/mcp\/conexoes\/([ct]_[0-9a-f]{16})$/);
@@ -735,7 +738,7 @@ function urlPublica(req: http.IncomingMessage): string {
 }
 const opcoesMcp: OpcoesMcpHttp = {
   oauth: servicoOAuth,
-  deps: { db, sped: servicoSped, guias: servicoGuias },
+  deps: { db, sped: servicoSped, guias: servicoGuias, acessorias: servicoAcessorias, confirmacoes: new Confirmacoes(cfg.masterKey) },
   base: urlPublica,
   entrar: async (email, senha, ip) => {
     limitarTentativas(ip);
@@ -746,6 +749,7 @@ const opcoesMcp: OpcoesMcpHttp = {
     return e;
   },
   perfilDe: (email) => usuarios.perfilDe(email),
+  podeOperar: (perfil) => (PERMISSOES as Record<string, string[]>)[perfil]?.includes('operar') ?? false,
   registrar: async (r) => {
     const { error } = await db.from('mcp_chamadas').insert({ email: r.email, client_id: r.clientId, ferramenta: r.ferramenta, argumentos: r.argumentos ?? null, sucesso: r.sucesso, duracao_ms: r.duracaoMs });
     if (error) log.warn('não registrou chamada do MCP', { erro: error.message });

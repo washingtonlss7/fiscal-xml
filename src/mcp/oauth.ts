@@ -13,6 +13,10 @@ import net from 'net';
 import { Db, ok } from '../db';
 
 export const ESCOPO = 'appura.leitura';
+/** Ações com confirmação (justificar divergências, verificar procuração, enviar guias). */
+export const ESCOPO_ACOES = 'appura.acoes';
+export const ESCOPOS = [ESCOPO, ESCOPO_ACOES];
+export const temAcoes = (scope: string | null | undefined) => String(scope ?? '').split(/\s+/).includes(ESCOPO_ACOES);
 const VIDA_CODIGO_MS = 5 * 60_000;
 const VIDA_ACESSO_S = 3600;
 const VIDA_REFRESH_MS = 30 * 86400_000;
@@ -139,16 +143,20 @@ export class ServicoOAuth {
     if (!q.code_challenge || q.code_challenge_method !== 'S256' || !/^[A-Za-z0-9_-]{43,128}$/.test(q.code_challenge)) throw voltar('invalid_request', 'PKCE com S256 é obrigatório.');
     const resource = q.resource ? String(q.resource) : recurso;
     if (!mesmoRecurso(resource, recurso)) throw voltar('invalid_target', 'O resource pedido não é este servidor MCP.');
-    const pedidos = String(q.scope ?? ESCOPO).split(/\s+/).filter(Boolean);
-    if (pedidos.some((s) => s !== ESCOPO)) throw voltar('invalid_scope', `Escopo disponível: ${ESCOPO}.`);
-    return { cliente, redirectUri, codeChallenge: q.code_challenge, resource: recurso, scope: ESCOPO, state: q.state ?? null };
+    const pedidos = String(q.scope ?? ESCOPOS.join(' ')).split(/\s+/).filter(Boolean);
+    if (pedidos.some((s) => !ESCOPOS.includes(s))) throw voltar('invalid_scope', `Escopos disponíveis: ${ESCOPOS.join(', ')}.`);
+    // Leitura sempre acompanha; ações só se pedidas (e o usuário ainda pode recusar na tela)
+    const scope = [ESCOPO, ...(pedidos.includes(ESCOPO_ACOES) ? [ESCOPO_ACOES] : [])].join(' ');
+    return { cliente, redirectUri, codeChallenge: q.code_challenge, resource: recurso, scope, state: q.state ?? null };
   }
 
-  async emitirCodigo(p: PedidoAutorizacao, email: string): Promise<string> {
+  /** `semAcoes`: o usuário desmarcou as ações na tela de consentimento (fica só leitura). */
+  async emitirCodigo(p: PedidoAutorizacao, email: string, semAcoes = false): Promise<string> {
     const codigo = aleatorio(32);
+    const scope = semAcoes ? ESCOPO : p.scope;
     ok(await this.db.from('mcp_codigos').insert({
       codigo_hash: hash(codigo), client_id: p.cliente.client_id, email, redirect_uri: p.redirectUri, code_challenge: p.codeChallenge,
-      resource: p.resource, scope: p.scope, expira_em: new Date(this.agora() + VIDA_CODIGO_MS).toISOString(),
+      resource: p.resource, scope, expira_em: new Date(this.agora() + VIDA_CODIGO_MS).toISOString(),
     }), 'emitir código');
     return codigo;
   }
@@ -204,10 +212,10 @@ export class ServicoOAuth {
   }
 
   /** Token de acesso ou pessoal válido para este recurso → e-mail do usuário. */
-  async validarAcesso(token: string, recurso: string): Promise<{ email: string; clientId: string | null; tipo: string; nome: string | null } | null> {
+  async validarAcesso(token: string, recurso: string): Promise<{ email: string; clientId: string | null; tipo: string; nome: string | null; scope: string } | null> {
     if (!/^appura_(at|pt)_[A-Za-z0-9_-]{20,}$/.test(token)) return null;
     const h = hash(token);
-    const t = ok(await this.db.from('mcp_tokens').select('token_hash,tipo,email,client_id,nome,resource,expira_em,revogado_em').eq('token_hash', h).maybeSingle(), 'validar token') as any;
+    const t = ok(await this.db.from('mcp_tokens').select('token_hash,tipo,email,client_id,nome,resource,scope,expira_em,revogado_em').eq('token_hash', h).maybeSingle(), 'validar token') as any;
     if (!t || t.revogado_em || Date.parse(t.expira_em) < this.agora() || (t.tipo !== 'acesso' && t.tipo !== 'pessoal')) return null;
     if (!mesmoRecurso(t.resource, recurso)) return null;
     const ultimo = this.usoGravado.get(h) ?? 0;
@@ -215,12 +223,12 @@ export class ServicoOAuth {
       this.usoGravado.set(h, this.agora());
       await this.db.from('mcp_tokens').update({ ultimo_uso_em: new Date(this.agora()).toISOString() }).eq('token_hash', h);
     }
-    return { email: t.email, clientId: t.client_id, tipo: t.tipo, nome: t.nome };
+    return { email: t.email, clientId: t.client_id, tipo: t.tipo, nome: t.nome, scope: t.scope || ESCOPO };
   }
 
   /* ---------- painel: tokens pessoais e conexões ---------- */
 
-  async criarPessoal(email: string, nome: string, dias: number, recurso: string) {
+  async criarPessoal(email: string, nome: string, dias: number, recurso: string, acoes = false) {
     const n = String(nome ?? '').trim().slice(0, 60);
     if (n.length < 2) throw new ErroOAuth(400, 'invalid_request', 'Dê um nome para o token (ex.: "n8n do escritório").');
     const d = [30, 90, 180, 365].includes(Number(dias)) ? Number(dias) : 90;
@@ -228,19 +236,20 @@ export class ServicoOAuth {
     if (ativos.length >= 10) throw new ErroOAuth(400, 'invalid_request', 'Limite de 10 tokens ativos por usuário: revogue um antes de criar outro.');
     const token = `appura_pt_${aleatorio(32)}`;
     const expira = new Date(this.agora() + d * 86400_000).toISOString();
-    ok(await this.db.from('mcp_tokens').insert({ token_hash: hash(token), tipo: 'pessoal', email, nome: n, resource: recurso, scope: ESCOPO, final_token: token.slice(-4), criado_em: new Date(this.agora()).toISOString(), expira_em: expira }), 'criar token pessoal');
-    return { token, nome: n, expiraEm: expira };
+    ok(await this.db.from('mcp_tokens').insert({ token_hash: hash(token), tipo: 'pessoal', email, nome: n, resource: recurso, scope: acoes ? ESCOPOS.join(' ') : ESCOPO, final_token: token.slice(-4), criado_em: new Date(this.agora()).toISOString(), expira_em: expira }), 'criar token pessoal');
+    return { token, nome: n, expiraEm: expira, acoes };
   }
 
   /** Conexões do usuário: tokens pessoais ativos e apps conectados por OAuth (sem nunca devolver o token). */
   async conexoes(email: string) {
     const agoraIso = new Date(this.agora()).toISOString();
-    const tokens = ok(await this.db.from('mcp_tokens').select('token_hash,tipo,client_id,nome,final_token,criado_em,expira_em,ultimo_uso_em')
+    const tokens = ok(await this.db.from('mcp_tokens').select('token_hash,tipo,client_id,nome,final_token,scope,criado_em,expira_em,ultimo_uso_em')
       .eq('email', email).is('revogado_em', null).gte('expira_em', agoraIso).order('criado_em', { ascending: false }).limit(500), 'conexões') as any[];
-    const pessoais = tokens.filter((t) => t.tipo === 'pessoal').map((t) => ({ id: `t_${t.token_hash.slice(0, 16)}`, tipo: 'pessoal', nome: t.nome, final: t.final_token, criadoEm: t.criado_em, expiraEm: t.expira_em, ultimoUsoEm: t.ultimo_uso_em }));
+    const pessoais = tokens.filter((t) => t.tipo === 'pessoal').map((t) => ({ id: `t_${t.token_hash.slice(0, 16)}`, tipo: 'pessoal', nome: t.nome, final: t.final_token, acoes: temAcoes(t.scope), criadoEm: t.criado_em, expiraEm: t.expira_em, ultimoUsoEm: t.ultimo_uso_em }));
     const porCliente = new Map<string, any>();
     for (const t of tokens.filter((x) => x.tipo !== 'pessoal' && x.client_id)) {
-      const c = porCliente.get(t.client_id) ?? { id: `c_${hash(t.client_id).slice(0, 16)}`, clientId: t.client_id, tipo: 'app', criadoEm: t.criado_em, ultimoUsoEm: t.ultimo_uso_em };
+      const c = porCliente.get(t.client_id) ?? { id: `c_${hash(t.client_id).slice(0, 16)}`, clientId: t.client_id, tipo: 'app', criadoEm: t.criado_em, ultimoUsoEm: t.ultimo_uso_em, acoes: false };
+      if (temAcoes(t.scope)) c.acoes = true;
       if (t.ultimo_uso_em && (!c.ultimoUsoEm || t.ultimo_uso_em > c.ultimoUsoEm)) c.ultimoUsoEm = t.ultimo_uso_em;
       if (t.criado_em < c.criadoEm) c.criadoEm = t.criado_em;
       porCliente.set(t.client_id, c);
@@ -251,7 +260,7 @@ export class ServicoOAuth {
       const n = nomes.find((x) => x.client_id === c.clientId);
       let host = '';
       try { host = /^https:/.test(c.clientId) ? new URL(c.clientId).host : ''; } catch { /* ok */ }
-      return { id: c.id, tipo: 'app', nome: n ? n.nome : 'App conectado', origem: host, criadoEm: c.criadoEm, ultimoUsoEm: c.ultimoUsoEm };
+      return { id: c.id, tipo: 'app', nome: n ? n.nome : 'App conectado', origem: host, acoes: c.acoes, criadoEm: c.criadoEm, ultimoUsoEm: c.ultimoUsoEm };
     });
     return { apps, pessoais };
   }

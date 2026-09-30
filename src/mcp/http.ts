@@ -8,7 +8,7 @@
 import http from 'http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { log } from '../log';
-import { ESCOPO, ErroOAuth, PedidoAutorizacao, redirectLocal, ServicoOAuth } from './oauth';
+import { ESCOPOS, ErroOAuth, PedidoAutorizacao, redirectLocal, ServicoOAuth, temAcoes } from './oauth';
 import { criarServidorMcp, DepsMcp, RegistroFerramenta } from './ferramentas';
 
 export interface OpcoesMcpHttp {
@@ -19,6 +19,8 @@ export interface OpcoesMcpHttp {
   /** Confere e-mail e senha do Appura; devolve o e-mail autorizado ou lança erro com mensagem para a tela. */
   entrar: (email: string, senha: string, ip: string) => Promise<string>;
   perfilDe: (email: string) => Promise<string | null>;
+  /** O perfil pode executar ações (permissão 'operar')? */
+  podeOperar: (perfil: string) => boolean;
   registrar: RegistroFerramenta;
   lerTexto: (req: http.IncomingMessage, limite: number) => Promise<string>;
   ip: (req: http.IncomingMessage) => string;
@@ -40,7 +42,8 @@ function json(res: http.ServerResponse, status: number, corpo: unknown, extra: R
 const esc = (s: string) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 
 /** Tela de conexão (login do Appura + consentimento). Sem script nem estilo inline: usa o CSS do painel. */
-function paginaConsentimento(p: PedidoAutorizacao, campos: Record<string, string>, erro: string | null, email = ''): string {
+function paginaConsentimento(p: PedidoAutorizacao, campos: Record<string, string>, erro: string | null, email = '', acoesMarcadas = true): string {
+  const pedeAcoes = temAcoes(p.scope);
   let host = '';
   try { host = new URL(p.redirectUri).host; } catch { /* validado antes */ }
   const ocultos = Object.entries(campos).map(([k, v]) => `<input type="hidden" name="${esc(k)}" value="${esc(v)}">`).join('');
@@ -49,12 +52,15 @@ function paginaConsentimento(p: PedidoAutorizacao, campos: Record<string, string
 <body><main class="login"><section class="login-cartao mcp-consentimento" aria-labelledby="mcp-titulo">
 <div class="marca"><img src="/logo.png" alt="" width="36" height="36"><span class="marca-texto"><span class="marca-nome">appura</span><span class="marca-tag">Plataforma Fiscal</span></span></div>
 <h1 id="mcp-titulo">Conectar ${esc(p.cliente.nome)} ao Appura</h1>
-<p class="dica">Este app de IA quer acesso <strong>somente de leitura</strong> ao Appura em seu nome: empresas, Central de Fechamento, SPED/SINTEGRA, auditoria, notas e guias, com as permissões do seu perfil. Ele não altera nada, não gera guias e não vê certificados, senhas nem chaves.</p>
+${pedeAcoes
+    ? `<p class="dica">Este app de IA quer acesso ao Appura em seu nome, com as permissões do seu perfil: consultar empresas, Central de Fechamento, SPED/SINTEGRA, auditoria, notas e guias. Ele não vê certificados, senhas nem chaves.</p>`
+    : `<p class="dica">Este app de IA quer acesso <strong>somente de leitura</strong> ao Appura em seu nome: empresas, Central de Fechamento, SPED/SINTEGRA, auditoria, notas e guias, com as permissões do seu perfil. Ele não altera nada, não gera guias e não vê certificados, senhas nem chaves.</p>`}
 <p class="contexto">Depois de permitir, o acesso volta para <strong>${esc(host)}</strong>.${redirectLocal(p.redirectUri) ? ' Esse endereço é um app instalado neste computador: só continue se foi você quem iniciou a conexão agora.' : ''}</p>
 ${erro ? `<p class="erro" role="alert">${esc(erro)}</p>` : ''}
 <form method="post" action="/oauth/authorize" class="mcp-form" autocomplete="on">${ocultos}
 <label class="campo">E-mail do Appura<input name="email" type="email" required autocomplete="username" value="${esc(email)}"></label>
 <label class="campo">Senha<input name="senha" type="password" required autocomplete="current-password"></label>
+${pedeAcoes ? `<label class="mcp-permissao"><input type="checkbox" name="acoes" value="sim"${acoesMarcadas ? ' checked' : ''}><span><strong>Permitir também ações</strong> (justificar divergências, verificar procuração, enviar guias já geradas à Acessórias). Cada ação mostra uma prévia e só é feita depois que você confirmar na conversa. Só vale se o seu perfil puder operar.</span></label>` : ''}
 <div class="gaveta-acoes mcp-acoes"><button type="submit" name="decisao" value="permitir" class="botao primario">Permitir acesso</button>
 <button type="submit" name="decisao" value="negar" class="botao fantasma" formnovalidate>Cancelar</button></div>
 </form>
@@ -103,7 +109,7 @@ export async function rotaMcp(req: http.IncomingMessage, res: http.ServerRespons
 
   try {
     if (metodo === 'GET' && (p === '/.well-known/oauth-protected-resource' || p === '/.well-known/oauth-protected-resource/mcp')) {
-      json(res, 200, { resource: recurso, authorization_servers: [base], scopes_supported: [ESCOPO], bearer_methods_supported: ['header'], resource_name: 'Appura' });
+      json(res, 200, { resource: recurso, authorization_servers: [base], scopes_supported: ESCOPOS, bearer_methods_supported: ['header'], resource_name: 'Appura' });
       return true;
     }
     if (metodo === 'GET' && (p === '/.well-known/oauth-authorization-server' || p === '/.well-known/openid-configuration')) {
@@ -113,7 +119,7 @@ export async function rotaMcp(req: http.IncomingMessage, res: http.ServerRespons
         token_endpoint: `${base}/oauth/token`,
         registration_endpoint: `${base}/oauth/register`,
         revocation_endpoint: `${base}/oauth/revoke`,
-        scopes_supported: [ESCOPO],
+        scopes_supported: ESCOPOS,
         response_types_supported: ['code'],
         grant_types_supported: ['authorization_code', 'refresh_token'],
         code_challenge_methods_supported: ['S256'],
@@ -190,16 +196,17 @@ async function autorizar(req: http.IncomingMessage, res: http.ServerResponse, ur
   try {
     email = await o.entrar(String(campos.email ?? ''), String(campos.senha ?? ''), o.ip(req));
   } catch (e) {
-    return html(res, 401, paginaConsentimento(pedido, ocultos, (e as Error).message, String(campos.email ?? '')), destino);
+    return html(res, 401, paginaConsentimento(pedido, ocultos, (e as Error).message, String(campos.email ?? ''), campos.acoes === 'sim'), destino);
   }
-  const code = await o.oauth.emitirCodigo(pedido, email);
-  log.info('MCP: app autorizado', { cliente: pedido.cliente.nome, clientId: pedido.cliente.client_id, email });
+  const semAcoes = campos.acoes !== 'sim';
+  const code = await o.oauth.emitirCodigo(pedido, email, semAcoes);
+  log.info('MCP: app autorizado', { cliente: pedido.cliente.nome, clientId: pedido.cliente.client_id, email, acoes: temAcoes(pedido.scope) && !semAcoes });
   return redirecionar(res, pedido.redirectUri, { code, state: pedido.state, iss });
 }
 
 async function servirMcp(req: http.IncomingMessage, res: http.ServerResponse, o: OpcoesMcpHttp, recurso: string, metadados: string) {
   const token = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '').trim();
-  const desafio = (erro?: string) => `Bearer resource_metadata="${metadados}", scope="${ESCOPO}"${erro ? `, error="${erro}"` : ''}`;
+  const desafio = (erro?: string) => `Bearer resource_metadata="${metadados}", scope="${ESCOPOS.join(' ')}"${erro ? `, error="${erro}"` : ''}`;
   const acesso = token ? await o.oauth.validarAcesso(token, recurso) : null;
   if (!acesso) {
     json(res, 401, { error: token ? 'invalid_token' : 'unauthorized', error_description: token ? 'Token inválido, expirado ou revogado.' : 'Conecte-se ao Appura (OAuth) ou use um token pessoal.' },
@@ -220,7 +227,8 @@ async function servirMcp(req: http.IncomingMessage, res: http.ServerResponse, o:
     json(res, 400, { jsonrpc: '2.0', error: { code: -32700, message: 'JSON inválido.' }, id: null });
     return;
   }
-  const server = criarServidorMcp(o.deps, { email: acesso.email, perfil, clientId: acesso.clientId }, o.registrar);
+  const acoes = temAcoes(acesso.scope) && o.podeOperar(perfil);
+  const server = criarServidorMcp(o.deps, { email: acesso.email, perfil, clientId: acesso.clientId, acoes }, o.registrar);
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   res.on('close', () => { transport.close().catch(() => {}); server.close().catch(() => {}); });
   for (const [k, v] of Object.entries(CORS)) res.setHeader(k, v);

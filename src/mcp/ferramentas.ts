@@ -1,5 +1,6 @@
 /**
- * Ferramentas do MCP do Appura (fase 1: só leitura).
+ * Ferramentas do MCP do Appura: leitura (sempre) e ações com confirmação (fase 2, em ./acoes.ts, só com o
+ * escopo appura.acoes e perfil que pode operar).
  *
  * As regras de situação (status do fechamento, pendências, etapas) são as MESMAS do painel: vêm das
  * funções puras de public/visao-geral.js e public/empresa-360.js. Nenhum número é inventado aqui.
@@ -11,14 +12,17 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Db, ok } from '../db';
 import type { ServicoSped } from '../painel/sped';
 import type { ServicoGuias } from '../painel/guias';
+import type { ServicoAcessorias } from '../integra/acessorias';
+import { Confirmacoes, mensagemDeServico, registrarAcoes } from './acoes';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const vg = require(path.resolve(__dirname, '../../public/visao-geral.js'));
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const e3 = require(path.resolve(__dirname, '../../public/empresa-360.js'));
 
-export interface DepsMcp { db: Db; sped: ServicoSped; guias: ServicoGuias }
-export interface ContextoMcp { email: string; perfil: string; clientId: string | null }
+export interface DepsMcp { db: Db; sped: ServicoSped; guias: ServicoGuias; acessorias?: ServicoAcessorias; confirmacoes?: Confirmacoes }
+/** `acoes`: a conexão tem o escopo appura.acoes E o perfil do usuário pode operar. */
+export interface ContextoMcp { email: string; perfil: string; clientId: string | null; acoes?: boolean }
 export type RegistroFerramenta = (r: { email: string; clientId: string | null; ferramenta: string; argumentos: unknown; sucesso: boolean; duracaoMs: number }) => Promise<void>;
 
 export const VERSAO_MCP = '1.0.0';
@@ -61,9 +65,11 @@ const erro = (msg: string) => ({ isError: true, content: [{ type: 'text' as cons
 /** Cria o servidor MCP para um usuário (uma instância por requisição: modo sem estado). */
 export function criarServidorMcp(deps: DepsMcp, ctx: ContextoMcp, registrar: RegistroFerramenta): McpServer {
   const { db } = deps;
+  const acoes = !!(ctx.acoes && deps.acessorias && deps.confirmacoes);
   const server = new McpServer(
     { name: 'appura', title: 'Appura', version: VERSAO_MCP },
-    { instructions: 'Appura é a plataforma fiscal do escritório de contabilidade: captação de XML (NF-e, NFC-e, CT-e), auditoria, SPED/SINTEGRA, Central de Fechamento e guias (DAS). Todas as ferramentas são de leitura e respeitam o perfil do usuário. Competência sempre no formato AAAA-MM. Para uma empresa, informe o CNPJ quando possível.' },
+    { instructions: 'Appura é a plataforma fiscal do escritório de contabilidade: captação de XML (NF-e, NFC-e, CT-e), auditoria, SPED/SINTEGRA, Central de Fechamento e guias (DAS). As ferramentas respeitam o perfil do usuário. Competência sempre no formato AAAA-MM. Para uma empresa, informe o CNPJ quando possível.'
+      + (acoes ? ' As ferramentas de ação (justificar/reabrir divergências, verificar procuração, enviar guias à Acessórias) funcionam em duas etapas: a primeira chamada só mostra a prévia e devolve um código; mostre a prévia ao usuário e só chame de novo com o código depois que ele confirmar explicitamente. Nunca confirme por conta própria.' : ' Todas as ferramentas desta conexão são de leitura.') },
   );
 
   const envolver = <A>(nome: string, fn: (a: A) => Promise<unknown>) => async (a: A) => {
@@ -74,7 +80,7 @@ export function criarServidorMcp(deps: DepsMcp, ctx: ContextoMcp, registrar: Reg
       return resposta(r);
     } catch (e) {
       await registrar({ email: ctx.email, clientId: ctx.clientId, ferramenta: nome, argumentos: a, sucesso: false, duracaoMs: Date.now() - inicio }).catch(() => {});
-      return erro(e instanceof ErroFerramenta ? e.message : 'Não foi possível consultar o Appura agora. Tente de novo.');
+      return erro(mensagemDeServico(e) ?? 'Não foi possível concluir no Appura agora. Tente de novo.');
     }
   };
   const leitura = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
@@ -302,6 +308,12 @@ export function criarServidorMcp(deps: DepsMcp, ctx: ContextoMcp, registrar: Reg
       observacao: 'DCTFWeb/DARF (Lucro Presumido e Real) ainda não estão no Appura.',
     };
   }));
+
+  if (acoes) {
+    registrarAcoes(server, { db, sped: deps.sped, guias: deps.guias, acessorias: deps.acessorias!, confirmacoes: deps.confirmacoes! }, {
+      email: ctx.email, resolverEmpresa: (t) => resolverEmpresa(db, t), competencia: (c) => c ?? mesAtualSP(), envolver, cnpjFmt,
+    });
+  }
 
   return server;
 }

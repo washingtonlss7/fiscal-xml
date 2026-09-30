@@ -1404,3 +1404,8 @@ body.com-dialogo { overflow: hidden; }
 .ia-novo { border-color: var(--pendente-vivo); }
 /* Enter confirma "Permitir" (primeiro botão do formulário); visualmente fica à direita */
 .mcp-acoes { flex-direction: row-reverse; justify-content: flex-start; }
+/* Conexões de IA: permissão de ações (tela de consentimento e token pessoal) */
+.mcp-permissao { display: flex; gap: var(--esp-3); align-items: flex-start; padding: var(--esp-3); border: var(--borda); border-radius: var(--raio-m); background: var(--superficie-2); font-size: var(--t-s); line-height: 1.45; cursor: pointer; }
+.mcp-permissao input { width: 20px; height: 20px; margin: 1px 0 0; flex: none; accent-color: var(--primaria); cursor: pointer; }
+.mcp-permissao input:disabled, .mcp-permissao input:disabled + span { cursor: not-allowed; opacity: .6; }
+.ia-selos { display: flex; gap: var(--esp-1); flex-wrap: wrap; }

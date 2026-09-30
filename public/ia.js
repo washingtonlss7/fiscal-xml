@@ -2,7 +2,9 @@
 /*
  * Conexões de IA (#/ia): o MCP do Appura. Endereço para conectar apps de IA (Claude, ChatGPT...) pelo login
  * do Appura (OAuth) e tokens pessoais para quem usa cabeçalho fixo (n8n, Claude Code, Cursor).
- * Cada usuário vê, cria e revoga só as próprias conexões. Tudo é somente leitura nesta fase.
+ * Cada usuário vê, cria e revoga só as próprias conexões. Leitura sempre; ações (justificar divergências,
+ * verificar procuração, enviar guias à Acessórias) só quando o usuário permite e o perfil pode operar,
+ * e sempre com prévia + confirmação na conversa.
  * Usa os utilitários globais do app.js (h, $, chamar, icone, comOcupado, avisar).
  */
 
@@ -23,7 +25,13 @@ function iaConfigJson(url, token) {
   return JSON.stringify({ mcpServers: { appura: { type: 'http', url, headers: { Authorization: `Bearer ${token || 'SEU_TOKEN'}` } } } }, null, 2);
 }
 
-if (typeof module !== 'undefined') module.exports = { iaUltimoUso, iaConfigJson };
+/** Selo de acesso de uma conexão. Ações só valem para quem pode operar (o servidor confere a cada chamada). */
+function iaAcesso(acoes, podeOperar) {
+  if (!acoes) return { texto: 'Leitura', classe: 'neutro' };
+  return podeOperar ? { texto: 'Leitura e ações', classe: 'pendente' } : { texto: 'Leitura (ações bloqueadas pelo perfil)', classe: 'neutro' };
+}
+
+if (typeof module !== 'undefined') module.exports = { iaUltimoUso, iaConfigJson, iaAcesso };
 
 /* ---------- tela ---------- */
 if (typeof window !== 'undefined') {
@@ -65,8 +73,8 @@ if (typeof window !== 'undefined') {
 
     const endereco = h('section', { class: 'vg-card' },
       h('div', { class: 'vg-card-topo' }, h('div', {}, h('h2', { class: 'vg-card-titulo', text: 'Endereço do MCP do Appura' }),
-        h('p', { class: 'meta', text: 'Qualquer app de IA compatível com MCP (servidor remoto) se conecta por este endereço. Somente leitura: a IA consulta empresas, Central de Fechamento, SPED/SINTEGRA, auditoria, notas e guias com as permissões do seu perfil.' })),
-        h('span', { class: 'selo info', text: 'Somente leitura' })),
+        h('p', { class: 'meta', text: 'Qualquer app de IA compatível com MCP (servidor remoto) se conecta por este endereço. A IA consulta empresas, Central de Fechamento, SPED/SINTEGRA, auditoria, notas e guias com as permissões do seu perfil. Se você permitir, ela também justifica divergências, verifica procurações e envia guias já geradas à Acessórias, sempre mostrando uma prévia e esperando a sua confirmação.' })),
+        h('span', { class: 'selo info', text: iaPodeOperar() ? 'Leitura + ações com confirmação' : 'Somente leitura' })),
       h('div', { class: 'ia-url' }, h('code', { class: 'mono', text: d.url }), iaBotaoCopiar(d.url, 'Copiar endereço')));
 
     const passo = (titulo, texto) => h('li', {}, h('div', {}, h('strong', { text: titulo }), h('span', { class: 'meta', text: texto })));
@@ -75,14 +83,16 @@ if (typeof window !== 'undefined') {
       h('ol', { class: 'gu-passos ia-passos' },
         passo('Claude, ChatGPT e outros apps com login', 'Nas configurações de conectores do app, adicione um conector personalizado (servidor MCP remoto) com o endereço acima. O app abre a tela do Appura: entre com seu e-mail e senha e clique em "Permitir acesso".'),
         passo('n8n, Claude Code, Cursor e automações', 'Crie um token pessoal (quadro "Token pessoal") e use o endereço acima com o cabeçalho Authorization: Bearer <token>. No n8n, use o nó de cliente MCP com autenticação por cabeçalho.'),
-        passo('Segurança', 'Os dados consultados vão para o provedor da IA escolhida. Certificados, senhas e chaves nunca saem do Appura. Toda consulta fica registrada com o seu usuário.')));
+        passo('Ações com confirmação', 'Com ações permitidas, a IA primeiro mostra o que vai fazer (quais divergências, quais empresas, quais guias) e só executa depois que você confirmar na conversa. Ela não gera guias nem apaga nada.'),
+        passo('Segurança', 'Os dados consultados vão para o provedor da IA escolhida. Certificados, senhas e chaves nunca saem do Appura. Toda consulta e toda ação ficam registradas com o seu usuário.')));
 
+    const seloAcesso = (acoes) => { const s = iaAcesso(acoes, iaPodeOperar()); return h('span', { class: `selo ${s.classe}`, text: s.texto }); };
     const apps = d.apps.map((a) => h('li', {},
-      h('span', { class: 'selo ok', text: 'App' }),
+      h('span', { class: 'ia-selos' }, h('span', { class: 'selo ok', text: 'App' }), seloAcesso(a.acoes)),
       h('div', { class: 'ia-conexao' }, h('strong', { text: a.nome }), h('span', { class: 'meta', text: `${a.origem ? `${a.origem} · ` : ''}conectado em ${iaData(a.criadoEm)} · ${iaUltimoUso(a.ultimoUsoEm)}` })),
       iaBotaoRevogar(a.id, 'Desconectar')));
     const pessoais = d.pessoais.map((t) => h('li', {},
-      h('span', { class: 'selo neutro', text: 'Token' }),
+      h('span', { class: 'ia-selos' }, h('span', { class: 'selo neutro', text: 'Token' }), seloAcesso(t.acoes)),
       h('div', { class: 'ia-conexao' }, h('strong', { text: t.nome }), h('span', { class: 'meta', text: `••••${t.final || ''} · vence em ${iaData(t.expiraEm)} · ${iaUltimoUso(t.ultimoUsoEm)}` })),
       iaBotaoRevogar(t.id, 'Revogar')));
     const lista = h('section', { class: 'vg-card' },
@@ -105,16 +115,25 @@ if (typeof window !== 'undefined') {
     return h('button', { type: 'button', class: 'botao pequeno perigo', onclick: () => { ia.confirmar = id; iaRender(); } }, texto);
   }
 
+  function iaPodeOperar() {
+    return typeof pode === 'function' ? pode('operar') : false;
+  }
+
   function iaCardCriar() {
+    const podeOperar = iaPodeOperar();
     const form = h('form', { class: 'es-chaves', novalidate: true, onsubmit: (ev) => { ev.preventDefault(); iaCriar(form); } },
       h('label', { class: 'campo' }, h('span', { text: 'Nome (para você reconhecer depois)' }), h('input', { id: 'ia-nome', type: 'text', maxlength: '60', placeholder: 'Ex.: n8n do escritório', autocomplete: 'off' })),
       h('label', { class: 'campo' }, h('span', { text: 'Validade' }), h('select', { id: 'ia-dias' },
         h('option', { value: '30', text: '30 dias' }), h('option', { value: '90', text: '90 dias', selected: true }), h('option', { value: '180', text: '180 dias' }), h('option', { value: '365', text: '1 ano' }))),
+      h('label', { class: 'mcp-permissao' }, h('input', { id: 'ia-acoes', type: 'checkbox', disabled: !podeOperar }),
+        h('span', {}, h('strong', { text: 'Permitir ações' }), podeOperar
+          ? ' (justificar divergências, verificar procuração, enviar guias já geradas à Acessórias). Cada ação mostra uma prévia e só é feita depois de confirmada.'
+          : ' indisponível: seu perfil é de consulta, o token será só de leitura.')),
       h('p', { id: 'ia-erro', class: 'erro', role: 'alert', hidden: true }),
       h('div', { class: 'gu-botoes' }, h('button', { type: 'submit', class: 'botao primario' }, icone('key-round'), h('span', { text: 'Criar token' }))));
     return h('section', { class: 'vg-card' },
       h('div', { class: 'vg-card-topo' }, h('div', {}, h('h2', { class: 'vg-card-titulo', text: 'Token pessoal' }),
-        h('p', { class: 'meta', text: 'Para apps que não fazem login (n8n, Claude Code, Cursor). O token dá o mesmo acesso de leitura que você tem e aparece uma única vez.' }))),
+        h('p', { class: 'meta', text: 'Para apps que não fazem login (n8n, Claude Code, Cursor). O token dá o mesmo acesso que você tem (só leitura, a não ser que você permita ações) e aparece uma única vez.' }))),
       form);
   }
 
@@ -124,7 +143,7 @@ if (typeof window !== 'undefined') {
     erro.hidden = true;
     if (nome.length < 2) { erro.textContent = 'Dê um nome para o token.'; erro.hidden = false; $('ia-nome').setAttribute('aria-invalid', 'true'); return; }
     await comOcupado(form.querySelector('button[type=submit]'), 'Criando…', async () => {
-      try { ia.novoToken = await chamar('/api/mcp/tokens', { method: 'POST', body: { nome, dias: Number($('ia-dias').value) } }); } catch (e) { erro.textContent = e.message; erro.hidden = false; return; }
+      try { ia.novoToken = await chamar('/api/mcp/tokens', { method: 'POST', body: { nome, dias: Number($('ia-dias').value), acoes: !!$('ia-acoes').checked } }); } catch (e) { erro.textContent = e.message; erro.hidden = false; return; }
       await iaCarregar();
     }, 'ia-criar');
   }

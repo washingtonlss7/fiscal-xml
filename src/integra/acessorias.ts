@@ -171,20 +171,26 @@ export class ServicoAcessorias {
   }
 
   /** Envia as guias da competência que ainda não foram aceitas (em sequência, respeitando o limite da Acessórias). */
-  async enviarPendentes(competencia: string, email: string, empresaIds?: string[]) {
+  /** Guias da competência ainda não enviadas (a mais recente de cada empresa, com PDF). Não envia nada. */
+  async pendentes(competencia: string, empresaIds?: string[]) {
     await this.token();
-    let q = this.db.from('guias').select('id,empresa_id,gerado_em,caminho').eq('competencia', `${competencia.slice(0, 7)}-01`).order('gerado_em', { ascending: false }).limit(5000);
+    let q = this.db.from('guias').select('id,empresa_id,gerado_em,caminho,total,vencimento').eq('competencia', `${competencia.slice(0, 7)}-01`).order('gerado_em', { ascending: false }).limit(5000);
     if (empresaIds && empresaIds.length) q = q.in('empresa_id', empresaIds.slice(0, 500));
-    const guias = ok(await q, 'guias da competência') as { id: number; empresa_id: string; caminho: string | null }[];
+    const guias = ok(await q, 'guias da competência') as { id: number; empresa_id: string; caminho: string | null; total: number | null; vencimento: string | null }[];
     // Só a guia mais recente de cada empresa (a que vale)
-    const porEmpresa = new Map<string, { id: number; caminho: string | null }>();
+    const porEmpresa = new Map<string, (typeof guias)[number]>();
     for (const g of guias) if (!porEmpresa.has(g.empresa_id)) porEmpresa.set(g.empresa_id, g);
     // Guia sem PDF (o SERPRO não devolveu) não tem o que enviar
-    const ids = [...porEmpresa.values()].filter((g) => g.caminho).map((g) => g.id);
-    const ult = await this.ultimosEnvios(ids);
-    const pendentes = ids.filter((id) => !ult.get(id) || ult.get(id).status !== 'enviado').slice(0, 200);
+    const comPdf = [...porEmpresa.values()].filter((g) => g.caminho);
+    const ult = await this.ultimosEnvios(comPdf.map((g) => g.id));
+    const naoEnviadas = comPdf.filter((g) => !ult.get(g.id) || ult.get(g.id).status !== 'enviado');
+    return { guias: naoEnviadas.slice(0, 200).map((g) => ({ id: g.id, empresaId: g.empresa_id, total: g.total, vencimento: g.vencimento })), jaEnviadas: comPdf.length - naoEnviadas.length };
+  }
+
+  /** Envia a lista de guias, uma a uma (para no primeiro erro que afetaria todas). */
+  async enviarLista(ids: number[], email: string) {
     const resultados: { guiaId: number; ok: boolean; mensagem: string }[] = [];
-    for (const id of pendentes) {
+    for (const id of ids.slice(0, 200)) {
       try {
         const r = await this.enviarGuia(id, email, true);
         resultados.push({ guiaId: id, ok: r.status === 'enviado', mensagem: r.mensagem });
@@ -194,7 +200,12 @@ export class ServicoAcessorias {
         if (e instanceof ErroAcessorias && (e.status === 503 || e.status === 500)) break;
       }
     }
-    return { resultados, jaEnviadas: ids.length - ids.filter((id) => !ult.get(id) || ult.get(id).status !== 'enviado').length };
+    return resultados;
+  }
+
+  async enviarPendentes(competencia: string, email: string, empresaIds?: string[]) {
+    const p = await this.pendentes(competencia, empresaIds);
+    return { resultados: await this.enviarLista(p.guias.map((g) => g.id), email), jaEnviadas: p.jaEnviadas };
   }
 
   async envioAutomaticoAtivo() {
