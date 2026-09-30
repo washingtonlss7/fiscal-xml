@@ -30,9 +30,13 @@ function vgAuditoria(e) {
 
 const vgPlural = (n, s, p) => `${n} ${n === 1 ? s : p}`;
 
+/** Simples Nacional e MEI entregam SINTEGRA, não SPED (a não ser que um SPED já tenha sido enviado). */
+function vgUsaSintegra(e) { return ['simples', 'mei'].includes(e.regime) && !e.sped && !e.contrib; }
+
 /** Arquivos SPED da competência (Fiscal e Contribuições): não enviado, com erros ou recebido. */
 function vgSped(e) {
   const f = e.sped; const c = e.contrib;
+  if (vgUsaSintegra(e)) return { tom: 'neutro', simbolo: '–', texto: 'SINTEGRA · em breve' };
   if (!f && !c) return { tom: 'neutro', simbolo: '–', texto: 'Não enviado' };
   const erros = (f ? f.erros : 0) + (c ? c.erros : 0);
   if (erros > 0) return { tom: 'pendente', simbolo: '!', texto: vgPlural(erros, 'erro no arquivo', 'erros no arquivo') };
@@ -44,6 +48,7 @@ function vgSped(e) {
 /** Validação: XML × SPED Fiscal e SPED Fiscal × Contribuições (nota a nota). */
 function vgValidacao(e) {
   const f = e.sped; const c = e.contrib;
+  if (vgUsaSintegra(e)) return { tom: 'neutro', simbolo: '–', texto: 'Não disponível' };
   if (!f && !c) return { tom: 'neutro', simbolo: '–', texto: 'Aguardando SPED' };
   const n = [f && f.divergencias, c && c.divergencias].filter((x) => x !== null && x !== undefined && x !== false);
   if (!n.length) return { tom: 'neutro', simbolo: '–', texto: 'Sem comparação' };
@@ -80,6 +85,8 @@ function vgCalcular(dados, regime, hojeISO) {
   const comPendencias = conta((e) => vgGeral(e).chave === 'bloqueado' || vgGeral(e).chave === 'pendencias');
   const certVencidos = conta((e) => e.status === 'certificado_vencido');
   const comSped = ativas.filter((e) => e.sped || e.contrib);
+  // Simples e MEI entregam SINTEGRA (em breve): não entram na conta das etapas do SPED
+  const baseSped = ativas.filter((e) => !vgUsaSintegra(e)).length;
 
   const kpis = {
     empresas: base,
@@ -94,8 +101,8 @@ function vgCalcular(dados, regime, hojeISO) {
     { id: 'xml', nome: 'Captação de XML', icone: 'cloud-download', tom: 'info', feito: xmlEmDia, total: base },
     { id: 'auditoria', nome: 'Auditoria das notas', icone: 'shield-check', tom: 'ok', feito: auditadas, total: comNotas.length, semTotal: 'Nenhuma empresa com notas na competência' },
     { id: 'st', nome: 'ICMS-ST (entradas)', icone: 'calculator', indisponivel: 'Sob demanda' },
-    { id: 'sped', nome: 'SPED recebido sem erros', icone: 'file-spreadsheet', tom: 'progresso', feito: comSped.filter((e) => vgSped(e).tom === 'ok').length, total: base },
-    { id: 'validacao', nome: 'Validação XML × SPED', icone: 'file-check', tom: 'ok', feito: comSped.filter((e) => vgValidacao(e).tom === 'ok').length, total: base },
+    { id: 'sped', nome: 'SPED recebido sem erros', icone: 'file-spreadsheet', tom: 'progresso', feito: comSped.filter((e) => vgSped(e).tom === 'ok').length, total: baseSped, semTotal: 'Nenhuma empresa que entregue SPED' },
+    { id: 'validacao', nome: 'Validação XML × SPED', icone: 'file-check', tom: 'ok', feito: comSped.filter((e) => vgValidacao(e).tom === 'ok').length, total: baseSped, semTotal: 'Nenhuma empresa que entregue SPED' },
     { id: 'guias', nome: 'Guias (DUA, DAS etc.)', icone: 'receipt', indisponivel: 'Não disponível' },
   ];
 
@@ -215,7 +222,7 @@ function fcOrdenar(lista, ordem = 'criticidade') {
   return [...lista].sort(cmp);
 }
 
-if (typeof module !== 'undefined') module.exports = { vgXml, vgAuditoria, vgSped, vgValidacao, vgGeral, vgCalcular, vgFiltrarCentral, vgPendencias, vgQtdPendencias, vgPrecisaAtencao, fcContadores, fcFiltrar, fcOrdenar };
+if (typeof module !== 'undefined') module.exports = { vgXml, vgAuditoria, vgUsaSintegra, vgSped, vgValidacao, vgGeral, vgCalcular, vgFiltrarCentral, vgPendencias, vgQtdPendencias, vgPrecisaAtencao, fcContadores, fcFiltrar, fcOrdenar };
 
 /* ---------- tela ---------- */
 if (typeof window !== 'undefined') {

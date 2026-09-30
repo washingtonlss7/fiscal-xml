@@ -441,7 +441,7 @@
       </div>
 
       <div id="painel-sped" class="pilha" role="tabpanel" aria-labelledby="aba-sped" hidden>
-        <section class="vg-card sped-envio" aria-labelledby="sped-titulo">
+        <section id="sped-envio-card" class="vg-card sped-envio" aria-labelledby="sped-titulo">
           <div class="vg-card-topo">
             <div>
               <h2 id="sped-titulo" class="vg-card-titulo">SPED Fiscal e SPED Contribuições</h2>
@@ -455,9 +455,9 @@
           <p id="sped-sem-permissao" class="meta" hidden>Seu perfil só consulta: peça a um analista para enviar o arquivo.</p>
         </section>
         <div id="sped-resultado" class="pilha" aria-live="polite"></div>
-        <div class="e360-breve pequeno">
+        <div id="sped-sintegra" class="e360-breve" hidden>
           <svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-file-spreadsheet"></use></svg>
-          <div><strong>SINTEGRA · Em breve</strong><p>A leitura e a comparação do SINTEGRA (Simples Nacional) entram nesta mesma aba.</p></div>
+          <div><strong>SINTEGRA · Em breve</strong><p>Empresa do Simples Nacional: o arquivo do mês é o SINTEGRA, não o SPED. A leitura do SINTEGRA e a comparação com os XMLs serão disponibilizadas nesta área.</p></div>
         </div>
       </div>
       <div id="painel-guias" class="pilha" role="tabpanel" aria-labelledby="aba-guias" hidden>

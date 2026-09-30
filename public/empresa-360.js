@@ -89,7 +89,11 @@ function e360Etapas(d) {
   const sp = d.sped; const ct = d.contrib;
   let sped;
   let val;
-  if (!sp && !ct) {
+  const sintegra = ['simples', 'mei'].includes(e.regime) && !sp && !ct;
+  if (sintegra) {
+    sped = { estado: 'indisponivel', texto: 'SINTEGRA · em breve' };
+    val = { estado: 'indisponivel', texto: 'Em breve' };
+  } else if (!sp && !ct) {
     sped = { estado: 'nao_iniciado', texto: 'Nenhum SPED enviado' };
     val = { estado: 'nao_iniciado', texto: 'Aguardando o SPED' };
   } else {
@@ -111,7 +115,7 @@ function e360Etapas(d) {
     { id: 'xml', nome: 'Captação', aba: 'notas', ...xml },
     { id: 'auditoria', nome: 'Auditoria', aba: 'auditoria', ...aud },
     { id: 'st', nome: 'ICMS-ST', aba: e.uf === 'ES' ? 'st' : null, ...st },
-    { id: 'sped', nome: 'SPED', aba: 'sped', ...sped },
+    { id: 'sped', nome: sintegra ? 'SINTEGRA' : 'SPED', aba: 'sped', ...sped },
     { id: 'validacao', nome: 'Validação', aba: 'sped', ...val },
     { id: 'guias', nome: 'Guias', aba: 'guias', estado: 'indisponivel', texto: 'Em breve' },
   ];
@@ -549,12 +553,29 @@ if (typeof window !== 'undefined') {
 
   var SPED_ABAS = { fiscal: 'SPED Fiscal', contrib: 'SPED Contribuições' };
 
+  /** Simples Nacional e MEI: a aba é do SINTEGRA (a não ser que já exista SPED enviado para a empresa no mês). */
+  function spedModoSintegra() {
+    if (!empresaNotas || !['simples', 'mei'].includes(empresaNotas.regime)) return false;
+    const est = e3.sped;
+    return !(est && est.id === empresaNotas.id && ((est.fiscal && est.fiscal.r) || (est.contrib && est.contrib.r)));
+  }
+
+  function spedAjustarAba() {
+    const sintegra = spedModoSintegra();
+    $('aba-sped').textContent = sintegra ? 'SINTEGRA' : 'SPED';
+    $('sped-envio-card').hidden = sintegra;
+    $('sped-sintegra').hidden = !sintegra;
+    return sintegra;
+  }
+
   function spedRender() {
     const alvo = $('sped-resultado');
     $('sped-enviar').hidden = !pode('operar');
     $('sped-sem-permissao').hidden = pode('operar');
     const est = e3.sped;
+    const sintegra = spedAjustarAba();
     if (!est || !empresaNotas || est.id !== empresaNotas.id) { alvo.replaceChildren(); return; }
+    if (sintegra && !est.carregando) { alvo.replaceChildren(); return; }
     if (est.carregando) { alvo.replaceChildren(h('div', { class: 'vg-card' }, ...e360Esqueleto(3))); return; }
     if (est.erro) {
       alvo.replaceChildren(h('div', { class: 'vg-erro', role: 'alert' }, h('strong', { text: 'Não foi possível carregar o SPED guardado.' }), h('span', { text: est.erro }),
@@ -578,13 +599,15 @@ if (typeof window !== 'undefined') {
     const parte = est[aba];
     parte.mes = est.mes;
     if (!parte.r) {
-      alvo.replaceChildren(troca, h('div', { class: 'vg-vazio pequeno' }, h('strong', { text: `Nenhum ${SPED_ABAS[aba]} de ${textoCompetencia(est.mes)} enviado ainda.` }),
+      alvo.replaceChildren(...[troca, !empresaNotas.regime ? h('p', { class: 'meta', text: 'Regime não informado. Se a empresa for do Simples Nacional, o arquivo do mês é o SINTEGRA (em breve), não o SPED.' }) : null, h('div', { class: 'vg-vazio pequeno' }, h('strong', { text: `Nenhum ${SPED_ABAS[aba]} de ${textoCompetencia(est.mes)} enviado ainda.` }),
         h('span', { text: aba === 'fiscal'
           ? 'Quando o arquivo for enviado, a validação e a comparação com os XMLs ficam guardadas aqui e entram na Central de Fechamento.'
-          : 'Quando o arquivo for enviado, o Appura confere a estrutura, a classificação das receitas (CST) e a apuração do PIS/COFINS, e cruza as vendas com o SPED Fiscal do mês.' })));
+          : 'Quando o arquivo for enviado, o Appura confere a estrutura, a classificação das receitas (CST) e a apuração do PIS/COFINS, e cruza as vendas com o SPED Fiscal do mês.' }))].filter(Boolean));
       return;
     }
-    alvo.replaceChildren(troca, ...(aba === 'fiscal' ? spedBlocosFiscal(parte) : spedBlocosContrib(parte)));
+    const semRegime = !empresaNotas.regime
+      ? h('p', { class: 'meta', text: 'Regime não informado. Se a empresa for do Simples Nacional, o arquivo do mês é o SINTEGRA (em breve), não o SPED.' }) : null;
+    alvo.replaceChildren(...[troca, semRegime, ...(aba === 'fiscal' ? spedBlocosFiscal(parte) : spedBlocosContrib(parte))].filter(Boolean));
   }
 
   /** Quem enviou, ações (refazer/baixar), cadastro a conferir e aviso de competência. */

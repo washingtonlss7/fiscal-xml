@@ -52,7 +52,9 @@ const base = (x: Record<string, any> = {}) => ({
 // 3) Etapas e status igual ao da Central
 {
   const et = Object.fromEntries(e3.e360Etapas(base()).map((x: any) => [x.id, x.estado]));
-  assert.deepEqual(et, { xml: 'andamento', auditoria: 'pendencia', st: 'nao_iniciado', sped: 'nao_iniciado', validacao: 'nao_iniciado', guias: 'indisponivel' });
+  assert.deepEqual(et, { xml: 'andamento', auditoria: 'pendencia', st: 'nao_iniciado', sped: 'indisponivel', validacao: 'indisponivel', guias: 'indisponivel' });
+  assert.equal(e3.e360Etapas(base())[3].nome, 'SINTEGRA', 'Simples sem SPED: a etapa é o SINTEGRA');
+  assert.equal(e3.e360Etapas(base({ empresa: { regime: 'presumido' } }))[3].estado, 'nao_iniciado');
   const bloq = e3.e360Etapas(base({ empresa: { status: 'certificado_vencido' } }));
   assert.equal(bloq[0].estado, 'bloqueado');
   const semNotas = e3.e360Etapas(base({ documentos: [], auditoria: [] }));
