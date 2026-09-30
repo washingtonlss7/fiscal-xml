@@ -5,8 +5,8 @@
  * - Busca sempre a versão nova primeiro; a cópia guardada só é usada quando a rede falha.
  * - Nunca guarda nada de /api: notas, empresas e dados fiscais não ficam no aparelho.
  */
-const VERSAO = 'appura-casca-v2';
-const CASCA = ['/', '/app.js', '/app.css', '/icone.svg', '/manifest.webmanifest', '/icone-192.png', '/icone-512.png', '/icones.svg', '/fonts/inter.woff2'];
+const VERSAO = 'appura-casca-v3';
+const CASCA = ['/', '/app.js', '/app.css', '/logo.png', '/favicon.png', '/manifest.webmanifest', '/icone-192.png', '/icone-512.png', '/icones.svg', '/fonts/inter.woff2'];
 
 self.addEventListener('install', (ev) => {
   ev.waitUntil(caches.open(VERSAO).then((c) => c.addAll(CASCA)).then(() => self.skipWaiting()));

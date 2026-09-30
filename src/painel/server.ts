@@ -49,7 +49,6 @@ const ARQUIVOS: Record<string, [string, string]> = {
   '/index.html': ['index.html', 'text/html; charset=utf-8'],
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/app.css': ['app.css', 'text/css; charset=utf-8'],
-  '/icone.svg': ['icone.svg', 'image/svg+xml'],
   '/manifest.webmanifest': ['manifest.webmanifest', 'application/manifest+json; charset=utf-8'],
   '/sw.js': ['sw.js', 'text/javascript; charset=utf-8'],
   '/icone-192.png': ['icone-192.png', 'image/png'],
@@ -57,6 +56,8 @@ const ARQUIVOS: Record<string, [string, string]> = {
   '/icone-maskable-512.png': ['icone-maskable-512.png', 'image/png'],
   '/apple-touch-icon.png': ['apple-touch-icon.png', 'image/png'],
   '/icones.svg': ['icones.svg', 'image/svg+xml'],
+  '/logo.png': ['logo.png', 'image/png'],
+  '/favicon.png': ['favicon.png', 'image/png'],
   '/fonts/inter.woff2': ['fonts/inter.woff2', 'font/woff2'],
 };
 
