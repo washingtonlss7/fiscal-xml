@@ -269,7 +269,7 @@ async function carregarEmpresas() {
   try {
     const r = await chamar('/api/empresas');
     empresas = r.empresas || [];
-    $('atualizado').textContent = `Atualizado às ${new Date(r.atualizadoEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+    $('atualizado').textContent = `${aoVivo ? 'Ao vivo · ' : ''}Atualizado às ${new Date(r.atualizadoEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
     renderResumo();
     renderLista();
   } catch (e) {
@@ -277,11 +277,75 @@ async function carregarEmpresas() {
   }
 }
 
+/* Tempo real: o servidor avisa quando algo muda (Supabase Realtime) e a tela recarrega sozinha.
+   Se a conexão cair, reconecta; como garantia, também recarrega a cada 5 minutos. */
+let eventosAbortar = null;
+let aoVivo = false;
+let recargaPendente = null;
+
+function marcarAoVivo(ativo) {
+  aoVivo = ativo;
+  $('atualizado').classList.toggle('ao-vivo', ativo);
+  $('atualizado').title = ativo ? 'Atualiza sozinho quando algo muda' : 'Reconectando…';
+}
+
+function recarregarPorEvento() {
+  clearTimeout(recargaPendente);
+  recargaPendente = setTimeout(() => {
+    if (document.hidden) return;
+    if (!$('tela-empresas').hidden) carregarEmpresas();
+    else if (empresaNotas && abaAtual === 'auditoria') carregarAuditoria();
+  }, 400);
+}
+
+async function conectarEventos(tentativa = 0) {
+  if (!sessao) return;
+  const controle = new AbortController();
+  eventosAbortar = controle;
+  try {
+    let resp = await fetch('/api/eventos', { headers: { Authorization: `Bearer ${sessao.accessToken}` }, signal: controle.signal });
+    if (resp.status === 401) {
+      await chamar('/api/eu').catch(() => {});
+      resp = await fetch('/api/eventos', { headers: { Authorization: `Bearer ${sessao.accessToken}` }, signal: controle.signal });
+    }
+    if (!resp.ok || !resp.body) throw new Error(`eventos ${resp.status}`);
+    marcarAoVivo(true);
+    tentativa = 0;
+    const leitor = resp.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buffer = '';
+    for (;;) {
+      const { value, done } = await leitor.read();
+      if (done) break;
+      buffer += value;
+      let fim;
+      while ((fim = buffer.indexOf('\n\n')) >= 0) {
+        const bloco = buffer.slice(0, fim);
+        buffer = buffer.slice(fim + 2);
+        if (/^event: mudou/m.test(bloco)) recarregarPorEvento();
+      }
+    }
+  } catch (e) {
+    if (controle.signal.aborted) return;
+  }
+  if (controle.signal.aborted || !sessao) return;
+  marcarAoVivo(false);
+  // Reconecta com espera crescente (2 s, 4 s, 8 s... até 60 s)
+  setTimeout(() => conectarEventos(tentativa + 1), Math.min(60000, 2000 * 2 ** tentativa));
+}
+
 function iniciarAtualizacao() {
   pararAtualizacao();
-  timerAtualizacao = setInterval(() => { if (!document.hidden) carregarEmpresas(); }, 60000);
+  timerAtualizacao = setInterval(() => { if (!document.hidden) carregarEmpresas(); }, 300000);
+  conectarEventos();
 }
-function pararAtualizacao() { clearInterval(timerAtualizacao); }
+function pararAtualizacao() {
+  clearInterval(timerAtualizacao);
+  if (eventosAbortar) eventosAbortar.abort();
+  eventosAbortar = null;
+  marcarAoVivo(false);
+}
+// Ao voltar para a aba, atualiza na hora (o navegador pode ter pausado a conexão)
+document.addEventListener('visibilitychange', () => { if (!document.hidden && sessao && !$('tela-app').hidden) recarregarPorEvento(); });
 
 async function sincronizar(e) {
   try {

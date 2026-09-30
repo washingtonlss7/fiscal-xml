@@ -203,6 +203,9 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
 
   if (metodo === 'GET' && rota === '/api/eu') return responder(res, 200, { email });
 
+  // Avisos em tempo real para a tela (stream de texto). O navegador recarrega a lista quando chega "mudou".
+  if (metodo === 'GET' && rota === '/api/eventos') return abrirEventos(req, res);
+
   if (metodo === 'GET' && rota === '/api/empresas') {
     const linhas = await buscarTodos(
       (de, ate) => db.from('vw_painel_empresas').select('*').order('razao_social').range(de, ate),
@@ -564,6 +567,52 @@ function arquivoEstatico(res: http.ServerResponse, url: URL): boolean {
   res.end(fs.readFileSync(path.join(PASTA_PUBLICA, nome)));
   return true;
 }
+
+/* ---------- tempo real (Supabase Realtime -> telas abertas) ---------- */
+
+const ouvintes = new Set<http.ServerResponse>();
+let avisoPendente: NodeJS.Timeout | null = null;
+
+function avisarTelas(tabela: string) {
+  if (!ouvintes.size || avisoPendente) return;
+  // Junta várias mudanças seguidas (ex.: um lote de notas) num único aviso
+  avisoPendente = setTimeout(() => {
+    avisoPendente = null;
+    const msg = `event: mudou\ndata: ${JSON.stringify({ tabela, em: new Date().toISOString() })}\n\n`;
+    for (const r of ouvintes) r.write(msg);
+  }, 1500);
+}
+
+function abrirEventos(req: http.IncomingMessage, res: http.ServerResponse) {
+  res.writeHead(200, {
+    ...CABECALHOS_SEGURANCA,
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-store, no-transform',
+    'X-Accel-Buffering': 'no',
+    Connection: 'keep-alive',
+  });
+  res.write(`event: pronto\ndata: {}\n\n`);
+  ouvintes.add(res);
+  // Mantém a conexão viva através do proxy (Traefik/Cloudflare)
+  const ping = setInterval(() => res.write(': ping\n\n'), 20_000);
+  req.on('close', () => {
+    clearInterval(ping);
+    ouvintes.delete(res);
+  });
+}
+
+function assinarRealtime() {
+  const canal = db.channel('painel-mudancas');
+  for (const tabela of ['sync_state', 'sync_requests', 'empresas', 'certificados', 'apontamentos']) {
+    canal.on('postgres_changes', { event: '*', schema: 'public', table: tabela }, () => avisarTelas(tabela));
+  }
+  canal.subscribe((estado, erro) => {
+    void registrarStatus(db, 'painel_tempo_real', { estado, erro: erro?.message ?? null });
+    if (estado === 'SUBSCRIBED') log.info('tempo real ativo', { tabelas: 5 });
+    else if (estado === 'CHANNEL_ERROR' || estado === 'TIMED_OUT') log.warn('tempo real com problema; o cliente reconecta sozinho', { estado, erro: erro?.message });
+  });
+}
+assinarRealtime();
 
 /** Na primeira vez (tabela vazia), carrega a tabela de ST do ES que vem no repositório (Portaria SEFAZ-ES 16-R/2019). */
 async function semearTabelaST() {

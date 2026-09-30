@@ -312,3 +312,8 @@ tr.cancelada .valor-nota { text-decoration: line-through; }
 .importacao .barra span { display: block; height: 100%; background: var(--destaque); transition: width .2s; }
 .importacao ul { margin: 0; padding-left: 18px; font-size: 13px; color: var(--tinta-2); max-height: 220px; overflow: auto; overflow-wrap: anywhere; }
 .importacao .meta { font-size: 13px; }
+
+/* Indicador de tempo real */
+.atualizado.ao-vivo::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); margin-right: 6px; vertical-align: 1px; animation: pulso 2s ease-in-out infinite; }
+@keyframes pulso { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .atualizado.ao-vivo::before { animation: none; } }
