@@ -95,9 +95,9 @@ if (typeof window !== 'undefined') {
   function guIntegraCard(s, compacto) {
     const esc = s.escritorio;
     const certOk = !!(esc && esc.certificadoValidoAte && new Date(esc.certificadoValidoAte) > new Date());
-    const passo = (feito, titulo, texto) => h('li', { class: feito ? 'feito' : '' },
+    const passo = (feito, titulo, texto, acao) => h('li', { class: feito ? 'feito' : '' },
       h('span', { class: `vg-simbolo ${feito ? 'ok' : 'neutro'}`, 'aria-hidden': 'true', text: feito ? '✓' : '–' }),
-      h('div', {}, h('strong', { text: titulo }), h('span', { class: 'meta', text: texto })));
+      h('div', {}, h('strong', { text: titulo }), h('span', { class: 'meta', text: texto }), acao || null));
     const selo = !s.configurado ? { tom: 'neutro', texto: 'Não configurado' }
       : s.ambiente === 'trial' ? { tom: 'info', texto: 'Ambiente de teste do SERPRO' }
         : s.pronto ? { tom: 'ok', texto: 'Pronto' } : { tom: 'pendente', texto: 'Falta configurar' };
@@ -118,7 +118,8 @@ if (typeof window !== 'undefined') {
         : 'Contratar o Integra Contador na loja do SERPRO e colocar a Consumer Key e a Consumer Secret nas variáveis do servidor (SERPRO_CONSUMER_KEY e SERPRO_CONSUMER_SECRET, no Easypanel). Nunca envie as chaves por chat ou e-mail.'),
       passo(certOk, 'e-CNPJ do escritório no Appura', esc
         ? (certOk ? `${esc.razao_social} · ${formatarCnpj(esc.cnpj)} · certificado válido até ${guData(esc.certificadoValidoAte)}.` : `${esc.razao_social}: ${esc.certificadoValidoAte ? 'certificado vencido' : 'sem certificado'}. Cadastre o mesmo e-CNPJ do contrato.`)
-        : 'Cadastrar a empresa do escritório (CNPJ do contrato) com o certificado e-CNPJ e marcar "Certificado do escritório".'),
+        : 'Cadastrar o escritório (CNPJ do contrato) com o certificado e-CNPJ.',
+        !certOk && pode('certificados') && location.hash !== '#/escritorio' ? h('a', { class: 'botao pequeno gu-passo-acao', href: '#/escritorio' }, esc ? 'Trocar certificado do escritório' : 'Cadastrar escritório') : null),
       passo(false, 'Procuração de cada cliente', 'Cada cliente outorga procuração eletrônica ao CNPJ do escritório no e-CAC (serviços do Simples Nacional e do MEI). O Appura verifica e mostra quem falta.'));
     const conexao = s.configurado ? h('div', { class: 'gu-conexao' },
       h('span', { class: 'meta', text: `Chamadas ao SERPRO neste mês: ${Number(s.chamadasMes.total).toLocaleString('pt-BR')}${s.chamadasMes.comErro ? ` (${s.chamadasMes.comErro} com erro)` : ''}` }),
@@ -139,7 +140,7 @@ if (typeof window !== 'undefined') {
 
   /* ----- tela #/guias ----- */
   function guMostrar() {
-    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped']) $(id).hidden = true;
+    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-escritorio']) $(id).hidden = true;
     $('tela-guias').hidden = false;
     window.scrollTo(0, 0);
     gu.selecionados.clear(); gu.confirmar = null;
@@ -367,6 +368,67 @@ if (typeof window !== 'undefined') {
     alvo.replaceChildren(...[guIntegraCard(d.integra, true), semPermissao, h('div', { class: 'sped-cards' }, cardProc, cardDecl, cardDas), historico].filter(Boolean));
   }
 
+  /* ----- Administração › Escritório (#/escritorio) ----- */
+  var es = { dados: null, erro: null };
+  function esMostrar() {
+    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias']) $(id).hidden = true;
+    $('tela-escritorio').hidden = false;
+    window.scrollTo(0, 0);
+    esCarregar();
+  }
+
+  async function esCarregar() {
+    try { es.dados = await chamar('/api/guias/situacao'); es.erro = null; } catch (e) { es.erro = e.message; }
+    esRender();
+  }
+
+  function esRender() {
+    if ($('tela-escritorio').hidden) return;
+    const alvo = $('es-conteudo');
+    if (es.erro && !es.dados) {
+      alvo.replaceChildren(h('div', { class: 'vg-erro', role: 'alert' }, h('strong', { text: 'Não foi possível carregar os dados do escritório.' }), h('span', { text: es.erro }),
+        h('button', { type: 'button', class: 'botao pequeno', onclick: esCarregar }, icone('refresh-cw'), 'Tentar de novo')));
+      return;
+    }
+    if (!es.dados) { alvo.replaceChildren(h('div', { class: 'vg-card' }, h('div', { class: 'vg-skel', 'aria-hidden': 'true' }), h('div', { class: 'vg-skel', 'aria-hidden': 'true' }))); return; }
+    const s = es.dados; const esc = s.escritorio;
+    const usos = h('ul', { class: 'gu-passos' },
+      h('li', {}, h('span', { class: 'vg-simbolo info', 'aria-hidden': 'true', text: '1' }), h('div', {}, h('strong', { text: 'Integra Contador (SERPRO)' }),
+        h('span', { class: 'meta', text: 'O certificado autentica o Appura no SERPRO junto com a Consumer Key e a Consumer Secret. Precisa ser o mesmo e-CNPJ do contrato.' }))),
+      h('li', {}, h('span', { class: 'vg-simbolo info', 'aria-hidden': 'true', text: '2' }), h('div', {}, h('strong', { text: 'Notas dos clientes pelo escritório' }),
+        h('span', { class: 'meta', text: 'O Appura consulta a SEFAZ com o CNPJ do escritório e distribui para cada cliente as notas em que o escritório aparece como autorizado a baixar o XML (autXML).' }))));
+    let card;
+    if (!esc) {
+      card = h('section', { class: 'vg-card' },
+        h('div', { class: 'vg-card-topo' }, h('h2', { class: 'vg-card-titulo', text: 'Escritório' }), h('span', { class: 'selo neutro', text: 'Não cadastrado' })),
+        h('div', { class: 'vg-vazio pequeno' }, h('strong', { text: 'Nenhum escritório cadastrado ainda.' }),
+          h('span', { text: 'Cadastre o CNPJ do escritório com o certificado e-CNPJ (A1, arquivo .pfx ou .p12) e a senha. Tudo é criptografado no servidor.' })),
+        h('p', { class: 'meta', text: 'Para que serve:' }), usos,
+        h('div', { class: 'gu-botoes' }, h('button', { type: 'button', class: 'botao primario', onclick: () => abrirGaveta(null, 'escritorio') }, icone('key-round'), 'Cadastrar escritório')));
+    } else {
+      const venc = esc.certificadoValidoAte ? new Date(esc.certificadoValidoAte) : null;
+      const dias = venc ? Math.floor((venc.getTime() - Date.now()) / 86400000) : null;
+      const selo = !venc ? { tom: 'problema', texto: 'Sem certificado' } : dias < 0 ? { tom: 'problema', texto: 'Certificado vencido' } : dias <= 30 ? { tom: 'pendente', texto: `Vence em ${dias} dia${dias === 1 ? '' : 's'}` } : { tom: 'ok', texto: 'Certificado válido' };
+      const empresa = (typeof empresas !== 'undefined' ? empresas : []).find((x) => x.id === esc.id) || { id: esc.id, razao_social: esc.razao_social, cnpj: esc.cnpj, uf: esc.uf, escritorio: true };
+      card = h('section', { class: 'vg-card' },
+        h('div', { class: 'vg-card-topo' }, h('h2', { class: 'vg-card-titulo', text: 'Escritório' }), h('span', { class: `selo ${selo.tom}`, text: selo.texto })),
+        h('div', { class: 'e360-card-valor' }, h('strong', { text: esc.razao_social }), h('span', { class: 'mono', text: formatarCnpj(esc.cnpj) })),
+        h('ul', { class: 'e360-lista-num' },
+          h('li', {}, h('span', { text: 'UF' }), h('strong', { text: esc.uf || '—' })),
+          h('li', {}, h('span', { text: 'Titular do certificado' }), h('strong', { text: esc.titular || '—' })),
+          h('li', {}, h('span', { text: 'Certificado válido até' }), h('strong', { text: venc ? venc.toLocaleDateString('pt-BR') : '—' }))),
+        esc.outros && esc.outros.length ? h('div', { class: 'sped-aviso' }, icone('triangle-alert'),
+          h('span', { text: `Também marcada${esc.outros.length === 1 ? '' : 's'} como escritório: ${esc.outros.join(', ')}. O Integra Contador usa ${esc.razao_social}.` })) : null,
+        h('p', { class: 'meta', text: 'Para que serve:' }), usos,
+        h('div', { class: 'gu-botoes' },
+          h('button', { type: 'button', class: 'botao primario', onclick: () => abrirGaveta(empresa, 'escritorio') }, icone('key-round'), 'Trocar certificado'),
+          h('a', { class: 'botao', href: `#/empresas/${esc.id}` }, 'Abrir empresa')));
+    }
+    alvo.replaceChildren(card, guIntegraCard(s, false));
+  }
+
+  window.esMostrar = esMostrar;
+  window.esCarregar = esCarregar;
   window.addEventListener('appura:competencia', () => { if (!$('tela-guias').hidden) { gu.selecionados.clear(); gu.confirmar = null; guCarregar(); } });
   window.guMostrar = guMostrar;
   window.guEmpresaCarregar = guEmpresaCarregar;

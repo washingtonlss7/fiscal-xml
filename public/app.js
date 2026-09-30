@@ -454,8 +454,9 @@ const NAV = [
   { id: 'fechamento', rotulo: 'Fechamento', icone: 'clipboard-check', rota: '#/fechamento' },
   { id: 'atendimento', rotulo: 'Atendimento', icone: 'message-circle' },
   { id: 'relatorios', rotulo: 'Relatórios', icone: 'chart-column' },
-  { id: 'administracao', rotulo: 'Administração', icone: 'settings', permissao: 'usuarios', filhos: [
+  { id: 'administracao', rotulo: 'Administração', icone: 'settings', filhos: [
     { id: 'usuarios', rotulo: 'Usuários', rota: '#/usuarios', permissao: 'usuarios' },
+    { id: 'escritorio', rotulo: 'Escritório', rota: '#/escritorio', permissao: 'certificados' },
     { rotulo: 'Certificados' }, { rotulo: 'Configurações' },
   ] },
 ];
@@ -464,7 +465,9 @@ const PERFIL_NOME = { admin: 'Administrador', supervisor: 'Supervisor', analista
 
 let gruposAbertos = new Set(['administracao']);
 try { gruposAbertos = new Set(JSON.parse(localStorage.getItem('appura-grupos') || '["administracao"]')); } catch { /* sem armazenamento */ }
-const visivel = (item) => !item.permissao || pode(item.permissao);
+/** Item com permissão só para quem pode; grupo com itens restritos só aparece se algum deles estiver liberado. */
+const visivel = (item) => (!item.permissao || pode(item.permissao))
+  && (!item.filhos || !item.filhos.some((f) => f.permissao) || item.filhos.some((f) => f.rota && visivel(f)));
 const ehCelular = () => window.matchMedia('(max-width: 760px)').matches;
 
 function itemNav(item, sub = false) {
@@ -645,7 +648,7 @@ async function aplicarRota() {
     return;
   }
   const esconderTudo = (menos) => {
-    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias']) if (id !== menos) $(id).hidden = true;
+    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias', 'tela-escritorio']) if (id !== menos) $(id).hidden = true;
   };
   if (rota.tela !== 'empresa') { empresaNotas = null; fecharGavetaUsuario(); }
   if (rota.tela === 'fechamento') {
@@ -657,6 +660,9 @@ async function aplicarRota() {
   } else if (rota.tela === 'guias') {
     esconderTudo('tela-guias');
     window.guMostrar();
+  } else if (rota.tela === 'escritorio') {
+    esconderTudo('tela-escritorio');
+    window.esMostrar();
   } else if (rota.tela === 'visao') {
     esconderTudo('tela-visao');
     window.vgMostrar();
@@ -954,10 +960,11 @@ function limparFormulario() {
   $('form-enviar').disabled = false;
 }
 
-function abrirGaveta(empresa) {
+function abrirGaveta(empresa, modo) {
   limparFormulario();
   empresaEmEdicao = empresa || null;
-  $('gaveta-titulo').textContent = empresa ? 'Trocar certificado' : 'Adicionar empresa';
+  gavetaModo = modo || null;
+  $('gaveta-titulo').textContent = modo === 'escritorio' ? (empresa ? 'Trocar certificado do escritório' : 'Cadastrar escritório') : empresa ? 'Trocar certificado' : 'Adicionar empresa';
   const ctx = $('gaveta-contexto');
   if (empresa) {
     ctx.textContent = `${empresa.razao_social} · ${formatarCnpj(empresa.cnpj)}`;
@@ -972,12 +979,20 @@ function abrirGaveta(empresa) {
     $('uf').value = 'ES';
     $('regime').value = '';
   }
+  if (modo === 'escritorio') {
+    $('escritorio').checked = true;
+    if (!empresa) {
+      ctx.textContent = 'Use o certificado e-CNPJ (A1) do escritório: o mesmo CNPJ do contrato do Integra Contador no SERPRO. Se o escritório já está cadastrado como empresa, o certificado é atualizado e ela passa a ser o escritório.';
+      ctx.hidden = false;
+    }
+  }
   abrirDialogo($('gaveta'));
   $('gaveta-fundo').hidden = false;
   $('gaveta').hidden = false;
   $('area-arquivo').focus();
 }
 
+let gavetaModo = null;
 function fecharGaveta() {
   const estavaAberta = !$('gaveta').hidden;
   $('gaveta-fundo').hidden = true;
@@ -1051,6 +1066,7 @@ async function enviarEmpresa(ev) {
     sucesso.hidden = false;
     if (empresaEmEdicao) { $('gaveta-titulo').textContent = 'Adicionar empresa'; $('gaveta-contexto').hidden = true; empresaEmEdicao = null; }
     carregarEmpresas();
+    if (gavetaModo === 'escritorio' && window.esCarregar) window.esCarregar();
   } catch (e) {
     erro.textContent = e.message;
     erro.hidden = false;

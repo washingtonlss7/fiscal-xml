@@ -571,7 +571,7 @@ if (typeof window !== 'undefined') {
     $('fc-busca').value = '';
     $('fc-status').value = fc.status; $('fc-regime').value = fc.regime; $('fc-etapa').value = fc.etapa; $('fc-ordem').value = fc.ordem;
     $('fc-atencao').checked = fc.atencao; $('fc-bloqueados').checked = fc.soBloqueados;
-    for (const id of ['tela-visao', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias']) $(id).hidden = true;
+    for (const id of ['tela-visao', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias', 'tela-escritorio']) $(id).hidden = true;
     $('tela-fechamento').hidden = false;
     window.scrollTo(0, 0);
     iniciarAtualizacao();

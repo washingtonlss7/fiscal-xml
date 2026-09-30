@@ -44,16 +44,16 @@ export class ServicoGuias {
 
   /** Empresa marcada como escritório, com certificado ativo (é o contratante do SERPRO). */
   private async escritorio() {
-    const e = ok(await this.db.from('empresas').select('id,cnpj,razao_social').eq('escritorio', true).eq('ativo', true).limit(1), 'empresa do escritório') as { id: string; cnpj: string; razao_social: string }[];
+    const e = ok(await this.db.from('empresas').select('id,cnpj,razao_social,uf').eq('escritorio', true).eq('ativo', true).order('razao_social').limit(10), 'empresa do escritório') as { id: string; cnpj: string; razao_social: string; uf: string }[];
     if (!e.length) return null;
-    const c = ok(await this.db.from('certificados').select('id,pfx_cifrado,senha_cifrada,valido_ate').eq('empresa_id', e[0].id).eq('ativo', true)
-      .order('criado_em', { ascending: false }).limit(1), 'certificado do escritório') as { id: string; pfx_cifrado: string; senha_cifrada: string; valido_ate: string }[];
-    return { ...e[0], certificado: c[0] ?? null };
+    const c = ok(await this.db.from('certificados').select('id,pfx_cifrado,senha_cifrada,valido_ate,titular').eq('empresa_id', e[0].id).eq('ativo', true)
+      .order('criado_em', { ascending: false }).limit(1), 'certificado do escritório') as { id: string; pfx_cifrado: string; senha_cifrada: string; valido_ate: string; titular: string | null }[];
+    return { ...e[0], certificado: c[0] ?? null, outros: e.slice(1).map((x) => x.razao_social) };
   }
 
   private async contratante(): Promise<Contratante> {
     const e = await this.escritorio();
-    if (!e) throw new ErroIntegra(422, 'Cadastre a empresa do escritório (marcada como "Certificado do escritório") com o e-CNPJ usado no contrato do SERPRO.');
+    if (!e) throw new ErroIntegra(422, 'Cadastre o escritório em Administração › Escritório, com o e-CNPJ usado no contrato do SERPRO.');
     if (!e.certificado) throw new ErroIntegra(422, 'A empresa do escritório está sem certificado ativo: cadastre o e-CNPJ do contrato do SERPRO.');
     if (new Date(e.certificado.valido_ate).getTime() < Date.now()) throw new ErroIntegra(422, 'O certificado do escritório está vencido: o SERPRO não autentica com ele.');
     if (this.certCache?.id !== e.certificado.id) {
@@ -98,13 +98,16 @@ export class ServicoGuias {
     for (const c of chamadas) porServico[c.servico] = (porServico[c.servico] ?? 0) + 1;
     const pendencias: string[] = [];
     if (!this.integra) pendencias.push('Contratar o Integra Contador na loja do SERPRO e colocar a Consumer Key e a Consumer Secret nas variáveis do servidor (SERPRO_CONSUMER_KEY e SERPRO_CONSUMER_SECRET).');
-    if (!e) pendencias.push('Cadastrar a empresa do escritório (CNPJ do contrato) com o certificado e-CNPJ e marcar "Certificado do escritório".');
+    if (!e) pendencias.push('Cadastrar o escritório (Administração › Escritório) com o certificado e-CNPJ do contrato do SERPRO.');
     else if (!e.certificado) pendencias.push('Cadastrar o certificado e-CNPJ da empresa do escritório.');
     else if (new Date(e.certificado.valido_ate).getTime() < Date.now()) pendencias.push('Renovar o certificado e-CNPJ do escritório (vencido).');
     return {
       configurado: !!this.integra,
       ambiente: this.integra?.cfg.ambiente ?? null,
-      escritorio: e ? { cnpj: e.cnpj, razao_social: e.razao_social, certificadoValidoAte: e.certificado?.valido_ate ?? null } : null,
+      escritorio: e ? {
+        id: e.id, cnpj: e.cnpj, razao_social: e.razao_social, uf: e.uf, titular: e.certificado?.titular ?? null,
+        certificadoValidoAte: e.certificado?.valido_ate ?? null, outros: e.outros,
+      } : null,
       chamadasMes: { total: chamadas.length, comErro: chamadas.filter((c) => !c.sucesso).length, porServico },
       pendencias,
       pronto: !!this.integra && this.integra.cfg.ambiente === 'producao' && !pendencias.length,
