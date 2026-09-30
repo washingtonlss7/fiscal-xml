@@ -27,6 +27,8 @@ const consulta = (p: string) => p !== 'usuarios' && p !== 'configuracoes' && p !
   }
   assert.equal(n.enderecoEmpresa(ID, 'visao'), `#/empresas/${ID}`);
   assert.deepEqual(r('#/sped?cadastro=12'), { tela: 'sped', base: '#/sped', consulta: 'cadastro=12' });
+  assert.deepEqual(r('#/guias'), { tela: 'guias', base: '#/guias' });
+  assert.deepEqual(r('#/empresas/0f7c2a1e-1111-2222-3333-444455556666/guias').aba, 'guias');
   assert.deepEqual(r('#/usuarios'), { tela: 'usuarios', base: '#/usuarios' });
   console.log('ok  rotas principais, abas da Empresa 360° e filtros da Central no endereço');
 }

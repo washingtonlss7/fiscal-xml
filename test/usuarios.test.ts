@@ -145,6 +145,11 @@ const rejeita = async (p: Promise<unknown>, re: RegExp) => assert.rejects(p, (e:
       assert.ok(pode(perfil, 'GET', `/api/empresas/${id}/zip`));
       assert.ok(pode(perfil, 'GET', `/api/empresas/${id}/st`));
     }
+    // Guias (Integra Contador): consulta só vê; gerar e verificar é de quem opera; testar a conexão é configuração
+    assert.ok(pode('consulta', 'GET', '/api/guias') && pode('consulta', 'GET', '/api/guias/7/pdf'));
+    assert.ok(!pode('consulta', 'POST', `/api/empresas/${id}/guias/das`) && pode('analista', 'POST', `/api/empresas/${id}/guias/das`));
+    assert.ok(!pode('consulta', 'POST', '/api/guias/lote') && pode('analista', 'POST', '/api/guias/lote'));
+    assert.ok(!pode('supervisor', 'POST', '/api/guias/testar') && pode('admin', 'POST', '/api/guias/testar'));
     // Consulta não altera nada
     for (const [m, r] of [['POST', `/api/empresas/${id}/sincronizar`], ['POST', `/api/empresas/${id}/importar`], ['POST', '/api/apontamentos/9'],
       ['POST', `/api/empresas/${id}/auditoria/refazer`], ['POST', '/api/empresas'], ['POST', '/api/qualquer-rota-nova']]) {

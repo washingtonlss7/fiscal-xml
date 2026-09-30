@@ -197,6 +197,7 @@
               <option value="bloqueado">Bloqueadas</option>
               <option value="pendencias">Com pendências</option>
               <option value="andamento">Em andamento</option>
+              <option value="concluido">Concluídas</option>
               <option value="pausada">Pausadas</option>
             </select>
           </label>
@@ -220,6 +221,7 @@
               <option value="auditoria">Auditoria</option>
               <option value="sped">SPED/SINTEGRA (erro no arquivo)</option>
               <option value="validacao">Validação XML × SPED/SINTEGRA</option>
+              <option value="guias">Guias (procuração)</option>
             </select>
           </label>
           <label class="fc-campo"><span>Ordenar por</span>
@@ -281,6 +283,16 @@
         <h2 id="usuarios-hist-titulo" class="titulo-secao">Últimas alterações</h2>
         <ul id="usuarios-historico" class="historico"></ul>
       </section>
+     </section>
+
+     <section id="tela-guias" class="pilha gu" hidden>
+      <div class="cabecalho-pagina">
+        <div>
+          <h1>Guias</h1>
+          <p id="gu-subtitulo" class="subtitulo">DAS do Simples Nacional e do MEI pelo Integra Contador.</p>
+        </div>
+      </div>
+      <div id="gu-conteudo" class="pilha" aria-live="polite"></div>
      </section>
 
      <section id="tela-sped" class="pilha sp" hidden>
@@ -466,10 +478,7 @@
         <div id="sped-resultado" class="pilha" aria-live="polite"></div>
       </div>
       <div id="painel-guias" class="pilha" role="tabpanel" aria-labelledby="aba-guias" hidden>
-        <div class="e360-breve">
-          <svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-receipt"></use></svg>
-          <div><strong>Guias · Em breve</strong><p>A geração e o acompanhamento de guias (DUA, DAS, DCTFWeb e DARF) serão disponibilizados nesta área.</p></div>
-        </div>
+        <div id="gu-empresa" class="pilha" aria-live="polite"></div>
       </div>
       <div id="painel-arquivos" class="pilha" role="tabpanel" aria-labelledby="aba-arquivos" hidden></div>
       <div id="painel-historico" class="pilha" role="tabpanel" aria-labelledby="aba-historico" hidden></div>
@@ -664,5 +673,6 @@
   <script src="/visao-geral.js?v=__VERSAO__"></script>
   <script src="/empresa-360.js?v=__VERSAO__"></script>
   <script src="/sped.js?v=__VERSAO__"></script>
+  <script src="/guias.js?v=__VERSAO__"></script>
 </body>
 </html>

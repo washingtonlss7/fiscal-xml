@@ -68,12 +68,28 @@ function vgValidacao(e) {
   return { tom: 'ok', simbolo: '✓', texto: f ? 'XML e SPED conferem' : 'Conferido' };
 }
 
-/** Status geral do fechamento da empresa (sem "Concluído" enquanto as guias não existirem). */
+/** Regimes com DAS pelo Integra Contador (DCTFWeb/DARF dos demais regimes é a próxima etapa). */
+const VG_REGIMES_DAS = ['simples', 'mei'];
+const vgDataCurta = (iso) => (iso ? String(iso).slice(0, 10).split('-').reverse().slice(0, 2).join('/') : '');
+
+/** Guia da competência: DAS gerado, sem procuração, não gerado ou ainda não disponível para o regime. */
+function vgGuias(e) {
+  if (!VG_REGIMES_DAS.includes(e.regime)) return { tom: 'neutro', simbolo: '–', texto: 'DCTFWeb · em breve' };
+  if (e.guia) return { tom: 'ok', simbolo: '✓', texto: `DAS${e.guia.vencimento ? ` · vence ${vgDataCurta(e.guia.vencimento)}` : ' gerado'}` };
+  if (e.procuracao === 'ausente' || e.procuracao === 'vencida') return { tom: 'pendente', simbolo: '!', texto: e.procuracao === 'ausente' ? 'Sem procuração' : 'Procuração vencida' };
+  return { tom: 'neutro', simbolo: '–', texto: 'DAS não gerado' };
+}
+
+/**
+ * Status geral do fechamento da empresa. "Concluído" só quando não há pendência e o arquivo do mês
+ * (SPED/SINTEGRA), a validação e a guia estão prontos: hoje isso vale para Simples e MEI (DAS).
+ */
 function vgGeral(e) {
   if (!e.ativo) return { tom: 'neutro', chave: 'pausada', texto: 'Pausada' };
   const x = vgXml(e);
   if (x.tom === 'problema') return { tom: 'problema', chave: 'bloqueado', texto: 'Bloqueado' };
   if (vgPendencias(e).length) return { tom: 'pendente', chave: 'pendencias', texto: 'Com pendências' };
+  if (vgGuias(e).tom === 'ok' && vgSped(e).tom === 'ok' && vgValidacao(e).tom === 'ok') return { tom: 'ok', chave: 'concluido', texto: 'Concluído' };
   return { tom: 'info', chave: 'andamento', texto: 'Em andamento' };
 }
 
@@ -98,6 +114,7 @@ function vgCalcular(dados, regime, hojeISO) {
   // Cada empresa entrega SPED ou SINTEGRA (Simples e MEI): as duas etapas contam o arquivo que a empresa entrega
   const comSped = ativas.filter((e) => e.sped || e.contrib || e.sintegra);
   const baseSped = base;
+  const comDas = ativas.filter((e) => VG_REGIMES_DAS.includes(e.regime));
 
   const kpis = {
     empresas: base,
@@ -106,6 +123,7 @@ function vgCalcular(dados, regime, hojeISO) {
     comPendencias,
     certVencidos,
     certVencendo: conta((e) => e.status === 'certificado_vencendo'),
+    concluidas: conta((e) => vgGeral(e).chave === 'concluido'),
   };
 
   const etapas = [
@@ -114,7 +132,7 @@ function vgCalcular(dados, regime, hojeISO) {
     { id: 'st', nome: 'ICMS-ST (entradas)', icone: 'calculator', indisponivel: 'Sob demanda' },
     { id: 'sped', nome: 'SPED/SINTEGRA sem erros', icone: 'file-spreadsheet', tom: 'progresso', feito: comSped.filter((e) => vgSped(e).tom === 'ok').length, total: baseSped, semTotal: 'Nenhuma empresa ativa' },
     { id: 'validacao', nome: 'Validação XML × SPED/SINTEGRA', icone: 'file-check', tom: 'ok', feito: comSped.filter((e) => vgValidacao(e).tom === 'ok').length, total: baseSped, semTotal: 'Nenhuma empresa ativa' },
-    { id: 'guias', nome: 'Guias (DUA, DAS etc.)', icone: 'receipt', indisponivel: 'Não disponível' },
+    { id: 'guias', nome: 'Guias (DAS)', icone: 'receipt', tom: 'ok', feito: comDas.filter((e) => e.guia).length, total: comDas.length, semTotal: 'Nenhuma empresa do Simples ou MEI' },
   ];
 
   // Evolução: do dia 1 até o fim do mês (ou até hoje, se for o mês corrente)
@@ -153,7 +171,8 @@ function vgCalcular(dados, regime, hojeISO) {
     { id: 'sped-erros', texto: 'SPED/SINTEGRA com erros no arquivo', tom: 'pendente', icone: 'file-warning', n: conta((e) => vgPendencias(e).some((p) => p.etapa === 'sped')), destino: { central: 'sped' } },
     { id: 'cadastros', texto: 'Cadastros dos arquivos fiscais para conferir', tom: 'info', icone: 'building-2', n: Number(dados.cadastrosPendentes || 0), destino: { rota: '#/sped' } },
     { id: 'st', texto: 'Empresas sem ST calculado', icone: 'calculator', breve: true },
-    { id: 'guias', texto: 'Guias não geradas', icone: 'receipt', breve: true },
+    { id: 'procuracao', texto: 'Clientes sem procuração no e-CAC', tom: 'pendente', icone: 'key-round', n: conta((e) => VG_REGIMES_DAS.includes(e.regime) && (e.procuracao === 'ausente' || e.procuracao === 'vencida')), destino: { rota: '#/guias' } },
+    { id: 'guias', texto: 'DAS não gerado (Simples e MEI)', tom: 'info', icone: 'receipt', n: conta((e) => VG_REGIMES_DAS.includes(e.regime) && !e.guia), destino: { rota: '#/guias' } },
   ];
 
   return { comp, lista, ativas, kpis, etapas, dias, series, atencao };
@@ -184,6 +203,7 @@ function vgPendencias(e) {
   if (e.contrib && e.contrib.erros > 0) lista.push({ etapa: 'sped', tom: 'pendente', texto: `SPED Contribuições: ${vgPlural(e.contrib.erros, 'erro', 'erros')}`, n: e.contrib.erros });
   if (e.contrib && e.contrib.divergencias > 0) lista.push({ etapa: 'validacao', tom: 'pendente', texto: vgPlural(e.contrib.divergencias, 'divergência Fiscal × Contribuições', 'divergências Fiscal × Contribuições'), n: e.contrib.divergencias });
   if (e.sintegra && e.sintegra.erros > 0) lista.push({ etapa: 'sped', tom: 'pendente', texto: `SINTEGRA: ${vgPlural(e.sintegra.erros, 'erro', 'erros')} no arquivo`, n: e.sintegra.erros });
+  if (VG_REGIMES_DAS.includes(e.regime) && (e.procuracao === 'ausente' || e.procuracao === 'vencida')) lista.push({ etapa: 'guias', tom: 'pendente', texto: e.procuracao === 'ausente' ? 'Sem procuração no e-CAC' : 'Procuração vencida', n: 1 });
   if (e.sintegra && e.sintegra.divergencias > 0) lista.push({ etapa: 'validacao', tom: 'pendente', texto: vgPlural(e.sintegra.divergencias, 'divergência SINTEGRA × XML', 'divergências SINTEGRA × XML'), n: e.sintegra.divergencias });
   return lista;
 }
@@ -235,7 +255,7 @@ function fcOrdenar(lista, ordem = 'criticidade') {
   return [...lista].sort(cmp);
 }
 
-if (typeof module !== 'undefined') module.exports = { vgXml, vgAuditoria, vgUsaSintegra, vgSped, vgValidacao, vgGeral, vgCalcular, vgFiltrarCentral, vgPendencias, vgQtdPendencias, vgPrecisaAtencao, fcContadores, fcFiltrar, fcOrdenar };
+if (typeof module !== 'undefined') module.exports = { vgXml, vgAuditoria, vgUsaSintegra, vgSped, vgValidacao, vgGuias, vgGeral, vgCalcular, vgFiltrarCentral, vgPendencias, vgQtdPendencias, vgPrecisaAtencao, fcContadores, fcFiltrar, fcOrdenar };
 
 /* ---------- tela ---------- */
 if (typeof window !== 'undefined') {
@@ -354,13 +374,8 @@ if (typeof window !== 'undefined') {
       vgKpi('triangle-alert', k.comPendencias ? 'atencao' : 'ok', vgNum(k.comPendencias), 'Com pendências', `${vgPctTexto(vgPct(k.comPendencias, b))} da base`, null,
         'Empresas ativas com pelo menos uma destas situações: sem certificado ou certificado vencido; erro, atraso ou conflito na consulta à SEFAZ; apontamentos abertos na auditoria; ou SPED/SINTEGRA da competência com erro no arquivo ou divergência em aberto (sem justificativa) com os XMLs.'),
       vgKpi('shield-x', k.certVencidos ? 'problema' : 'ok', vgNum(k.certVencidos), 'Certificados vencidos', k.certVencendo ? `${k.certVencendo} vence${k.certVencendo === 1 ? '' : 'm'} em 30 dias` : 'Nenhum vencendo em 30 dias'),
-      h('div', { class: 'vg-kpi vg-kpi-fechamento secundario', 'aria-disabled': 'true' },
-        h('span', { class: 'vg-kpi-icone neutro' }, icone('gauge')),
-        h('div', { class: 'vg-kpi-corpo' },
-          h('span', { class: 'vg-kpi-valor indisponivel', text: 'Em breve' }),
-          h('span', { class: 'vg-kpi-rotulo', text: 'Fechamento do mês' }),
-          h('span', { class: 'vg-kpi-meta', text: 'Depende de SPED, validação e guias' }),
-          h('span', { class: 'vg-barra vazia', role: 'img', 'aria-label': 'Fechamento do mês ainda não disponível' }, h('span')))),
+      vgKpi('gauge', k.concluidas ? 'ok' : 'neutro', vgPctTexto(vgPct(k.concluidas, b)), 'Fechamento do mês', `${vgNum(k.concluidas)} de ${vgNum(b)} concluída${k.concluidas === 1 ? '' : 's'}`, null,
+        'Empresas sem pendência com SPED/SINTEGRA, validação e guia da competência prontos. A guia (DAS) existe hoje para Simples e MEI; os demais regimes contam quando a DCTFWeb entrar.'),
     );
   }
 
@@ -370,7 +385,7 @@ if (typeof window !== 'undefined') {
     if (!c.series.length || !c.dias.length) {
       alvo.replaceChildren(topo, h('div', { class: 'vg-vazio pequeno' },
         h('strong', { text: 'Sem histórico nesta competência.' }),
-        h('span', { text: 'A curva aparece quando chegarem notas ou forem tratados apontamentos da auditoria. SPED, ICMS-ST e guias entram quando esses módulos existirem.' })));
+        h('span', { text: 'A curva aparece quando chegarem notas ou forem tratados apontamentos da auditoria. SPED e guias aparecem nas etapas ao lado.' })));
       return;
     }
     // Largura real do card: o texto dos eixos fica sempre no mesmo tamanho
@@ -408,7 +423,7 @@ if (typeof window !== 'undefined') {
       h('div', { class: 'vg-grafico-caixa' }, svg),
       h('ul', { class: 'vg-legenda' }, ...c.series.map((s) => h('li', { title: s.descricao },
         h('span', { class: `vg-legenda-ponto ${s.cor}` }), `${s.nome} `, h('strong', { text: vgPctTexto(s.valores[s.valores.length - 1]) }))),
-        h('li', { class: 'vg-legenda-breve', text: 'SPED: veja nas etapas · ICMS-ST e Guias: em breve' })));
+        h('li', { class: 'vg-legenda-breve', text: 'SPED e guias: veja nas etapas · ICMS-ST: sob demanda' })));
   }
 
   function vgRenderEtapas(c) {
@@ -458,7 +473,6 @@ if (typeof window !== 'undefined') {
   }
 
   function vgLinhaCentral(e) {
-    const na = { tom: 'neutro', simbolo: '–', texto: 'Não disponível', compacto: true };
     const st = e.uf === 'ES' ? { tom: 'neutro', simbolo: '–', texto: 'Sob demanda' } : { tom: 'neutro', simbolo: '–', texto: 'Não se aplica' };
     const stTabela = { ...st, compacto: true };
     const g = vgGeral(e);
@@ -471,7 +485,7 @@ if (typeof window !== 'undefined') {
       st: () => vgCelula(st, e.uf === 'ES' ? `${base}/icms-st` : null, 'ICMS-ST'),
       stTabela: () => vgCelula(stTabela, e.uf === 'ES' ? `${base}/icms-st` : null, 'ICMS-ST'),
       sped: () => vgCelula({ ...vgSped(e), compacto: true }, `${base}/sped`, vgUsaSintegra(e) ? 'SINTEGRA' : 'SPED'), val: () => vgCelula({ ...vgValidacao(e), compacto: true }, e.sped || e.contrib || e.sintegra ? `${base}/sped` : null, 'Validação'),
-      guias: () => vgCelula(na, null, 'Guias'),
+      guias: () => vgCelula({ ...vgGuias(e), compacto: true }, VG_REGIMES_DAS.includes(e.regime) ? `${base}/guias` : null, 'Guias'),
     };
     return { e, g, ult, cel };
   }
@@ -557,7 +571,7 @@ if (typeof window !== 'undefined') {
     $('fc-busca').value = '';
     $('fc-status').value = fc.status; $('fc-regime').value = fc.regime; $('fc-etapa').value = fc.etapa; $('fc-ordem').value = fc.ordem;
     $('fc-atencao').checked = fc.atencao; $('fc-bloqueados').checked = fc.soBloqueados;
-    for (const id of ['tela-visao', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped']) $(id).hidden = true;
+    for (const id of ['tela-visao', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias']) $(id).hidden = true;
     $('tela-fechamento').hidden = false;
     window.scrollTo(0, 0);
     iniciarAtualizacao();
@@ -605,7 +619,7 @@ if (typeof window !== 'undefined') {
       fcContador('bloqueado', 'Bloqueadas', cont.bloqueado, 'problema'),
       fcContador('pendencias', 'Com pendências', cont.pendencias, 'pendente'),
       fcContador('andamento', 'Em andamento', cont.andamento, 'info'),
-      fcContador('concluido', 'Concluídas', 0, 'ok', true, 'Uma empresa só fica concluída quando SPED, validação e guias da competência estiverem prontos. O módulo de guias ainda não existe, então ninguém aparece como concluído.'),
+      fcContador('concluido', 'Concluídas', cont.concluido, 'ok', false, 'Uma empresa fica concluída quando não tem pendência e o SPED/SINTEGRA, a validação e a guia da competência estão prontos. Hoje a guia (DAS) existe para Simples e MEI; os demais regimes ficam "Em andamento" até a DCTFWeb entrar.'),
     );
     const filtradas = fcOrdenar(fcFiltrar(todas, fc), fc.ordem);
     const celular = ehCelularVg();

@@ -174,6 +174,11 @@ Padrão único para SPED Fiscal, SPED Contribuições e SINTEGRA (e para as pró
 - justificada mostra a observação, quem e quando (`.sped-just`) e **Reabrir**;
 - ações só com a permissão `operar`; o backend grava quem/quando, e a justificativa sobrevive a um arquivo retificador.
 
+### Ação cobrada ou em lote (Guias / Integra Contador)
+- Toda ação que gera cobrança no SERPRO pede confirmação inline (`.sped-aviso` com Cancelar / Confirmar) dizendo quantas chamadas serão feitas.
+- Seleção em lote com caixas de marcar (alvo de 44px no celular); o resultado de cada empresa aparece na própria linha.
+- Módulo externo não configurado: mostrar os passos que faltam (com ✓ no que já está feito), nunca dados simulados.
+
 ### Tooltip / ajuda (`vgAjuda()` → `.ajuda` + `.ajuda-texto`)
 - O "?" abre ao passar o mouse, ao focar pelo teclado ou ao tocar.
 - Tem `aria-describedby` e fecha com ESC ou clique fora.

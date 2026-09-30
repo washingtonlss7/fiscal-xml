@@ -28,6 +28,8 @@ const base = (x: Record<string, any> = {}) => ({
   historico: x.historico ?? [],
   sped: x.sped ?? null,
   sintegra: x.sintegra ?? null,
+  guia: x.guia ?? null,
+  procuracao: x.procuracao ?? null,
   sugestao: x.sugestao ?? null,
   contrib: x.contrib ?? null,
 });
@@ -53,7 +55,14 @@ const base = (x: Record<string, any> = {}) => ({
 // 3) Etapas e status igual ao da Central
 {
   const et = Object.fromEntries(e3.e360Etapas(base()).map((x: any) => [x.id, x.estado]));
-  assert.deepEqual(et, { xml: 'andamento', auditoria: 'pendencia', st: 'nao_iniciado', sped: 'nao_iniciado', validacao: 'nao_iniciado', guias: 'indisponivel' });
+  assert.deepEqual(et, { xml: 'andamento', auditoria: 'pendencia', st: 'nao_iniciado', sped: 'nao_iniciado', validacao: 'nao_iniciado', guias: 'nao_iniciado' });
+  assert.equal(e3.e360Etapas(base())[5].texto, 'DAS não gerado');
+  assert.equal(e3.e360Etapas(base({ empresa: { regime: 'presumido' } }))[5].estado, 'indisponivel', 'DCTFWeb ainda não');
+  assert.equal(e3.e360Etapas(base({ procuracao: { situacao: 'ausente' } }))[5].texto, 'Sem procuração no e-CAC');
+  const comDas = e3.e360Etapas(base({ guia: { total: 1520.33, vencimento: '2026-10-20' } }))[5];
+  assert.deepEqual([comDas.estado, comDas.texto.replace(/\u00a0/g, ' ')], ['concluido', 'DAS R$ 1.520,33 · vence 20/10/2026']);
+  assert.deepEqual(e3.e360Atencao(base({ auditoria: [], documentos: [], procuracao: { situacao: 'vencida' } }), null, hoje).map((x: any) => x.id), ['procuracao']);
+  assert.equal(e3.e360LinhaCentral(base({ procuracao: { situacao: 'ausente' } })).procuracao, 'ausente');
   assert.equal(e3.e360Etapas(base())[3].nome, 'SINTEGRA', 'Simples sem SPED: a etapa é o SINTEGRA');
   assert.equal(e3.e360Etapas(base())[3].texto, 'Nenhum SINTEGRA enviado');
   const si = Object.fromEntries(e3.e360Etapas(base({ auditoria: [], sintegra: { id: 5, erros: 1, alertas: 0, divergencias: 2 } })).map((x: any) => [x.id, x]));
@@ -117,6 +126,14 @@ const base = (x: Record<string, any> = {}) => ({
   assert.equal(h[6].detalhe, 'SINTEGRA · Competência 08/2026 · "Notas lançadas em setembro"');
   assert.equal(h[6].por, 'fiscal03@contabilfarma.com.br');
   assert.equal(h[7].titulo, 'SINTEGRA enviado: NFS.TXT');
+  const hg = e3.e360Historico(base({ historico: [
+    { tipo: 'guia', em: '2026-09-30T12:00:00Z', por: 'fiscal03@contabilfarma.com.br', dados: { tipo: 'das_simples', competencia: '2026-09-01', total: 1520.33, vencimento: '2026-10-20', numero: '0720' } },
+    { tipo: 'procuracao', em: '2026-09-30T11:00:00Z', por: 'fiscal03@contabilfarma.com.br', dados: { situacao: 'ativa', expira_em: '2027-03-15' } },
+  ] }));
+  assert.equal(hg[0].titulo.replace(/\u00a0/g, ' '), 'DAS do Simples gerado: R$ 1.520,33');
+  assert.equal(hg[0].detalhe, 'Competência 09/2026 · vence 20/10/2026 · nº 0720');
+  assert.equal(hg[1].titulo, 'Procuração ativa (Integra Contador)');
+  assert.equal(hg[1].detalhe, 'Válida até 15/03/2027');
   assert.equal(h[4].titulo, 'SPED Fiscal enviado: sped.txt');
   assert.equal(h[4].detalhe, 'Competência 07/2026 · sem erros · 18 divergências');
   assert.equal(h[5].titulo, 'Cadastro atualizado pelo arquivo fiscal (2 campos)');

@@ -39,6 +39,7 @@ function resolverRota(hash, pode = () => true) {
   const consulta = (x) => (x.includes('?') ? x.slice(x.indexOf('?') + 1) : '');
   if (/^#\/fechamento(\?.*)?$/.test(r)) return { tela: 'fechamento', base: '#/fechamento', consulta: consulta(r) };
   if (/^#\/sped(\?.*)?$/.test(r)) return { tela: 'sped', base: '#/sped', consulta: consulta(r) };
+  if (r === '#/guias') return { tela: 'guias', base: '#/guias' };
   if (r === '#/visao-geral') return { tela: 'visao', base: '#/visao-geral' };
   if (r === '#/usuarios') return pode('usuarios') ? { tela: 'usuarios', base: '#/usuarios' } : { redirecionar: '#/visao-geral', semPermissao: 'Usuários' };
   if (r === '#/empresas') return { tela: 'empresas', base: '#/empresas' };

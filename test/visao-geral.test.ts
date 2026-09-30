@@ -46,9 +46,10 @@ const dados = {
   const et = Object.fromEntries(c.etapas.map((e: any) => [e.id, e]));
   assert.deepEqual([et.xml.feito, et.xml.total], [2, 4]);
   assert.deepEqual([et.auditoria.feito, et.auditoria.total], [1, 3], 'Gama auditada; Alfa com pendência; Delta ainda auditando');
-  for (const id of ['st', 'guias']) assert.ok(et[id].indisponivel, id);
+  assert.ok(et.st.indisponivel, 'st');
+  assert.deepEqual([et.guias.feito, et.guias.total], [0, 2], 'DAS: Alfa e Gama (Simples) ativas, nenhuma guia gerada');
   assert.deepEqual([et.sped.feito, et.sped.total, et.validacao.feito], [0, 4, 0], 'nenhum SPED/SINTEGRA enviado: 0 de 4 ativas (Alfa e Gama entregam SINTEGRA, as outras SPED)');
-  console.log('ok  etapas: captação, auditoria e SPED calculados; ICMS-ST e guias sem número inventado');
+  console.log('ok  etapas: captação, auditoria e SPED calculados; guias só de Simples/MEI; ICMS-ST sem número inventado');
 }
 
 // 2b) SPED guardado: etapas, pendências, status e atenção
@@ -140,7 +141,19 @@ const dados = {
   assert.equal(vg.vgAuditoria(emp({ notas_mes: 0 })).texto, 'Sem notas');
   assert.equal(vg.vgAuditoria(emp({ apont_abertos: 1 })).texto, '1 pendência');
   assert.equal(vg.vgGeral(emp({})).chave, 'andamento', 'nunca "Concluído" sem SPED e guias');
-  console.log('ok  situação de cada coluna e status geral');
+  // Guias (DAS) e fechamento concluído
+  assert.equal(vg.vgGuias(emp({ regime: 'presumido' })).texto, 'DCTFWeb · em breve');
+  assert.equal(vg.vgGuias(emp({})).texto, 'DAS não gerado');
+  assert.equal(vg.vgGuias(emp({ procuracao: 'ausente' })).texto, 'Sem procuração');
+  assert.equal(vg.vgGuias(emp({ guia: { total: 1520.33, vencimento: '2026-10-20' } })).texto, 'DAS · vence 20/10');
+  const semProc = emp({ procuracao: 'vencida' });
+  assert.deepEqual(vg.vgPendencias(semProc).map((p: any) => p.etapa), ['guias']);
+  assert.equal(vg.vgGeral(semProc).chave, 'pendencias');
+  const pronta = emp({ notas_mes: 10, sintegra: { erros: 0, alertas: 0, divergencias: 0 }, guia: { total: 10, vencimento: '2026-10-20' }, procuracao: 'ativa' });
+  assert.equal(vg.vgGeral(pronta).chave, 'concluido', 'SINTEGRA sem erro, XML confere e DAS gerado');
+  assert.equal(vg.vgGeral({ ...pronta, guia: null }).chave, 'andamento');
+  assert.equal(vg.vgGeral({ ...pronta, apont_abertos: 2 }).chave, 'pendencias');
+  console.log('ok  situação de cada coluna, guias (DAS, procuração) e status geral com concluído');
 }
 
 // 6) Central de Fechamento: prioridade, contadores, filtros e ordenação

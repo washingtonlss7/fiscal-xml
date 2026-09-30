@@ -57,7 +57,7 @@ function e360LinhaCentral(d) {
   const a = e360Auditoria(d);
   const docs = e360Documentos(d);
   const resumo = (x) => (x ? { erros: x.erros, alertas: x.alertas, divergencias: x.divergencias, enviado_em: x.enviado_em } : null);
-  return { ...e, notas_mes: docs.total, nao_auditadas: docs.naoAuditadas, apont_abertos: a.erro + a.alerta, apont_total: a.total, sped: resumo(d.sped), contrib: resumo(d.contrib), sintegra: resumo(d.sintegra) };
+  return { ...e, notas_mes: docs.total, nao_auditadas: docs.naoAuditadas, apont_abertos: a.erro + a.alerta, apont_total: a.total, sped: resumo(d.sped), contrib: resumo(d.contrib), sintegra: resumo(d.sintegra), guia: d.guia || null, procuracao: d.procuracao ? d.procuracao.situacao : null };
 }
 
 /**
@@ -124,8 +124,20 @@ function e360Etapas(d) {
     { id: 'st', nome: 'ICMS-ST', aba: e.uf === 'ES' ? 'st' : null, ...st },
     { id: 'sped', nome: sintegra ? 'SINTEGRA' : 'SPED', aba: 'sped', ...sped },
     { id: 'validacao', nome: 'Validação', aba: 'sped', ...val },
-    { id: 'guias', nome: 'Guias', aba: 'guias', estado: 'indisponivel', texto: 'Em breve' },
+    { id: 'guias', nome: 'Guias', aba: 'guias', ...e360EtapaGuia(d) },
   ];
+}
+
+/** Etapa Guias: DAS do Simples/MEI pelo Integra Contador; os demais regimes (DCTFWeb/DARF) ainda não. */
+function e360EtapaGuia(d) {
+  const e = d.empresa || {};
+  if (!['simples', 'mei'].includes(e.regime)) return { estado: 'indisponivel', texto: 'DCTFWeb/DARF · em breve' };
+  const g = d.guia;
+  const moedaBR = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  if (g) return { estado: 'concluido', texto: `DAS ${moedaBR(g.total)}${g.vencimento ? ` · vence ${String(g.vencimento).slice(0, 10).split('-').reverse().join('/')}` : ''}` };
+  const p = d.procuracao && d.procuracao.situacao;
+  if (p === 'ausente' || p === 'vencida') return { estado: 'pendencia', texto: p === 'ausente' ? 'Sem procuração no e-CAC' : 'Procuração vencida' };
+  return { estado: 'nao_iniciado', texto: 'DAS não gerado' };
 }
 
 /** O que precisa de ação agora, do mais grave para o mais leve. `st` é o resultado do cálculo de ICMS-ST (opcional). */
@@ -154,6 +166,10 @@ function e360Atencao(d, st, hoje = new Date()) {
   const si = d.sintegra;
   if (si && si.erros) itens.push({ id: 'sintegra-erros', tom: 'pendente', icone: 'file-warning', texto: `SINTEGRA com ${si.erros} erro${si.erros === 1 ? '' : 's'} no arquivo`, aba: 'sped' });
   if (si && si.divergencias) itens.push({ id: 'sintegra', tom: 'pendente', icone: 'file-spreadsheet', texto: `${si.divergencias} divergência${si.divergencias === 1 ? '' : 's'} entre SINTEGRA e XML`, aba: 'sped' });
+  const pr = d.procuracao && d.procuracao.situacao;
+  if (['simples', 'mei'].includes(e.regime) && (pr === 'ausente' || pr === 'vencida')) {
+    itens.push({ id: 'procuracao', tom: 'pendente', icone: 'key-round', texto: pr === 'ausente' ? 'Cliente sem procuração para o escritório no e-CAC (necessária para o DAS)' : 'Procuração do cliente para o escritório vencida', aba: 'guias' });
+  }
   if (d.sugestao) itens.push({ id: 'cadastro', tom: 'info', icone: 'building-2', texto: 'Dados do arquivo fiscal para conferir no cadastro', acao: 'cadastro' });
   if (cert.situacao === 'vencendo') itens.push({ id: 'cert', tom: 'pendente', icone: 'triangle-alert', texto: `Certificado vence em ${cert.dias} dia${cert.dias === 1 ? '' : 's'}`, acao: 'certificado' });
   if (st && st.uf === 'ES' && st.total > 0) {
@@ -209,6 +225,15 @@ function e360Historico(d) {
         const partes = [E360_ARQUIVO[v.tipo_arquivo] || '', comp ? `Competência ${comp}` : '', v.observacao ? `"${v.observacao}"` : ''];
         return { em: x.em, tom: 'ok', icone: 'file-check', titulo: `${n} divergência${n === 1 ? '' : 's'} justificada${n === 1 ? '' : 's'}`, detalhe: partes.filter(Boolean).join(' · '), por: x.por };
       }
+      case 'guia': {
+        const comp = v.competencia ? String(v.competencia).slice(0, 7).split('-').reverse().join('/') : '';
+        const valor = Number(v.total || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        return { em: x.em, tom: 'ok', icone: 'receipt', titulo: `${v.tipo === 'das_mei' ? 'DAS do MEI' : 'DAS do Simples'} gerado: ${valor}`, detalhe: [comp ? `Competência ${comp}` : '', v.vencimento ? `vence ${String(v.vencimento).slice(0, 10).split('-').reverse().join('/')}` : '', v.numero ? `nº ${v.numero}` : ''].filter(Boolean).join(' · '), por: x.por };
+      }
+      case 'procuracao': {
+        const t = { ativa: 'Procuração ativa', vencida: 'Procuração vencida', ausente: 'Sem procuração para o escritório', erro: 'Erro ao consultar a procuração' }[v.situacao] || 'Procuração consultada';
+        return { em: x.em, tom: v.situacao === 'ativa' ? 'ok' : v.situacao === 'erro' ? 'problema' : 'pendente', icone: 'key-round', titulo: `${t} (Integra Contador)`, detalhe: v.expira_em ? `Válida até ${String(v.expira_em).slice(0, 10).split('-').reverse().join('/')}` : '', por: x.por };
+      }
       case 'certificado':
         return { em: x.em, tom: 'info', icone: 'key-round', titulo: `Certificado A1 cadastrado${v.titular ? `: ${v.titular}` : ''}`, detalhe: v.valido_ate ? `Válido até ${new Date(v.valido_ate).toLocaleDateString('pt-BR')}${v.ativo ? '' : ' · substituído'}` : '', por: null };
       default:
@@ -217,7 +242,7 @@ function e360Historico(d) {
   });
 }
 
-if (typeof module !== 'undefined') module.exports = { e360Documentos, e360Auditoria, e360Certificado, e360Etapas, e360Atencao, e360Historico, e360LinhaCentral };
+if (typeof module !== 'undefined') module.exports = { e360Documentos, e360Auditoria, e360Certificado, e360EtapaGuia, e360Etapas, e360Atencao, e360Historico, e360LinhaCentral };
 
 /* ---------- tela ---------- */
 if (typeof window !== 'undefined') {
@@ -465,17 +490,22 @@ if (typeof window !== 'undefined') {
       linhas.push(linha(a.nome, ({ efd_contribuicoes: 'SPED Contribuições (EFD PIS/COFINS)', sintegra: 'SINTEGRA (Convênio 57/95)' })[a.tipo] || 'SPED Fiscal (EFD ICMS/IPI)', textoCompetencia(String(a.competencia).slice(0, 7)), e3Quando(a.enviado_em), 'Envio pelo painel', a.enviado_por,
         h('button', { type: 'button', class: 'botao pequeno', onclick: () => spedBaixar(a.id, a.nome) }, 'Baixar')));
     }
+    for (const g of d.guiasArquivos || []) {
+      const nomeGuia = `${g.tipo === 'das_mei' ? 'DAS do MEI' : 'DAS do Simples'}${g.numero_documento ? ` nº ${g.numero_documento}` : ''} · ${moeda(g.total)}`;
+      linhas.push(linha(nomeGuia, 'Guia (PDF)', textoCompetencia(String(g.competencia).slice(0, 7)), e3Quando(g.gerado_em), 'Integra Contador (SERPRO)', g.gerado_por,
+        h('button', { type: 'button', class: 'botao pequeno', onclick: (ev) => window.guBaixar(g.id, ev.currentTarget) }, 'Baixar')));
+    }
     if (d.empresa.uf === 'ES') {
       linhas.push(linha(`Planilha de ICMS-ST · ${comp}`, 'Excel (.xlsx)', comp, 'Gerada na hora', 'Cálculo do Appura', '—',
         h('button', { type: 'button', class: 'botao pequeno', onclick: () => baixarPlanilhaST() }, 'Gerar e baixar')));
     }
     alvo.replaceChildren(h('section', { class: 'vg-card' },
       h('div', { class: 'vg-card-topo' }, h('div', {}, h('h2', { class: 'vg-card-titulo', text: 'Arquivos' }),
-        h('p', { class: 'meta', text: 'Somente o que está armazenado. O Appura ainda não registra qual usuário fez cada importação de XML; o envio de SPED e SINTEGRA fica registrado.' }))),
+        h('p', { class: 'meta', text: 'Somente o que está armazenado. O Appura ainda não registra qual usuário fez cada importação de XML; o envio de SPED e SINTEGRA e a geração de guias ficam registrados.' }))),
       h('div', { class: 'vg-tabela-caixa' }, h('table', { class: 'vg-tabela e360-arquivos' },
         h('thead', {}, h('tr', {}, ...['Nome', 'Tipo', 'Competência', 'Data', 'Origem', 'Usuário', 'Ação'].map((t) => h('th', { scope: 'col', text: t })))),
         h('tbody', {}, ...linhas))),
-      h('div', { class: 'e360-breve pequeno' }, icone('file-spreadsheet'), h('div', {}, h('strong', { text: 'Guias' }), h('p', { text: 'As guias entram nesta lista quando o módulo existir.' })))));
+      h('p', { class: 'meta', text: 'DCTFWeb e DARF (Lucro Presumido e Real) entram nesta lista na próxima etapa das guias.' })));
   }
 
 

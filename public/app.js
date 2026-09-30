@@ -450,7 +450,7 @@ const NAV = [
   { id: 'auditoria', rotulo: 'Auditoria', icone: 'shield-check' },
   { id: 'icms-st', rotulo: 'ICMS-ST', icone: 'calculator' },
   { id: 'sped', rotulo: 'SPED e cadastro', icone: 'file-spreadsheet', rota: '#/sped' },
-  { id: 'guias', rotulo: 'Guias', icone: 'receipt' },
+  { id: 'guias', rotulo: 'Guias', icone: 'receipt', rota: '#/guias' },
   { id: 'fechamento', rotulo: 'Fechamento', icone: 'clipboard-check', rota: '#/fechamento' },
   { id: 'atendimento', rotulo: 'Atendimento', icone: 'message-circle' },
   { id: 'relatorios', rotulo: 'Relatórios', icone: 'chart-column' },
@@ -645,7 +645,7 @@ async function aplicarRota() {
     return;
   }
   const esconderTudo = (menos) => {
-    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped']) if (id !== menos) $(id).hidden = true;
+    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias']) if (id !== menos) $(id).hidden = true;
   };
   if (rota.tela !== 'empresa') { empresaNotas = null; fecharGavetaUsuario(); }
   if (rota.tela === 'fechamento') {
@@ -654,6 +654,9 @@ async function aplicarRota() {
   } else if (rota.tela === 'sped') {
     esconderTudo('tela-sped');
     window.spMostrar(rota.consulta);
+  } else if (rota.tela === 'guias') {
+    esconderTudo('tela-guias');
+    window.guMostrar();
   } else if (rota.tela === 'visao') {
     esconderTudo('tela-visao');
     window.vgMostrar();
@@ -1349,6 +1352,7 @@ function recarregarAba() {
   carregarAuditoria();
   if (abaAtual === 'st') carregarST();
   if (abaAtual === 'sped') window.spedCarregar();
+  if (abaAtual === 'guias') window.guEmpresaCarregar();
   // Dados da Empresa 360° (cabeçalho, visão geral, arquivos e histórico): uma chamada por empresa/competência
   const chave = `${empresaNotas.id}|${mesSelecionado()}`;
   if (window.e360Chave !== chave || ['visao', 'arquivos', 'historico'].includes(abaAtual)) { window.e360Chave = chave; window.e360Carregar(); }

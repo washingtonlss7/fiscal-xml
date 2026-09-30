@@ -1348,3 +1348,40 @@ body.com-dialogo { overflow: hidden; }
 .menu-tema { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; padding: 3px; border-radius: var(--raio-m); background: var(--neutro-fundo); }
 .menu-suspenso .menu-tema button { justify-content: center; min-height: 32px; padding: 0 var(--esp-2); font-size: var(--t-s); color: var(--tinta-2); }
 .menu-suspenso .menu-tema button[aria-checked="true"] { background: var(--superficie); color: var(--tinta); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+
+/* ---------- Guias (Integra Contador): mesmos componentes do Design System ---------- */
+.gu-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.gu-passos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--esp-2); }
+.gu-passos li { display: flex; gap: var(--esp-3); align-items: flex-start; padding: var(--esp-2) 0; }
+.gu-passos li + li { border-top: 1px solid var(--linha); }
+.gu-passos li > div { display: flex; flex-direction: column; gap: 2px; font-size: var(--t-m); }
+.gu-conexao { display: flex; align-items: center; justify-content: space-between; gap: var(--esp-2) var(--esp-3); flex-wrap: wrap; }
+.gu-barra { display: flex; align-items: center; gap: var(--esp-3); flex-wrap: wrap; }
+.gu-acoes { display: flex; align-items: center; justify-content: flex-end; gap: var(--esp-2); flex-wrap: wrap; }
+.gu-acoes .meta { margin-right: auto; }
+.gu-confirmar > span { flex: 1; min-width: 220px; }
+.gu-emp { display: flex; flex-direction: column; gap: 2px; }
+.gu-emp a { color: var(--tinta); font-weight: 600; text-decoration: none; }
+.gu-emp a:hover { color: var(--primaria); text-decoration: underline; }
+.gu-marcar { width: 40px; }
+.gu-marcar input, .gu-cartoes input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primaria); cursor: pointer; }
+.gu-resultado { display: block; width: fit-content; margin-top: var(--esp-1); max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-xs); vertical-align: middle; }
+.gu-cartoes { display: none; }
+.gu-rotulo { min-width: 84px; }
+.gu-botoes { display: flex; gap: var(--esp-2); flex-wrap: wrap; margin-top: auto; }
+.gu-composicao summary { cursor: pointer; font-size: var(--t-s); color: var(--tinta-2); font-weight: 550; }
+.gu-composicao[open] summary { margin-bottom: var(--esp-2); }
+@media (max-width: 1023px) { .gu-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 760px) {
+  .gu-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .gu-kpis > :first-child { grid-column: 1 / -1; }
+  .gu-tabela-caixa { display: none; }
+  .gu-cartoes { display: flex; }
+  .gu-acoes { justify-content: stretch; }
+  .gu-acoes .botao { flex: 1 1 100%; min-height: 44px; }
+  .gu-cartoes input[type="checkbox"] { width: 24px; height: 24px; }
+  .gu-botoes .botao { flex: 1 1 100%; }
+  .gu-conexao .botao { width: 100%; }
+}
+.gu-sel { display: inline-grid; place-items: center; min-width: 32px; min-height: 32px; cursor: pointer; }
+@media (max-width: 760px) { .gu-sel { min-width: var(--alvo-toque); min-height: var(--alvo-toque); margin: -10px -10px 0 0; } }

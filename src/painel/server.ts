@@ -18,6 +18,8 @@ import { auditarMes } from '../auditoria/motor';
 import { REGRAS } from '../auditoria/regras';
 import { dentroDaJanela, lerJanela } from '../util';
 import { ErroSped, ServicoSped } from './sped';
+import { ServicoGuias } from './guias';
+import { configIntegra, ErroIntegra, IntegraContador, transporteHttps } from '../integra/cliente';
 import { authDoSupabase, ErroUsuario, GestaoUsuarios, PERFIS_INFO, PERMISSOES, permissaoDaRota } from './usuarios';
 
 function exigir(nome: string): string {
@@ -53,6 +55,7 @@ const ARQUIVOS: Record<string, [string, string]> = {
   '/visao-geral.js': ['visao-geral.js', 'text/javascript; charset=utf-8'],
   '/empresa-360.js': ['empresa-360.js', 'text/javascript; charset=utf-8'],
   '/sped.js': ['sped.js', 'text/javascript; charset=utf-8'],
+  '/guias.js': ['guias.js', 'text/javascript; charset=utf-8'],
   '/nucleo.js': ['nucleo.js', 'text/javascript; charset=utf-8'],
   '/app.css': ['app.css', 'text/css; charset=utf-8'],
   '/manifest.webmanifest': ['manifest.webmanifest', 'application/manifest+json; charset=utf-8'],
@@ -485,6 +488,39 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
   }
 
   // Empresa 360°: cadastro, certificado, captação, números da competência e histórico numa chamada só
+  // Guias pelo Integra Contador (SERPRO)
+  if (rota.startsWith('/api/guias') || /^\/api\/empresas\/[0-9a-f-]{36}\/guias/.test(rota)) {
+    const mes = filtroNotas(url).mes;
+    if (metodo === 'GET' && rota === '/api/guias') return responder(res, 200, await servicoGuias.painel(mes));
+    if (metodo === 'GET' && rota === '/api/guias/situacao') return responder(res, 200, await servicoGuias.situacao());
+    if (metodo === 'POST' && rota === '/api/guias/testar') return responder(res, 200, await servicoGuias.testarConexao(email));
+    if (metodo === 'POST' && rota === '/api/guias/lote') {
+      const c = await lerCorpo(req);
+      const acao = c.acao === 'das' ? 'das' : c.acao === 'procuracao' ? 'procuracao' : null;
+      if (!acao) throw new ErroHttp(400, 'Ação inválida.');
+      const ids = Array.isArray(c.ids) ? c.ids.map(String).filter((x: string) => /^[0-9a-f-]{36}$/.test(x)) : [];
+      if (!ids.length) throw new ErroHttp(400, 'Selecione ao menos uma empresa.');
+      return responder(res, 200, await servicoGuias.lote(acao, ids, /^\d{4}-\d{2}$/.test(String(c.mes)) ? String(c.mes) : mes, email));
+    }
+    const pdf = rota.match(/^\/api\/guias\/(\d+)\/pdf$/);
+    if (metodo === 'GET' && pdf) {
+      const g = await servicoGuias.pdf(Number(pdf[1]));
+      res.writeHead(200, { ...CABECALHOS_SEGURANCA, 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${g.nome.replace(/[^\w.\- ]+/g, '_')}"`, 'Cache-Control': 'no-store' });
+      log.info('guia baixada', { id: pdf[1], por: email });
+      return void res.end(g.conteudo);
+    }
+    const eg = rota.match(/^\/api\/empresas\/([0-9a-f-]{36})\/guias(?:\/(procuracao|declaracao|das))?$/);
+    if (eg && metodo === 'GET' && !eg[2]) return responder(res, 200, await servicoGuias.daEmpresa(eg[1], mes));
+    if (eg && metodo === 'POST' && eg[2]) {
+      const c = await lerCorpo(req);
+      const m = /^\d{4}-\d{2}$/.test(String(c.mes)) ? String(c.mes) : mes;
+      if (eg[2] === 'procuracao') return responder(res, 200, await servicoGuias.verificarProcuracao(eg[1], email));
+      if (eg[2] === 'declaracao') return responder(res, 200, await servicoGuias.consultarDeclaracao(eg[1], m, email));
+      return responder(res, 200, await servicoGuias.gerarDas(eg[1], m, email, c.forcar === true));
+    }
+    throw new ErroHttp(404, 'Rota não encontrada.');
+  }
+
   const e360 = rota.match(/^\/api\/empresas\/([0-9a-f-]{36})\/360$/);
   if (metodo === 'GET' && e360) {
     const f = filtroNotas(url);
@@ -636,6 +672,9 @@ async function listarNotas(res: http.ServerResponse, id: string, f: FiltroNotas)
 const arm = new Armazenamento(db, configArmazenamento(cfg.masterKey, process.env.XML_BUCKET ?? 'xmls'));
 const lerXmlStorage = (caminho: string) => arm.ler(caminho);
 const servicoSped = new ServicoSped(db, arm);
+const cfgIntegra = configIntegra();
+const servicoGuias = new ServicoGuias(db, arm, cfg.masterKey, cfgIntegra ? (contratante, registrar) => new IntegraContador(cfgIntegra, contratante, transporteHttps, registrar) : null);
+if (cfgIntegra) log.info('Integra Contador configurado', { ambiente: cfgIntegra.ambiente });
 
 async function baixarXml(res: http.ServerResponse, id: string, chave: string) {
   if (!/^\d{44}$/.test(chave)) throw new ErroHttp(400, 'Chave inválida.');
@@ -795,6 +834,7 @@ const servidor = http.createServer(async (req, res) => {
       log.error('download interrompido', { rota: url.pathname, erro: (e as Error).message });
       return void res.destroy();
     }
+    if (e instanceof ErroIntegra) return responder(res, e.status, { erro: e.message, ...(e.codigo ? { codigo: e.codigo } : {}) });
     if (e instanceof ErroHttp || e instanceof ErroUsuario || e instanceof ErroSped) return responder(res, e.status, { erro: e.message });
     log.error('erro no painel', { rota: url.pathname, erro: (e as Error).message });
     responder(res, 500, { erro: 'Erro inesperado no servidor. Tente de novo.' });
