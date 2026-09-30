@@ -7,6 +7,7 @@ import { buscarTodos, criarDb, ok } from '../db';
 import { ErroValidacao, salvarEmpresaComCertificado } from '../empresas';
 import { log } from '../log';
 import { Zip } from './zip';
+import { registrarStatus } from '../status';
 import { abrirEnvio, importarXmls } from '../importacao/importar';
 import { escreverXlsx } from './xlsx';
 import { abasST, lerRegrasST, relatorioST } from '../fiscal/relatorioST';
@@ -577,6 +578,10 @@ async function semearTabelaST() {
   else log.info('tabela de ST do ES carregada', { regras: r.data });
 }
 void semearTabelaST();
+void registrarStatus(db, 'painel', {
+  iniciado_em: new Date().toISOString(),
+  armazenamento: arm.usaR2 ? 'r2' : 'supabase',
+});
 
 const servidor = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
