@@ -7,7 +7,7 @@
   <meta name="description" content="Appura — suas notas, apuradas.">
   <link rel="icon" href="/icone.svg" type="image/svg+xml">
   <link rel="manifest" href="/manifest.webmanifest">
-  <meta name="theme-color" content="#0e6a86">
+  <meta name="theme-color" content="#ffffff">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Appura">
@@ -20,8 +20,8 @@
   <main id="tela-login" class="login" hidden>
     <section class="login-cartao" aria-labelledby="login-titulo">
       <div class="marca">
-        <img src="/icone.svg" alt="" width="28" height="28">
-        <span>Appura</span>
+        <img src="/icone.svg" alt="" width="30" height="30">
+        <span>appura</span>
       </div>
       <h1 id="login-titulo">Acesso ao painel</h1>
       <p class="slogan">Suas notas, apuradas.</p>
@@ -46,18 +46,67 @@
   </main>
 
   <!-- Aplicação -->
-  <div id="tela-app" class="app" hidden>
-    <header class="topo">
-      <div class="marca">
-        <img src="/icone.svg" alt="" width="24" height="24">
-        <span>Appura</span>
-      </div>
-      <div class="topo-direita">
-        <button id="botao-usuarios" type="button" class="botao fantasma" hidden>Usuários</button>
-        <span id="usuario-email" class="usuario"></span>
-        <button id="botao-sair" type="button" class="botao fantasma">Sair</button>
-      </div>
-    </header>
+  <div id="tela-app" class="shell" hidden>
+    <aside id="sidebar" class="sidebar" aria-label="Menu principal">
+      <a class="sidebar-marca" href="#/empresas">
+        <img src="/icone.svg" alt="" width="28" height="28">
+        <span>appura</span>
+      </a>
+      <nav id="nav-principal" aria-label="Seções"></nav>
+    </aside>
+    <div id="lateral-fundo" class="lateral-fundo"></div>
+
+    <div class="principal">
+      <header class="cabecalho">
+        <button id="botao-lateral" type="button" class="botao-icone" aria-label="Recolher menu" aria-controls="sidebar">
+          <svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-panel-left-close"></use></svg>
+        </button>
+        <a class="marca marca-movel" href="#/empresas" aria-label="Appura, início">
+          <img src="/icone.svg" alt="" width="26" height="26"><span>appura</span>
+        </a>
+
+        <div class="competencia" role="group" aria-label="Competência">
+          <button id="comp-anterior" type="button" class="botao-icone" aria-label="Mês anterior">
+            <svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-chevron-left"></use></svg>
+          </button>
+          <label class="competencia-botao">
+            <svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-calendar"></use></svg>
+            <span class="rotulo-c">Competência:</span>
+            <strong id="comp-texto"></strong>
+            <svg class="icone-svg nav-seta" aria-hidden="true"><use href="/icones.svg#i-chevron-down"></use></svg>
+            <input id="comp-mes" type="month" aria-label="Escolher competência">
+          </label>
+          <button id="comp-seguinte" type="button" class="botao-icone" aria-label="Mês seguinte">
+            <svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-chevron-right"></use></svg>
+          </button>
+        </div>
+
+        <form id="busca-global-form" class="busca-global" role="search">
+          <svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-search"></use></svg>
+          <label class="visualmente-oculto" for="busca-global">Buscar empresa</label>
+          <input id="busca-global" type="search" placeholder="Buscar empresa (CNPJ, nome...)" autocomplete="off">
+        </form>
+
+        <div class="cabecalho-direita">
+          <button id="botao-sino" type="button" class="botao-icone" aria-label="Notificações">
+            <svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-bell"></use></svg>
+            <span id="sino-contador" class="sino-contador" hidden></span>
+          </button>
+          <div class="usuario-menu">
+            <button id="usuario-botao" type="button" class="usuario-botao" aria-haspopup="menu" aria-expanded="false" aria-controls="usuario-menu">
+              <span id="usuario-avatar" class="avatar" aria-hidden="true"></span>
+              <span class="usuario-texto"><strong id="usuario-nome"></strong><span id="usuario-perfil"></span></span>
+              <svg class="icone-svg nav-seta" aria-hidden="true"><use href="/icones.svg#i-chevron-down"></use></svg>
+            </button>
+            <div id="usuario-menu" class="menu-suspenso" role="menu" hidden>
+              <div id="usuario-email" class="menu-info"></div>
+              <button id="botao-sair" type="button" role="menuitem">
+                <svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-log-out"></use></svg> Sair
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
 
     <main class="conteudo">
      <div id="tela-empresas" class="pilha">
@@ -168,6 +217,7 @@
       </div>
      </section>
     </main>
+    </div>
   </div>
 
   <!-- Painel lateral de cadastro -->

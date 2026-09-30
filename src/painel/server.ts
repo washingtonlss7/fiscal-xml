@@ -56,6 +56,8 @@ const ARQUIVOS: Record<string, [string, string]> = {
   '/icone-512.png': ['icone-512.png', 'image/png'],
   '/icone-maskable-512.png': ['icone-maskable-512.png', 'image/png'],
   '/apple-touch-icon.png': ['apple-touch-icon.png', 'image/png'],
+  '/icones.svg': ['icones.svg', 'image/svg+xml'],
+  '/fonts/inter.woff2': ['fonts/inter.woff2', 'font/woff2'],
 };
 
 const CABECALHOS_SEGURANCA = {

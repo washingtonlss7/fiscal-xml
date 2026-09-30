@@ -341,6 +341,272 @@ function excluirUsuario() {
     'Usuário excluído.');
 }
 
+/* ---------- shell: sidebar, header, competência e rotas ---------- */
+const SVG_NS = 'http://www.w3.org/2000/svg';
+function icone(nome, classe = 'icone-svg') {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('class', classe);
+  svg.setAttribute('aria-hidden', 'true');
+  const use = document.createElementNS(SVG_NS, 'use');
+  use.setAttribute('href', `/icones.svg#i-${nome}`);
+  svg.append(use);
+  return svg;
+}
+function trocarIcone(svg, nome) { svg.querySelector('use').setAttribute('href', `/icones.svg#i-${nome}`); }
+
+/*
+ * Itens do menu. Só tem "rota" o que já existe; o resto aparece como "Em breve" e não navega.
+ * "permissao" esconde o item de quem não pode usar (o servidor confere de novo em cada chamada).
+ */
+const NAV = [
+  { id: 'visao-geral', rotulo: 'Visão Geral', icone: 'layout-dashboard' },
+  { id: 'empresas', rotulo: 'Empresas', icone: 'building-2', rota: '#/empresas' },
+  { id: 'captacao', rotulo: 'Captação', icone: 'cloud-download', filhos: [
+    { rotulo: 'Monitor' }, { rotulo: 'Lacunas / NSU' }, { rotulo: 'Importações' }, { rotulo: 'Histórico' },
+  ] },
+  { id: 'notas', rotulo: 'Notas Fiscais', icone: 'file-text' },
+  { id: 'auditoria', rotulo: 'Auditoria', icone: 'shield-check' },
+  { id: 'icms-st', rotulo: 'ICMS-ST', icone: 'calculator' },
+  { id: 'sped', rotulo: 'SPED', icone: 'file-spreadsheet', filhos: [
+    { rotulo: 'Arquivos' }, { rotulo: 'Comparar' }, { rotulo: 'Escrituração' }, { rotulo: 'Validação' },
+  ] },
+  { id: 'guias', rotulo: 'Guias', icone: 'receipt' },
+  { id: 'fechamento', rotulo: 'Fechamento', icone: 'clipboard-check' },
+  { id: 'atendimento', rotulo: 'Atendimento', icone: 'message-circle' },
+  { id: 'relatorios', rotulo: 'Relatórios', icone: 'chart-column' },
+  { id: 'administracao', rotulo: 'Administração', icone: 'settings', permissao: 'usuarios', filhos: [
+    { id: 'usuarios', rotulo: 'Usuários', rota: '#/usuarios', permissao: 'usuarios' },
+    { rotulo: 'Certificados' }, { rotulo: 'Configurações' },
+  ] },
+];
+const NAV_RODAPE = [{ id: 'ajuda', rotulo: 'Ajuda', icone: 'circle-help' }];
+const PERFIL_NOME = { admin: 'Administrador', supervisor: 'Supervisor', analista: 'Analista', consulta: 'Consulta' };
+const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+
+let gruposAbertos = new Set(['administracao']);
+try { gruposAbertos = new Set(JSON.parse(localStorage.getItem('appura-grupos') || '["administracao"]')); } catch { /* sem armazenamento */ }
+const visivel = (item) => !item.permissao || pode(item.permissao);
+const ehCelular = () => window.matchMedia('(max-width: 760px)').matches;
+
+function itemNav(item, sub = false) {
+  const conteudo = [sub ? null : icone(item.icone), h('span', { class: 'nav-rotulo', text: item.rotulo })];
+  if (item.rota) {
+    return h('li', {}, h('a', { class: 'nav-item', href: item.rota, 'data-rota': item.rota, 'data-rotulo': item.rotulo }, ...conteudo));
+  }
+  if (item.filhos) {
+    const filhos = item.filhos.filter(visivel);
+    const aberto = gruposAbertos.has(item.id);
+    const lista = h('ul', { class: 'nav-sub', id: `sub-${item.id}`, hidden: !aberto }, ...filhos.map((f) => itemNav(f, true)));
+    const botao = h('button', {
+      type: 'button', class: 'nav-item', 'aria-expanded': String(aberto), 'aria-controls': `sub-${item.id}`, 'data-rotulo': item.rotulo,
+      onclick: () => {
+        if ($('tela-app').classList.contains('recolhida') && !ehCelular()) { alternarLateral(); if (gruposAbertos.has(item.id)) return; }
+        const abrir = lista.hidden;
+        lista.hidden = !abrir;
+        botao.setAttribute('aria-expanded', String(abrir));
+        if (abrir) gruposAbertos.add(item.id); else gruposAbertos.delete(item.id);
+        try { localStorage.setItem('appura-grupos', JSON.stringify([...gruposAbertos])); } catch { /* ok */ }
+      },
+    }, ...conteudo, icone('chevron-down', 'icone-svg nav-seta'));
+    return h('li', {}, botao, lista);
+  }
+  return h('li', {}, h('span', {
+    class: 'nav-item em-breve', 'aria-disabled': 'true', 'data-rotulo': `${item.rotulo} (em breve)`,
+  }, ...conteudo, h('span', { class: 'nav-breve', text: 'Em breve' })));
+}
+
+function renderNav() {
+  $('nav-principal').replaceChildren(
+    h('ul', { class: 'nav' }, ...NAV.filter(visivel).map((i) => itemNav(i))),
+    h('div', { class: 'nav-divisor' }),
+    h('ul', { class: 'nav sidebar-rodape' }, ...NAV_RODAPE.map((i) => itemNav(i))),
+  );
+  marcarNav();
+}
+
+function marcarNav() {
+  const r = location.hash.startsWith('#/usuarios') ? '#/usuarios' : '#/empresas';
+  for (const a of document.querySelectorAll('#nav-principal a.nav-item')) {
+    if (a.dataset.rota === r) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+  }
+}
+
+/* Sidebar recolhida (desktop/tablet) ou gaveta (celular) */
+function lerPreferenciaLateral() {
+  try { const v = localStorage.getItem('appura-lateral'); if (v) return v === 'recolhida'; } catch { /* ok */ }
+  return window.matchMedia('(max-width: 1100px)').matches;
+}
+function atualizarBotaoLateral() {
+  const shell = $('tela-app');
+  const botao = $('botao-lateral');
+  const svg = botao.querySelector('svg');
+  if (ehCelular()) {
+    trocarIcone(svg, shell.classList.contains('menu-aberto') ? 'x' : 'menu');
+    botao.setAttribute('aria-label', shell.classList.contains('menu-aberto') ? 'Fechar menu' : 'Abrir menu');
+    botao.setAttribute('aria-expanded', String(shell.classList.contains('menu-aberto')));
+  } else {
+    const rec = shell.classList.contains('recolhida');
+    trocarIcone(svg, rec ? 'panel-left-open' : 'panel-left-close');
+    botao.setAttribute('aria-label', rec ? 'Expandir menu' : 'Recolher menu');
+    botao.removeAttribute('aria-expanded');
+  }
+}
+function alternarLateral() {
+  const shell = $('tela-app');
+  if (ehCelular()) {
+    shell.classList.toggle('menu-aberto');
+  } else {
+    const rec = shell.classList.toggle('recolhida');
+    try { localStorage.setItem('appura-lateral', rec ? 'recolhida' : 'aberta'); } catch { /* ok */ }
+    esconderDica();
+  }
+  atualizarBotaoLateral();
+}
+function fecharMenuCelular() {
+  $('tela-app').classList.remove('menu-aberto');
+  atualizarBotaoLateral();
+}
+
+/* Dica com o nome do item quando a sidebar está recolhida */
+let dicaEl = null;
+function mostrarDica(ev) {
+  const alvo = ev.target.closest('.nav-item');
+  if (!alvo || !$('tela-app').classList.contains('recolhida') || ehCelular()) return;
+  esconderDica();
+  const r = alvo.getBoundingClientRect();
+  dicaEl = h('div', { class: 'dica-lateral', role: 'tooltip', text: alvo.dataset.rotulo || '' });
+  document.body.append(dicaEl);
+  dicaEl.style.left = `${r.right + 10}px`;
+  dicaEl.style.top = `${r.top + r.height / 2 - dicaEl.offsetHeight / 2}px`;
+}
+function esconderDica() { if (dicaEl) { dicaEl.remove(); dicaEl = null; } }
+
+/* Competência (mês de trabalho). Controla o mês das notas, auditoria e ST da empresa. */
+let competencia = null;
+function textoCompetencia(v) {
+  const [a, m] = v.split('-').map(Number);
+  return `${MESES[m - 1]} / ${a}`;
+}
+function somarMes(v, n) {
+  const [a, m] = v.split('-').map(Number);
+  const d = new Date(a, m - 1 + n, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+function definirCompetencia(v, recarregar = true) {
+  if (!/^\d{4}-\d{2}$/.test(v || '')) return;
+  const mudou = v !== competencia;
+  competencia = v;
+  $('comp-texto').textContent = textoCompetencia(v);
+  $('comp-mes').value = v;
+  $('comp-seguinte').disabled = v >= mesAtual();
+  try { sessionStorage.setItem('appura-competencia', v); } catch { /* ok */ }
+  if ($('notas-mes').value !== v) $('notas-mes').value = v;
+  if (mudou && recarregar && !$('tela-notas').hidden) recarregarAba();
+}
+
+/* Busca global: filtra a lista de empresas */
+let timerBuscaGlobal;
+function buscarGlobal(imediato) {
+  clearTimeout(timerBuscaGlobal);
+  const aplicar = () => {
+    termo = $('busca-global').value.trim();
+    $('busca').value = termo;
+    if (location.hash !== '#/empresas') irPara('#/empresas'); else renderLista();
+  };
+  if (imediato) aplicar(); else timerBuscaGlobal = setTimeout(aplicar, 250);
+}
+
+/* Sino: empresas com problema (certificado vencido, sem certificado, erro na consulta) */
+function atualizarSino() {
+  const n = empresas.filter((e) => grupoDe(e) === 'problema').length;
+  const c = $('sino-contador');
+  c.hidden = n === 0;
+  c.textContent = n > 99 ? '99+' : String(n);
+  $('botao-sino').setAttribute('aria-label', n ? `Notificações: ${n} empresa${n === 1 ? '' : 's'} com problema` : 'Notificações: nada pendente');
+  $('botao-sino').title = n ? `${n} empresa${n === 1 ? '' : 's'} com problema` : 'Nada pendente';
+}
+function abrirSino() {
+  filtro = 'problema';
+  irPara('#/empresas');
+  renderResumo();
+  renderLista();
+}
+
+/* Menu do usuário */
+function alternarMenuUsuario(abrir) {
+  const menu = $('usuario-menu');
+  const aberto = abrir ?? menu.hidden;
+  menu.hidden = !aberto;
+  $('usuario-botao').setAttribute('aria-expanded', String(aberto));
+}
+function preencherUsuario(eu) {
+  const nome = (eu && eu.nome) || (sessao && sessao.email) || '';
+  const partes = nome.replace(/@.*/, '').split(/[\s._-]+/).filter(Boolean);
+  const iniciais = ((partes[0] || '?')[0] + (partes.length > 1 ? partes[partes.length - 1][0] : (partes[0] || '')[1] || '')).toUpperCase();
+  $('usuario-avatar').textContent = iniciais;
+  $('usuario-nome').textContent = eu && eu.nome ? eu.nome : nome.replace(/@.*/, '');
+  $('usuario-perfil').textContent = PERFIL_NOME[perfilAtual] || '';
+  $('usuario-email').textContent = (sessao && sessao.email) || '';
+}
+
+/* Rotas por endereço: #/empresas, #/empresas/<id>, #/usuarios */
+function irPara(rota) {
+  if (location.hash === rota) aplicarRota(); else location.hash = rota;
+}
+async function aplicarRota() {
+  if (!sessao || $('tela-app').hidden) return;
+  fecharMenuCelular();
+  alternarMenuUsuario(false);
+  const r = location.hash || '#/empresas';
+  const emp = r.match(/^#\/empresas\/([0-9a-f-]{36})$/);
+  if (r === '#/usuarios' && pode('usuarios')) {
+    if ($('tela-usuarios').hidden) { empresaNotas = null; abrirUsuarios(); }
+  } else if (emp) {
+    let e = empresas.find((x) => x.id === emp[1]);
+    if (!e) { await carregarEmpresas(); e = empresas.find((x) => x.id === emp[1]); }
+    if (!e) { location.replace('#/empresas'); return; }
+    if (!empresaNotas || empresaNotas.id !== e.id || $('tela-notas').hidden) {
+      $('tela-usuarios').hidden = true;
+      fecharGavetaUsuario();
+      abrirNotas(e);
+    }
+  } else {
+    if (r !== '#/empresas') { location.replace('#/empresas'); return; }
+    if (!$('tela-usuarios').hidden) fecharUsuarios();
+    else if (!$('tela-notas').hidden) fecharNotas();
+  }
+  marcarNav();
+}
+
+function ligarShell() {
+  $('botao-lateral').addEventListener('click', alternarLateral);
+  $('lateral-fundo').addEventListener('click', fecharMenuCelular);
+  $('nav-principal').addEventListener('mouseover', mostrarDica);
+  $('nav-principal').addEventListener('focusin', mostrarDica);
+  $('nav-principal').addEventListener('mouseout', esconderDica);
+  $('nav-principal').addEventListener('focusout', esconderDica);
+  $('nav-principal').addEventListener('click', (ev) => { if (ev.target.closest('a.nav-item') && ehCelular()) fecharMenuCelular(); });
+  window.matchMedia('(max-width: 760px)').addEventListener('change', () => { $('tela-app').classList.remove('menu-aberto'); atualizarBotaoLateral(); });
+  window.addEventListener('hashchange', aplicarRota);
+
+  $('comp-anterior').addEventListener('click', () => definirCompetencia(somarMes(competencia, -1)));
+  $('comp-seguinte').addEventListener('click', () => definirCompetencia(somarMes(competencia, 1)));
+  $('comp-mes').addEventListener('change', (e) => definirCompetencia(e.target.value));
+  $('comp-mes').addEventListener('click', (e) => { try { e.target.showPicker(); } catch { /* navegador sem seletor de mês: use as setas */ } });
+
+  $('busca-global-form').addEventListener('submit', (e) => { e.preventDefault(); buscarGlobal(true); });
+  $('busca-global').addEventListener('input', () => buscarGlobal(false));
+  $('botao-sino').addEventListener('click', abrirSino);
+
+  $('usuario-botao').addEventListener('click', (e) => { e.stopPropagation(); alternarMenuUsuario(); });
+  document.addEventListener('click', (e) => { if (!e.target.closest('.usuario-menu')) alternarMenuUsuario(false); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    alternarMenuUsuario(false);
+    if ($('tela-app').classList.contains('menu-aberto')) fecharMenuCelular();
+  });
+}
+
 /* ---------- lista de empresas ---------- */
 let empresas = [];
 let filtro = 'todas';
@@ -351,6 +617,7 @@ const confirmando = new Set();
 function grupoDe(e) { return (STATUS[e.status] || STATUS.aguardando).grupo; }
 
 function renderResumo() {
+  atualizarSino();
   const cont = { todas: empresas.length, ok: 0, atencao: 0, problema: 0, pausada: 0 };
   for (const e of empresas) cont[grupoDe(e)]++;
   const nav = $('resumo');
@@ -399,7 +666,7 @@ function linhaEmpresa(e) {
     celula('Última sincronização', ...sincronizacao,
       h('span', { class: 'meta', text: `${e.documentos_30d} nota${Number(e.documentos_30d) === 1 ? '' : 's'} em 30 dias` })),
     h('div', { class: 'acoes' },
-      h('button', { type: 'button', class: 'botao pequeno primario', onclick: () => abrirNotas(e) }, 'Notas'),
+      h('button', { type: 'button', class: 'botao pequeno primario', onclick: () => irPara(`#/empresas/${e.id}`) }, 'Notas'),
       pode('operar') ? h('button', {
         type: 'button', class: 'botao pequeno', disabled: !e.ativo || e.sincronizacao_pedida || !e.certificado_valido_ate,
         onclick: () => sincronizar(e),
@@ -694,10 +961,11 @@ function abrirNotas(e) {
   empresaNotas = e;
   pararAtualizacao();
   $('tela-empresas').hidden = true;
+  $('tela-usuarios').hidden = true;
   $('tela-notas').hidden = false;
   $('notas-titulo').textContent = e.razao_social;
   $('notas-sub').textContent = `${formatarCnpj(e.cnpj)} · ${e.uf}${e.regime ? ' · ' + (REGIMES[e.regime] || e.regime) : ''}`;
-  if (!$('notas-mes').value) $('notas-mes').value = mesAtual();
+  $('notas-mes').value = competencia || mesAtual();
   window.scrollTo(0, 0);
   trocarAba('notas');
 }
@@ -1167,21 +1435,26 @@ async function abrirApp() {
   $('tela-empresas').hidden = false;
   empresaNotas = null;
   $('tela-usuarios').hidden = true;
-  $('usuario-email').textContent = sessao.email || '';
+  $('tela-app').classList.toggle('recolhida', lerPreferenciaLateral());
+  let eu = null;
   try {
-    const eu = await chamar('/api/eu');
+    eu = await chamar('/api/eu');
     perfilAtual = eu.perfil;
     permissoes = eu.permissoes || [];
-    if (eu.nome) $('usuario-email').textContent = eu.nome;
-    $('usuario-email').title = sessao.email || '';
   } catch { perfilAtual = null; permissoes = []; }
-  $('botao-usuarios').hidden = !pode('usuarios');
+  preencherUsuario(eu);
+  renderNav();
+  atualizarBotaoLateral();
+  let comp = null;
+  try { comp = sessionStorage.getItem('appura-competencia'); } catch { /* ok */ }
+  definirCompetencia(comp || mesAtual(), false);
   $('botao-adicionar').hidden = !pode('certificados');
   $('notas-importar').hidden = !pode('operar');
   $('aud-refazer').hidden = !pode('operar');
   $('st-tabela-enviar').hidden = !pode('configuracoes');
   await carregarEmpresas();
   iniciarAtualizacao();
+  aplicarRota();
 }
 
 function ligarEventos() {
@@ -1198,8 +1471,7 @@ function ligarEventos() {
     if (!$('gaveta').hidden) fecharGaveta();
     if (!$('gu').hidden) fecharGavetaUsuario();
   });
-  $('botao-usuarios').addEventListener('click', abrirUsuarios);
-  $('usuarios-voltar').addEventListener('click', fecharUsuarios);
+  $('usuarios-voltar').addEventListener('click', () => irPara('#/empresas'));
   $('usuarios-novo').addEventListener('click', () => abrirGavetaUsuario(null));
   $('gu-fechar').addEventListener('click', fecharGavetaUsuario);
   $('gu-cancelar').addEventListener('click', fecharGavetaUsuario);
@@ -1221,11 +1493,11 @@ function ligarEventos() {
   area.addEventListener('dragleave', () => area.classList.remove('arrastando'));
   area.addEventListener('drop', (e) => { e.preventDefault(); area.classList.remove('arrastando'); escolherArquivo(e.dataTransfer.files[0]); });
 
-  $('notas-voltar').addEventListener('click', fecharNotas);
+  $('notas-voltar').addEventListener('click', () => irPara('#/empresas'));
   $('notas-zip').addEventListener('click', baixarZip);
   $('notas-importar').addEventListener('click', () => $('notas-importar-arquivos').click());
   $('notas-importar-arquivos').addEventListener('change', (e) => importarArquivos(e.target.files));
-  $('notas-mes').addEventListener('change', recarregarAba);
+  $('notas-mes').addEventListener('change', (e) => { definirCompetencia(e.target.value, false); recarregarAba(); });
   for (const id of ['notas-modelo', 'notas-direcao']) $(id).addEventListener('change', carregarNotas);
   $('aba-notas').addEventListener('click', () => trocarAba('notas'));
   $('aba-auditoria').addEventListener('click', () => trocarAba('auditoria'));
@@ -1248,6 +1520,7 @@ function ligarEventos() {
 }
 
 ligarEventos();
+ligarShell();
 preencherUfs();
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}); });
