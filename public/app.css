@@ -1463,3 +1463,9 @@ body.com-dialogo { overflow: hidden; }
   .ap-total { font-size: 26px; }
   .ap-alertas > li { flex-direction: column; gap: 6px; }
 }
+.ap-tributos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: var(--borda); border-radius: var(--raio-m); }
+.ap-tributos li { display: flex; justify-content: space-between; gap: var(--esp-3); padding: 8px var(--esp-3); border-bottom: 1px solid var(--linha); font-size: var(--t-s); }
+.ap-tributos li strong { font-variant-numeric: tabular-nums; }
+.ap-tributos li:last-child { border-bottom: 0; }
+.ap-tributos .ap-tributos-total { background: var(--superficie-2); font-size: var(--t-m); }
+.ap-bloco { display: flex; flex-direction: column; gap: var(--esp-2); }

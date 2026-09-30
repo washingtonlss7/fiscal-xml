@@ -49,11 +49,41 @@ function apCorpoAjuste(chave, valor, justificativa, mes) {
   return { mes, valor: v, atividade: g.atividade, st: g.st, monofasico: g.monofasico, justificativa: String(justificativa || '').trim() };
 }
 
-if (typeof module !== 'undefined') module.exports = { AP_GRUPOS, apParticipacao, apVariacao, apSituacao, apCorpoAjuste };
+const AP_TRIBUTOS = { 1001: 'IRPJ', 1002: 'CSLL', 1004: 'COFINS', 1005: 'PIS/PASEP', 1006: 'CPP (INSS)', 1007: 'ICMS', 1008: 'IPI', 1010: 'ISS' };
+const AP_ORDEM_TRIBUTOS = [1001, 1002, 1004, 1005, 1006, 1007, 1008, 1010];
+
+/** Valores calculados pela Receita, na ordem do extrato do PGDAS-D. */
+function apTributos(valores) {
+  const pos = (c) => { const i = AP_ORDEM_TRIBUTOS.indexOf(c); return i < 0 ? 99 : i; };
+  return (valores || []).slice().sort((a, b) => pos(a.codigoTributo) - pos(b.codigoTributo))
+    .map((v) => ({ nome: AP_TRIBUTOS[v.codigoTributo] || `Tributo ${v.codigoTributo}`, valor: Number(v.valor) }));
+}
+
+/** Data sem hora (AAAA-MM-DD) → DD/MM/AAAA, sem passar por fuso (evita mostrar o dia anterior). */
+const apDia = (s) => (s && /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10).split('-').reverse().join('/') : '—');
+
+/** Alíquota efetiva (total do DAS ÷ receita), em texto. */
+function apAliquota(total, receita) {
+  if (!receita) return '—';
+  return `${((Number(total) / Number(receita)) * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+}
+
+/**
+ * Situação do PGDAS-D do mês para o cartão da Receita:
+ * 'transmitida' (e a simulação de retificadora, se houver), 'simulada', ou 'nenhuma'.
+ */
+function apEstadoReceita(apuracoes) {
+  const l = apuracoes || [];
+  const simulada = l.find((a) => a.status === 'simulada') || null;
+  const transmitida = l.find((a) => a.status === 'transmitida') || null;
+  return { estado: simulada ? 'simulada' : transmitida ? 'transmitida' : 'nenhuma', simulada, transmitida };
+}
+
+if (typeof module !== 'undefined') module.exports = { apDia, AP_GRUPOS, apParticipacao, apVariacao, apSituacao, apCorpoAjuste, apTributos, apAliquota, apEstadoReceita };
 
 /* ---------- tela ---------- */
 if (typeof window !== 'undefined') {
-  var ap = { chave: null, dados: null, erro: null, removendo: null };
+  var ap = { chave: null, dados: null, erro: null, removendo: null, confirmo: false, gerarDas: true };
   const apTituloGrupo = (c) => (AP_GRUPOS.find((g) => g.chave === c) || { titulo: c }).titulo;
   const apSkel = () => h('div', { class: 'vg-card' }, h('div', { class: 'vg-skel', 'aria-hidden': 'true' }), h('div', { class: 'vg-skel', 'aria-hidden': 'true' }), h('div', { class: 'vg-skel', 'aria-hidden': 'true' }));
 
@@ -93,11 +123,11 @@ if (typeof window !== 'undefined') {
     const topo = h('section', { class: 'vg-card ap-topo' },
       h('div', { class: 'vg-card-topo' },
         h('div', {}, h('h2', { class: 'vg-card-titulo', text: `Receita de ${textoCompetencia(d.competencia)} para o PGDAS-D` }),
-          h('p', { class: 'meta', text: `Prévia montada das notas de venda${d.estabelecimentos.length > 1 ? ` de ${d.estabelecimentos.length} estabelecimentos (matriz e filiais)` : ''}. Nada é enviado à Receita nesta etapa.` })),
+          h('p', { class: 'meta', text: `Montada das notas de venda${d.estabelecimentos.length > 1 ? ` de ${d.estabelecimentos.length} estabelecimentos (matriz e filiais)` : ''}.` })),
         h('span', { class: `selo ${sit.tom}`, text: sit.texto })),
       h('div', { class: 'ap-receita' }, h('strong', { class: 'ap-total', text: moeda(d.receita) }),
         h('div', { class: 'ap-comps' }, linhaComp('Notas do mês anterior', d.comparacao.mesAnterior, varAnt), linhaComp('Mesmo mês do ano passado', d.comparacao.mesmoMesAnoPassado, varAno))),
-      h('p', { class: 'dica ap-dica', text: 'O imposto não é calculado aqui: na próxima etapa a própria Receita calcula (simulação do PGDAS-D) a partir desta receita segregada, e o supervisor transmite.' }));
+      h('p', { class: 'dica ap-dica', text: 'O imposto não é calculado pelo Appura: a própria Receita calcula a partir desta receita segregada (botão "Calcular na Receita"), e o supervisor transmite.' }));
 
     const grupos = h('section', { class: 'vg-card' },
       h('div', { class: 'vg-card-topo' }, h('div', {}, h('h2', { class: 'vg-card-titulo', text: 'Receita por grupo' }),
@@ -117,9 +147,77 @@ if (typeof window !== 'undefined') {
       if (barra) barra.style.width = `${d.receita > 0 ? Math.max(0, Math.min(100, (g.valor / d.receita) * 100)) : 0}%`;
     }
 
-    alvoRender([topo, apCardAlertas(d), grupos, apCardFora(d), apCardAjustes(d), apCardDeclaracao(d)].filter(Boolean));
+    alvoRender([topo, apCardReceita(d, sit), apCardAlertas(d), grupos, apCardFora(d), apCardAjustes(d), apCardDeclaracao(d)].filter(Boolean));
   }
   const alvoRender = (filhos) => $('ap-conteudo').replaceChildren(...filhos);
+
+  /* ----- Receita Federal: calcular (simulação), transmitir (supervisor/admin), recibo e DAS ----- */
+  function apCardReceita(d, sit) {
+    const { estado, simulada, transmitida } = apEstadoReceita(d.apuracoes);
+    const bloqueado = sit.tom === 'problema';
+    const podeOperar = pode('operar'); const podeTransmitir = pode('transmitir');
+    const calcular = (retificar) => h('button', { type: 'button', class: `botao ${retificar ? '' : 'primario'}`, disabled: bloqueado || !podeOperar, onclick: (ev) => comOcupado(ev.currentTarget, 'Calculando na Receita…', async () => {
+      try { await chamar(`/api/empresas/${empresaNotas.id}/apuracao/simular`, { method: 'POST', body: { mes: d.competencia, retificar } }); }
+      catch (e) { avisar(e.message, { tipo: 'erro' }); return; }
+      ap.confirmo = false; avisar('A Receita calculou o PGDAS-D. Confira os valores.', { tipo: 'ok' }); await apCarregar();
+    }, 'ap-simular') }, icone('calculator'), h('span', { text: retificar ? 'Calcular retificadora' : 'Calcular na Receita' }));
+    const custo = h('p', { class: 'meta', text: 'Uma chamada ao Integra Contador (cobrada pelo SERPRO). Nada é transmitido: a Receita só calcula.' });
+    const tabelaValores = (a) => h('ul', { class: 'ap-tributos' },
+      ...apTributos(a.valores_devidos).map((v) => h('li', {}, h('span', { text: v.nome }), h('strong', { text: moeda(v.valor) }))),
+      h('li', { class: 'ap-tributos-total' }, h('span', { text: `Total do DAS · alíquota efetiva ${apAliquota(a.total_devido, a.receita)}` }), h('strong', { text: moeda(a.total_devido) })));
+    const baixar = (a, qual, texto) => h('button', { type: 'button', class: 'botao pequeno', onclick: (ev) => comOcupado(ev.currentTarget, 'Baixando…',
+      () => baixarArquivo(`/api/apuracao/${a.id}/${qual}`, `PGDAS-D-${d.competencia}-${qual}.pdf`), `ap-pdf-${a.id}-${qual}`) }, icone('file-text'), h('span', { text: texto }));
+    const topoCard = (titulo, selo, tom) => h('div', { class: 'vg-card-topo' }, h('h2', { class: 'vg-card-titulo', text: titulo }), selo ? h('span', { class: `selo ${tom}`, text: selo }) : null);
+
+    const blocoTransmitida = transmitida ? h('div', { class: 'ap-bloco' },
+      h('p', { class: 'meta', text: `Declaração ${transmitida.id_declaracao || '—'} · transmitida em ${formatarData(transmitida.transmitido_em)} às ${formatarHora(transmitida.transmitido_em)} por ${transmitida.transmitido_por}${transmitida.tipo === 2 ? ' · retificadora' : ''}` }),
+      tabelaValores(transmitida),
+      transmitida.maed ? h('p', { class: 'erro', text: `Entrega em atraso: a Receita emitiu multa (MAED)${transmitida.maed.total ? ` de ${moeda(transmitida.maed.total)}` : ''}${transmitida.maed.vencimento ? `, vencimento ${apDia(transmitida.maed.vencimento)}` : ''}.` }) : null,
+      transmitida.das ? (transmitida.das.ok
+        ? h('p', { class: 'meta', text: `DAS gerado: ${moeda(transmitida.das.total)}, vence em ${apDia(transmitida.das.vencimento)}${transmitida.das.envio ? ` · Acessórias: ${transmitida.das.envio === 'enviado' ? 'enviado' : 'erro no envio'}` : ''}. Veja na aba Guias.` })
+        : h('p', { class: 'erro', text: `O DAS não foi gerado: ${transmitida.das.mensagem} Gere pela aba Guias.` })) : null,
+      h('div', { class: 'gu-botoes' },
+        transmitida.recibo_caminho ? baixar(transmitida, 'recibo', 'Recibo') : null,
+        transmitida.declaracao_caminho ? baixar(transmitida, 'declaracao', 'Declaração') : null,
+        transmitida.maed && transmitida.maed.darf ? baixar(transmitida, 'maed-darf', 'DARF da multa') : null)) : null;
+
+    if (estado === 'nenhuma') {
+      return h('section', { class: 'vg-card' }, topoCard('Receita Federal · PGDAS-D', 'Não calculado', 'neutro'),
+        h('p', { class: 'meta', text: bloqueado ? 'Resolva os bloqueios da apuração antes de calcular.' : 'Confira a receita e os pontos de atenção abaixo. Depois, peça o cálculo à Receita.' }),
+        podeOperar ? h('div', { class: 'gu-botoes' }, calcular(false)) : null, podeOperar ? custo : null);
+    }
+    if (estado === 'transmitida') {
+      return h('section', { class: 'vg-card' }, topoCard('Receita Federal · PGDAS-D', 'Transmitido', 'ok'), blocoTransmitida,
+        podeOperar ? h('details', { class: 'gu-composicao' }, h('summary', { text: 'Precisa corrigir? Calcular retificadora' }),
+          h('p', { class: 'meta', text: 'A retificadora substitui a declaração transmitida. Ajuste as notas ou os ajustes, calcule e peça ao supervisor para transmitir. Se o DAS já foi pago, a diferença é tratada pela Receita.' }),
+          h('div', { class: 'gu-botoes' }, calcular(true)), custo) : null);
+    }
+    // Simulada (original ou retificadora)
+    const a = simulada;
+    const invalida = !a.atual || a.vencida;
+    const cab = topoCard(a.tipo === 2 ? 'Receita Federal · Retificadora calculada' : 'Receita Federal · PGDAS-D calculado', invalida ? 'Calcular de novo' : 'Aguardando transmissão', invalida ? 'atencao' : 'pendente');
+    const info = h('p', { class: 'meta', text: `Calculado pela Receita em ${formatarData(a.simulado_em)} às ${formatarHora(a.simulado_em)} por ${a.simulado_por} · receita ${moeda(a.receita)}` });
+    const partes = [cab, info, tabelaValores(a)];
+    if (invalida) {
+      partes.push(h('p', { class: 'erro', text: a.vencida ? 'O cálculo tem mais de 24 horas.' : 'As notas ou os ajustes mudaram depois do cálculo.' }), podeOperar ? h('div', { class: 'gu-botoes' }, calcular(a.tipo === 2)) : null);
+    } else if (!podeTransmitir) {
+      partes.push(h('p', { class: 'dica', text: 'Conferido? A transmissão é feita pelo supervisor ou administrador do escritório.' }));
+    } else {
+      const chkConf = h('input', { type: 'checkbox', checked: ap.confirmo, onchange: (ev) => { ap.confirmo = ev.currentTarget.checked; botao.disabled = !ap.confirmo; } });
+      const chkDas = h('input', { type: 'checkbox', checked: ap.gerarDas, onchange: (ev) => { ap.gerarDas = ev.currentTarget.checked; } });
+      const botao = h('button', { type: 'button', class: 'botao primario', disabled: !ap.confirmo, onclick: (ev) => comOcupado(ev.currentTarget, 'Transmitindo…', async () => {
+        try { await chamar(`/api/apuracao/${a.id}/transmitir`, { method: 'POST', body: { confirmo: true, gerarDas: ap.gerarDas } }); }
+        catch (e) { avisar(e.message, { tipo: 'erro' }); await apCarregar(); return; }
+        ap.confirmo = false; avisar('PGDAS-D transmitido. O recibo está guardado no Appura.', { tipo: 'ok' }); await apCarregar();
+      }, 'ap-transmitir') }, h('span', { text: a.tipo === 2 ? 'Transmitir retificadora' : 'Transmitir PGDAS-D' }));
+      partes.push(
+        h('label', { class: 'mcp-permissao' }, chkConf, h('span', {}, h('strong', { text: 'Conferi a receita e os valores. ' }), `Entendo que esta é a declaração oficial do PGDAS-D de ${formatarCnpj(d.declarante.cnpj)} para ${textoCompetencia(d.competencia)}${a.tipo === 2 ? ', substituindo a transmitida' : ''}.`)),
+        h('label', { class: 'mcp-permissao' }, chkDas, h('span', {}, h('strong', { text: 'Gerar o DAS logo depois' }), ' (e enviar à Acessórias, se o envio automático estiver ligado).')),
+        h('div', { class: 'gu-botoes' }, botao));
+    }
+    if (transmitida) partes.push(h('details', { class: 'gu-composicao' }, h('summary', { text: 'Declaração transmitida antes' }), blocoTransmitida));
+    return h('section', { class: 'vg-card' }, ...partes.filter(Boolean));
+  }
 
   function apCardAlertas(d) {
     const varios = d.estabelecimentos.length > 1;

@@ -12,10 +12,11 @@ import { Db, ok } from '../db';
 export type Perfil = 'admin' | 'supervisor' | 'analista' | 'consulta';
 
 /** O que cada perfil pode fazer. Leitura e download são livres para todos com acesso. */
-export type Permissao = 'usuarios' | 'configuracoes' | 'certificados' | 'operar';
+/** 'transmitir': entregar declarações oficiais à Receita (PGDAS-D). O analista confere e simula; supervisor/admin transmite. */
+export type Permissao = 'usuarios' | 'configuracoes' | 'certificados' | 'operar' | 'transmitir';
 export const PERMISSOES: Record<Perfil, Permissao[]> = {
-  admin: ['usuarios', 'configuracoes', 'certificados', 'operar'],
-  supervisor: ['certificados', 'operar'],
+  admin: ['usuarios', 'configuracoes', 'certificados', 'operar', 'transmitir'],
+  supervisor: ['certificados', 'operar', 'transmitir'],
   analista: ['operar'],
   consulta: [],
 };
@@ -26,6 +27,8 @@ export const PERMISSOES: Record<Perfil, Permissao[]> = {
  */
 export function permissaoDaRota(metodo: string, rota: string): Permissao | null {
   if (rota === '/api/usuarios' || rota.startsWith('/api/usuarios/')) return 'usuarios';
+  // Transmissão do PGDAS-D (declaração oficial): supervisor e admin
+  if (/^\/api\/apuracao\/\d+\/transmitir$/.test(rota)) return 'transmitir';
   // Uso do MCP de todos os usuários: só a administração
   if (rota === '/api/mcp/uso') return 'usuarios';
   if (metodo === 'GET' || metodo === 'HEAD') return null;
@@ -67,8 +70,8 @@ export class ErroUsuario extends Error {
 const EMAIL_OK = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const PERFIS_INFO: { id: Perfil; nome: string; descricao: string }[] = [
   { id: 'admin', nome: 'Administrador', descricao: 'Acesso completo: usuários, configurações (como a tabela de ST), certificados e todo o trabalho fiscal.' },
-  { id: 'supervisor', nome: 'Supervisor', descricao: 'Todo o trabalho fiscal, mais cadastrar e trocar certificados e pausar empresas. Não gerencia usuários.' },
-  { id: 'analista', nome: 'Analista', descricao: 'Trabalho do dia a dia: sincronizar, importar XML, auditar e gerar planilhas. Não mexe em certificados.' },
+  { id: 'supervisor', nome: 'Supervisor', descricao: 'Todo o trabalho fiscal, mais transmitir o PGDAS-D, cadastrar e trocar certificados e pausar empresas. Não gerencia usuários.' },
+  { id: 'analista', nome: 'Analista', descricao: 'Trabalho do dia a dia: sincronizar, importar XML, auditar, conferir e calcular a apuração. Não transmite declarações nem mexe em certificados.' },
   { id: 'consulta', nome: 'Consulta', descricao: 'Só vê e baixa notas e relatórios. Não altera nada.' },
 ];
 const PERFIS: Perfil[] = PERFIS_INFO.map((p) => p.id);

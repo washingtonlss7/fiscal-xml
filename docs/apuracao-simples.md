@@ -12,7 +12,22 @@ Objetivo: fechar o ciclo do Simples sem sair do Appura:
 Status:
 
 - **Etapa B implementada.** É a aba "Apuração" da Empresa 360°, com prévia, alertas e ajustes. O motor está em `src/fiscal/simples.ts` e o serviço em `src/painel/apuracao.ts`.
-- **Etapas A, C e D:** a fazer.
+- **Etapa C implementada.** Tem o "Calcular na Receita" (simulação), a transmissão por supervisor ou admin (permissão `transmitir`), o recibo e a declaração guardados e o DAS em seguida.
+  - Tabela `apuracoes_simples` (migração 0030).
+  - ⚠️ Nada disso foi testado ainda contra o SERPRO real.
+- **Etapas A e D:** a fazer.
+
+**Regras de segurança da etapa C:**
+
+- **Toda simulação:**
+  - é bloqueada se a apuração tiver erro, como falta de nota ou grupo negativo;
+  - só existe uma "simulada" por período: uma nova simulação descarta a anterior.
+- **Transmissão:**
+  - só vale se a declaração de agora for **idêntica** à simulada (hash) e a simulação tiver menos de 24 h;
+  - vai com `indicadorComparacao` e os valores simulados, então a Receita recusa se calcular diferente;
+  - exige a caixa "Conferi…" marcada.
+- **Retificadora:** exige o pedido explícito ("Calcular retificadora"). A transmitida anterior fica como "retificada" e o DAS é gerado de novo com `forcar`.
+- **DAS:** se a geração falhar, a transmissão continua valendo; o erro fica gravado e o DAS sai pela aba Guias.
 
 ## 1. Como a Receita recebe a declaração (Integra Contador)
 

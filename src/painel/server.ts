@@ -509,6 +509,30 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
       return responder(res, 200, r);
     }
   }
+  const apuSim = rota.match(/^\/api\/empresas\/([0-9a-f-]{36})\/apuracao\/simular$/);
+  if (apuSim && metodo === 'POST') {
+    const c = await lerCorpo(req, 10_000);
+    const mesSim = /^\d{4}-(0[1-9]|1[0-2])$/.test(String(c.mes)) ? String(c.mes) : '';
+    if (!mesSim) throw new ErroHttp(400, 'Informe o mês no formato AAAA-MM.');
+    const r = await servicoApuracao.simular(apuSim[1], mesSim, email, c.retificar === true);
+    log.info('PGDAS-D simulado', { empresa: apuSim[1], mes: mesSim, total: (r as any).total_devido, tipo: (r as any).tipo, por: email });
+    return responder(res, 200, r);
+  }
+  const apuTx = rota.match(/^\/api\/apuracao\/(\d+)\/transmitir$/);
+  if (apuTx && metodo === 'POST') {
+    const c = await lerCorpo(req, 10_000);
+    if (c.confirmo !== true) throw new ErroHttp(400, 'Confirme que conferiu a apuração antes de transmitir.');
+    const r = await servicoApuracao.transmitir(Number(apuTx[1]), email, { gerarDas: c.gerarDas === true });
+    log.info('PGDAS-D transmitido', { apuracao: apuTx[1], idDeclaracao: (r as any).id_declaracao, por: email });
+    return responder(res, 200, r);
+  }
+  const apuPdf = rota.match(/^\/api\/apuracao\/(\d+)\/(recibo|declaracao|maed-notificacao|maed-darf)$/);
+  if (apuPdf && metodo === 'GET') {
+    const f = await servicoApuracao.pdf(Number(apuPdf[1]), apuPdf[2] as any);
+    res.writeHead(200, { ...CABECALHOS_SEGURANCA, 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${f.nome.replace(/[^\w.\- ]+/g, '_')}"`, 'Cache-Control': 'no-store' });
+    log.info('PGDAS-D: PDF baixado', { apuracao: apuPdf[1], qual: apuPdf[2], por: email });
+    return void res.end(f.conteudo);
+  }
   const apuAj = rota.match(/^\/api\/apuracao\/ajustes\/(\d+)$/);
   if (apuAj && metodo === 'DELETE') {
     const r = await servicoApuracao.removerAjuste(Number(apuAj[1]));
@@ -703,7 +727,7 @@ const cfgIntegra = configIntegra();
 const servicoGuias = new ServicoGuias(db, arm, cfg.masterKey, (c, contratante, registrar) => new IntegraContador(c, contratante, transporteHttps, registrar), cfgIntegra);
 if (cfgIntegra) log.info('Integra Contador com chaves do servidor', { ambiente: cfgIntegra.ambiente });
 const servicoAcessorias = new ServicoAcessorias(db, arm, cfg.masterKey);
-const servicoApuracao = new ServicoApuracao(db);
+const servicoApuracao = new ServicoApuracao(db, () => new Date(), servicoGuias, arm);
 servicoGuias.acessorias = servicoAcessorias;
 
 /* ---------- MCP do Appura (IA): OAuth 2.1 próprio + ferramentas de leitura ---------- */

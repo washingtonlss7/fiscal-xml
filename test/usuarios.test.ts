@@ -152,6 +152,8 @@ const rejeita = async (p: Promise<unknown>, re: RegExp) => assert.rejects(p, (e:
     assert.ok(!pode('supervisor', 'POST', '/api/guias/testar') && pode('admin', 'POST', '/api/guias/testar'));
     assert.ok(pode('consulta', 'POST', '/api/mcp/tokens') && pode('consulta', 'DELETE', '/api/mcp/conexoes/t_0123456789abcdef'), 'conexões de IA: cada usuário gerencia as próprias');
     assert.ok(pode('admin', 'GET', '/api/mcp/uso') && !pode('supervisor', 'GET', '/api/mcp/uso') && !pode('analista', 'GET', '/api/mcp/uso'), 'uso do MCP de todos: só administração');
+    assert.ok(pode('supervisor', 'POST', '/api/apuracao/12/transmitir') && pode('admin', 'POST', '/api/apuracao/12/transmitir') && !pode('analista', 'POST', '/api/apuracao/12/transmitir'), 'PGDAS-D: analista calcula, supervisor/admin transmite');
+    assert.ok(pode('analista', 'POST', '/api/empresas/11111111-1111-1111-1111-111111111111/apuracao/simular') && !pode('consulta', 'POST', '/api/empresas/11111111-1111-1111-1111-111111111111/apuracao/simular'));
     assert.ok(!pode('supervisor', 'POST', '/api/acessorias') && pode('admin', 'DELETE', '/api/acessorias') && pode('analista', 'POST', '/api/guias/7/enviar') && !pode('consulta', 'POST', '/api/guias/enviar-pendentes'), 'Acessórias: token só administrador; envio é de quem opera');
     assert.ok(!pode('supervisor', 'POST', '/api/guias/chaves') && !pode('analista', 'DELETE', '/api/guias/chaves') && pode('admin', 'POST', '/api/guias/chaves'), 'chaves do SERPRO: só administrador');
     // Consulta não altera nada

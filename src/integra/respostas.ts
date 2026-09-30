@@ -150,3 +150,56 @@ export function lerUltimaDeclaracao(dados: unknown): Declaracao | null {
   if (!numero && !d.recibo && !d.declaracao) return null;
   return { numero, temRecibo: tem(d.recibo, 'pdf'), temDeclaracao: tem(d.declaracao, 'pdf'), temMaed: tem(d.maed, 'pdfNotificacao') || tem(d.maed, 'pdfDarf') };
 }
+
+/* ---------- PGDAS-D: entrega da declaração (TRANSDECLARACAO11) ---------- */
+
+export interface ValorDevido { codigoTributo: number; valor: number }
+export interface DeclaracaoTransmitida {
+  idDeclaracao: string | null;
+  transmitidaEm: string | null;
+  valoresDevidos: ValorDevido[];
+  declaracaoPdf: Buffer | null;
+  reciboPdf: Buffer | null;
+  notificacaoMaedPdf: Buffer | null;
+  darfMaedPdf: Buffer | null;
+  maed: { numeroDocumento: string | null; vencimento: string | null; total: number | null } | null;
+}
+
+const pdfBase64 = (v: unknown) => (typeof v === 'string' && v.length > 20 ? Buffer.from(v, 'base64') : null);
+
+/** "AAAAMMDDHHmmSS" → ISO (horário de Brasília). */
+function dataHora14(v: unknown): string | null {
+  const s = String(v ?? '');
+  const m = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/.exec(s);
+  return m ? `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}-03:00` : null;
+}
+
+/**
+ * Resposta do TRANSDECLARACAO11. Na simulação (indicadorTransmissao=false) só vêm os valores devidos;
+ * na transmissão vêm também o número da declaração, o recibo e a declaração em PDF (e a MAED, se houver atraso).
+ */
+export function lerDeclaracaoTransmitida(dados: unknown): DeclaracaoTransmitida {
+  let d: any = dados;
+  if (Array.isArray(d)) d = { valoresDevidos: d };
+  if (d && typeof d === 'object' && (d.declaracaoTransmitida || d.DeclaracaoTransmitida)) d = d.declaracaoTransmitida ?? d.DeclaracaoTransmitida;
+  d = d && typeof d === 'object' ? d : {};
+  const valores = (Array.isArray(d.valoresDevidos) ? d.valoresDevidos : [])
+    .map((v: any) => ({ codigoTributo: Number(v?.codigoTributo), valor: Math.round((num(v?.valor) ?? 0) * 100) / 100 }))
+    .filter((v: ValorDevido) => Number.isFinite(v.codigoTributo) && v.codigoTributo > 0);
+  const det = d.detalhamentoDarfMaed;
+  return {
+    idDeclaracao: d.idDeclaracao ? String(d.idDeclaracao) : null,
+    transmitidaEm: dataHora14(d.dataHoraTransmissao),
+    valoresDevidos: valores,
+    declaracaoPdf: pdfBase64(d.declaracao),
+    reciboPdf: pdfBase64(d.recibo),
+    notificacaoMaedPdf: pdfBase64(d.notificacaoMaed),
+    darfMaedPdf: pdfBase64(d.darf),
+    maed: det && typeof det === 'object'
+      ? { numeroDocumento: det.numeroDocumento ? String(det.numeroDocumento) : null, vencimento: dataIso(det.dataVencimento), total: num(det.valores?.total) }
+      : null,
+  };
+}
+
+/** Nome dos tributos do Simples (código do PGDAS-D). */
+export const TRIBUTOS_SIMPLES: Record<number, string> = { 1001: 'IRPJ', 1002: 'CSLL', 1004: 'COFINS', 1005: 'PIS/PASEP', 1006: 'CPP (INSS)', 1007: 'ICMS', 1008: 'IPI', 1010: 'ISS' };

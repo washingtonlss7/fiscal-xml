@@ -243,6 +243,21 @@ export class ServicoGuias {
     return ok(await this.db.from('pgdas_declaracoes').upsert(linha, { onConflict: 'empresa_id,competencia' }).select('*').single(), 'gravar declaração');
   }
 
+  /**
+   * PGDAS-D: entrega da declaração (TRANSDECLARACAO11). Com indicadorTransmissao=false é só a
+   * simulação (a Receita calcula e nada é transmitido). Quem monta o corpo é a apuração (src/painel/apuracao.ts).
+   */
+  async declararPgdas(empresaId: string, dados: Record<string, unknown>, email: string) {
+    const integra = await this.exigirIntegra();
+    const e = await this.empresa(empresaId);
+    if (e.regime !== 'simples') throw new ErroIntegra(422, 'O PGDAS-D é do Simples Nacional. Confira o regime da empresa.');
+    const proc = ok(await this.db.from('integra_procuracoes').select('situacao').eq('empresa_id', e.id).maybeSingle(), 'procuração') as { situacao: string } | null;
+    if (proc && (proc.situacao === 'ausente' || proc.situacao === 'vencida')) {
+      throw new ErroIntegra(422, `A procuração do cliente para o escritório está ${proc.situacao}. Peça ao cliente para outorgar no e-CAC (incluindo o PGDAS-D) e verifique de novo.`);
+    }
+    return integra.chamar({ metodo: 'Declarar', contribuinte: e.cnpj, idSistema: 'PGDASD', idServico: 'TRANSDECLARACAO11', versaoSistema: '1.0', dados, empresaId: e.id, por: email });
+  }
+
   /* ---------- DAS ---------- */
 
   async gerarDas(empresaId: string, competencia: string, email: string, forcar = false) {

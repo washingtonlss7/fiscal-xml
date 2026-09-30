@@ -8,6 +8,8 @@ import assert from 'assert';
 import { apurarEstabelecimento, lacunasNumeracao, montarDeclaracao, NotaSaida, qualificar, tipoCfop, valorItem } from '../src/fiscal/simples';
 import { ServicoApuracao } from '../src/painel/apuracao';
 import { bancoFalso } from './banco-falso';
+import { lerDeclaracaoTransmitida } from '../src/integra/respostas';
+import { ErroIntegra } from '../src/integra/cliente';
 
 const CNPJ = '55885998000140';
 let seqItem = 0;
@@ -97,7 +99,7 @@ const ctx = (x: any = {}) => ({ cnpj: CNPJ, naTabelaSt: () => false, compradoCom
 
 // 3) Serviço: matriz + filial, compras com ST, ajustes e comparação
 async function testeServico() {
-  const { db, t } = bancoFalso(['empresas', 'documentos', 'documento_itens', 'st_es_regras', 'apuracao_ajustes', 'sped_arquivos']);
+  const { db, t } = bancoFalso(['empresas', 'documentos', 'documento_itens', 'st_es_regras', 'apuracao_ajustes', 'sped_arquivos', 'apuracoes_simples', 'pgdas_declaracoes']);
   const M = { id: '11111111-1111-1111-1111-111111111111', cnpj: '55885998000140', razao_social: 'FARMA DIGITAL LTDA', regime: 'simples', ativo: true };
   const F = { id: '22222222-2222-2222-2222-222222222222', cnpj: '55885998000221', razao_social: 'FARMA DIGITAL LTDA - FILIAL', regime: 'simples', ativo: true };
   const O = { id: '33333333-3333-3333-3333-333333333333', cnpj: '55885998000302', razao_social: 'FARMA DIGITAL - PRESUMIDO', regime: 'presumido', ativo: true };
@@ -139,4 +141,107 @@ async function testeServico() {
   console.log('ok  serviço: matriz + filiais do Simples, compras com ST pelo EAN, tabela de ST, ajustes e comparação com o mês anterior');
 }
 
-testeServico().then(() => console.log('\nTestes da apuração do Simples passaram.')).catch((e) => { console.error(e); process.exit(1); });
+// 4) Resposta do TRANSDECLARACAO11
+{
+  const pdf = Buffer.from('%PDF-1.4 recibo do PGDAS-D de teste').toString('base64');
+  const t = lerDeclaracaoTransmitida({ idDeclaracao: '00000000202609001', dataHoraTransmissao: '20261005143012', valoresDevidos: [{ codigoTributo: 1001, valor: 120.5 }, { codigoTributo: 1007, valor: '300,10' }],
+    declaracao: pdf, recibo: pdf, notificacaoMaed: null, darf: null, detalhamentoDarfMaed: null });
+  assert.deepEqual([t.idDeclaracao, t.transmitidaEm, t.valoresDevidos], ['00000000202609001', '2026-10-05T14:30:12-03:00', [{ codigoTributo: 1001, valor: 120.5 }, { codigoTributo: 1007, valor: 300.1 }]]);
+  assert.match(t.reciboPdf!.toString(), /^%PDF/); assert.equal(t.maed, null);
+  assert.deepEqual(lerDeclaracaoTransmitida([{ codigoTributo: 1004, valor: 10 }]).valoresDevidos, [{ codigoTributo: 1004, valor: 10 }], 'simulação: só a lista');
+  assert.equal(lerDeclaracaoTransmitida({ DeclaracaoTransmitida: { idDeclaracao: 'X', detalhamentoDarfMaed: { numeroDocumento: 7, dataVencimento: '20261030', valores: { total: 50 } } } }).maed!.total, 50);
+  console.log('ok  resposta do PGDAS-D: número, data, valores, PDFs e MAED');
+}
+
+// 5) Simulação e transmissão (Integra Contador falso)
+async function testeTransmissao() {
+  const { db, t } = bancoFalso(['empresas', 'documentos', 'documento_itens', 'st_es_regras', 'apuracao_ajustes', 'sped_arquivos', 'apuracoes_simples', 'pgdas_declaracoes']);
+  const M = { id: '11111111-1111-1111-1111-111111111111', cnpj: '55885998000140', razao_social: 'FARMA DIGITAL LTDA', regime: 'simples', ativo: true };
+  const F = { id: '22222222-2222-2222-2222-222222222222', cnpj: '55885998000221', razao_social: 'FARMA FILIAL', regime: 'simples', ativo: true };
+  t.empresas.push(M);
+  const ch = 'x1'.padEnd(44, '0');
+  t.documentos.push({ empresa_id: M.id, chave: ch, modelo: '65', serie: '1', numero: '1', situacao: 'autorizada', completo: true, tp_nf: 1, fin_nfe: 1, emit_cnpj: M.cnpj, direcao: 'saida', valor: 1000, emitida_em: '2026-09-05T10:00:00-03:00' });
+  t.documento_itens.push({ empresa_id: M.id, chave: ch, n_item: 1, cfop: '5405', ncm: '30049099', cst_icms: '500', csosn: true, v_prod: 1000, v_desc: 0, v_frete: 0, v_seg: 0, v_outro: 0 });
+  let agora = new Date('2026-10-05T12:00:00Z');
+  const pedidos: any[] = []; const das: any[] = []; const salvos: string[] = [];
+  let recusar: string | null = null; let valores = [{ codigoTributo: 1001, valor: 5.5 }, { codigoTributo: 1002, valor: 3.5 }, { codigoTributo: 1006, valor: 41.5 }];
+  const pdf = Buffer.from('%PDF-1.4 recibo e declaração de teste').toString('base64');
+  const guias: any = {
+    declararPgdas: async (id: string, dados: any, email: string) => {
+      pedidos.push({ id, dados: JSON.parse(JSON.stringify(dados)), email });
+      if (recusar) return { status: 200, mensagens: [{ codigo: 'Erro-PGDASD-MSG_ISN_035', texto: recusar }], dados: null };
+      if (!dados.indicadorTransmissao) return { status: 200, mensagens: [{ codigo: 'Sucesso-PGDASD', texto: 'Cálculo efetuado.' }], dados: { valoresDevidos: valores } };
+      return { status: 200, mensagens: [{ codigo: 'Sucesso-PGDASD', texto: 'Declaração transmitida.' }], dados: { idDeclaracao: '00000000202609001', dataHoraTransmissao: '20261005150000', valoresDevidos: valores, declaracao: pdf, recibo: pdf } };
+    },
+    gerarDas: async (id: string, comp: string, email: string, forcar: boolean) => { das.push({ id, comp, forcar }); return { guias: [{ id: 91, total: 50.5, vencimento: '2026-10-20', envio: { status: 'enviado' } }] }; },
+  };
+  const arm: any = { salvar: async (c: string) => { salvos.push(c); return `r2:${c}`; }, ler: async () => Buffer.from('%PDF') };
+  const s = new ServicoApuracao(db, () => agora, guias, arm);
+
+  // Filial sem venda no mês não bloqueia (só avisa); a declaração leva os dois estabelecimentos
+  t.empresas.push(F);
+  // Simulação: corpo certo, nada transmitido
+  const sim = await s.simular(M.id, '2026-09', 'ana@x.com') as any;
+  const p0 = pedidos[0].dados;
+  assert.deepEqual([p0.cnpjCompleto, p0.pa, p0.indicadorTransmissao, p0.indicadorComparacao, p0.declaracao.tipoDeclaracao], [M.cnpj, 202609, false, false, 1]);
+  assert.deepEqual(p0.declaracao.estabelecimentos[0].atividades[0].receitasAtividade[0].qualificacoesTributarias.map((q: any) => q.id), [8, 9, 9]);
+  assert.deepEqual([sim.status, sim.total_devido, sim.receita], ['simulada', 50.5, 1000]);
+  assert.deepEqual(p0.declaracao.estabelecimentos, [p0.declaracao.estabelecimentos[0], { cnpjCompleto: F.cnpj }], 'filial sem venda vai sem atividades');
+  const prev = await s.previa(M.id, '2026-09');
+  assert.equal(prev.apuracoes[0].atual, true, 'simulação confere com a prévia de agora');
+
+  // Nova simulação descarta a anterior; transmitir a velha é recusado
+  const sim2 = await s.simular(M.id, '2026-09', 'ana@x.com') as any;
+  await assert.rejects(s.transmitir(sim.id, 'sup@x.com', { gerarDas: true }), /substituída/);
+
+  // Mudou a receita depois do cálculo: não transmite
+  t.apuracao_ajustes.push({ id: 1, empresa_id: M.id, competencia: '2026-09-01', valor: 10, atividade: 1, st: false, monofasico: false, justificativa: 'teste de mudança', criado_por: 'x', criado_em: 'x' });
+  await assert.rejects(s.transmitir(sim2.id, 'sup@x.com'), /mudaram depois do cálculo/);
+  assert.equal((await s.previa(M.id, '2026-09')).apuracoes[0].atual, false);
+  t.apuracao_ajustes.length = 0;
+
+  // Receita calculou diferente na hora de transmitir
+  recusar = 'Os valores informados para comparação diferem dos calculados (MSG_ISN_035).';
+  await assert.rejects(s.transmitir(sim2.id, 'sup@x.com'), /valores diferentes da simulação/);
+  recusar = null;
+
+  // Transmissão: comparação com os valores simulados, PDFs guardados, declaração marcada, DAS gerado
+  const tx = await s.transmitir(sim2.id, 'sup@x.com', { gerarDas: true }) as any;
+  const pt = pedidos[pedidos.length - 1].dados;
+  assert.deepEqual([pt.indicadorTransmissao, pt.indicadorComparacao, pt.valoresParaComparacao], [true, true, valores]);
+  assert.deepEqual([tx.status, tx.id_declaracao, tx.transmitido_por, tx.transmitido_em], ['transmitida', '00000000202609001', 'sup@x.com', '2026-10-05T15:00:00-03:00']);
+  assert.deepEqual(salvos, ['pgdas/55885998000140/2026-09/00000000202609001-recibo.pdf', 'pgdas/55885998000140/2026-09/00000000202609001-declaracao.pdf']);
+  assert.deepEqual(tx.das, { ok: true, guiaId: 91, total: 50.5, vencimento: '2026-10-20', envio: 'enviado' });
+  assert.deepEqual(das, [{ id: M.id, comp: '2026-09', forcar: false }]);
+  assert.equal(t.pgdas_declaracoes[0].situacao, 'transmitida'); assert.equal(t.pgdas_declaracoes[0].numero, '00000000202609001');
+  await assert.rejects(s.transmitir(sim2.id, 'sup@x.com'), /já foi transmitida/);
+  assert.match((await s.pdf(sim2.id, 'recibo')).nome, /PGDAS-D-2026-09-recibo-00000000202609001\.pdf/);
+  await assert.rejects(s.pdf(sim2.id, 'maed-darf'), /não devolveu/);
+
+  // Retificadora: exige pedido explícito; transmitida anterior vira "retificada"; DAS forçado
+  await assert.rejects(s.simular(M.id, '2026-09', 'ana@x.com'), /já tem PGDAS-D transmitido/);
+  valores = [{ codigoTributo: 1001, valor: 6 }];
+  const ret = await s.simular(M.id, '2026-09', 'ana@x.com', true) as any;
+  assert.equal(ret.tipo, 2); assert.equal(pedidos[pedidos.length - 1].dados.declaracao.tipoDeclaracao, 2);
+  agora = new Date(agora.getTime() + 25 * 3600_000);
+  await assert.rejects(s.transmitir(ret.id, 'sup@x.com'), /mais de 24 horas/);
+  agora = new Date(agora.getTime() - 25 * 3600_000);
+  await s.transmitir(ret.id, 'sup@x.com', { gerarDas: true });
+  assert.deepEqual(t.apuracoes_simples.map((a: any) => a.status).sort(), ['descartada', 'retificada', 'transmitida']);
+  assert.equal(das[1].forcar, true);
+
+  // DAS falhou: a transmissão fica, o erro é guardado
+  guias.gerarDas = async () => { throw new ErroIntegra(422, 'O SERPRO não devolveu o DAS.'); };
+  t.apuracoes_simples.length = 0; t.pgdas_declaracoes.length = 0;
+  const s3 = await s.simular(M.id, '2026-09', 'ana@x.com') as any;
+  const tx3 = await s.transmitir(s3.id, 'sup@x.com', { gerarDas: true }) as any;
+  assert.deepEqual([tx3.status, tx3.das.ok, tx3.das.mensagem], ['transmitida', false, 'O SERPRO não devolveu o DAS.']);
+
+  // Sem notas: bloqueia o cálculo; sem Integra no servidor: 503
+  t.documentos.length = 0; t.apuracoes_simples.length = 0; t.pgdas_declaracoes.length = 0;
+  await assert.rejects(s.simular(M.id, '2026-09', 'ana@x.com'), /Resolva antes de calcular: Nenhuma nota de saída/);
+  await assert.rejects(new ServicoApuracao(db).simular(M.id, '2026-09', 'ana@x.com'), /indisponível/);
+  console.log('ok  PGDAS-D: simulação sem transmitir, hash simulação × transmissão, comparação de valores, PDFs, retificadora, validade de 24 h e DAS');
+}
+
+testeServico().then(testeTransmissao).then(() => console.log('\nTestes da apuração do Simples passaram.')).catch((e) => { console.error(e); process.exit(1); });
