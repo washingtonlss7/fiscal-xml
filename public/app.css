@@ -554,7 +554,6 @@ table.usuarios tr.desativado td:not(.acoes-u) { opacity: 0.6; }
 .marca-texto { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .marca-nome { font-family: var(--fonte-marca); font-weight: 600; font-size: 22px; line-height: 1; letter-spacing: -0.01em; }
 .marca-tag { font-family: var(--fonte-marca); font-weight: 500; font-size: 9px; line-height: 1; letter-spacing: 0.24em; text-transform: uppercase; color: var(--tinta-2); white-space: nowrap; }
-.sidebar-marca .marca-tag { color: var(--lateral-texto-2); }
 .sidebar-marca { font-weight: 600; font-size: inherit; }
 .cabecalho .marca-movel .marca-nome { font-size: 20px; }
 .login .marca { gap: 12px; }
