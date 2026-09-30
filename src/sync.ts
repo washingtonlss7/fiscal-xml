@@ -356,6 +356,16 @@ export async function sincronizarModelo(
   const finalizar = async (status: ResultadoSync['status']) => {
     // Fila em dia: aproveita para recuperar NSUs que ficaram faltando.
     documentos += await recuperarLacunas(ctx, empresa, modelo, agent, ultNSU, estado.lacunas_verificadas_em ?? null);
+    // Se ainda faltam NSUs (outro sistema baixou notas deste CNPJ), volta em 1 hora para continuar a recuperação,
+    // em vez de esperar o intervalo normal.
+    const restantes = ok(
+      await ctx.db.rpc('lacunas_nsu', { p_empresa: empresa.id, p_modelo: modelo, p_ate: ultNSU, p_limite: 1 }),
+      'conferir lacunas restantes',
+    ) as unknown[];
+    if (restantes?.length) {
+      await ctx.db.from('sync_state').update({ proxima_consulta_em: daquiA(minutos(61)) })
+        .eq('empresa_id', empresa.id).eq('modelo', modelo).gt('proxima_consulta_em', daquiA(minutos(61)));
+    }
     return { modelo, status, chamadas, documentos };
   };
 

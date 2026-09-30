@@ -5,6 +5,7 @@ import { Armazenamento, PREFIXO_R2 } from './armazenamento';
 import { Db, ok } from './db';
 import { log } from './log';
 import { emParalelo } from './util';
+import { registrarStatus } from './status';
 
 /* ---------- migração Supabase Storage -> R2 ---------- */
 
@@ -25,6 +26,8 @@ const ALVOS: Alvo[] = [
 export async function migrarParaR2(db: Db, arm: Armazenamento, limite = 200): Promise<number> {
   if (!arm.usaR2) return 0;
   let movidos = 0;
+  let falhas = 0;
+  let ultimoErro: string | undefined;
   for (const alvo of ALVOS) {
     const linhas = ok(
       await db.from(alvo.tabela).select(`id,${alvo.coluna}`).not(alvo.coluna, 'is', null)
@@ -45,7 +48,9 @@ export async function migrarParaR2(db: Db, arm: Armazenamento, limite = 200): Pr
         apagar.push(antigo);
         movidos++;
       } catch (e) {
-        log.warn('falha ao migrar arquivo para o R2', { arquivo: antigo, erro: (e as Error).message });
+        falhas++;
+        ultimoErro = (e as Error).message.slice(0, 300);
+        log.warn('falha ao migrar arquivo para o R2', { arquivo: antigo, erro: ultimoErro });
       }
     });
     for (let i = 0; i < apagar.length; i += 100) {
@@ -53,6 +58,7 @@ export async function migrarParaR2(db: Db, arm: Armazenamento, limite = 200): Pr
     }
   }
   if (movidos) log.info('arquivos migrados para o R2', { quantidade: movidos });
+  if (movidos || falhas) await registrarStatus(db, 'migracao_r2', { movidos_ultimo_ciclo: movidos, falhas_ultimo_ciclo: falhas, ultimo_erro: ultimoErro ?? null });
   return movidos;
 }
 

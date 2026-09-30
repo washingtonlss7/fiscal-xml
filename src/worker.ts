@@ -9,6 +9,7 @@ import { log } from './log';
 import { Agendador } from './agendador';
 import { carregarEmpresas, emAndamento, executarRodada, garantirSyncState, mapaClientes, novoContexto, sincronizarEmpresa } from './rodada';
 import { dentroDaJanela } from './util';
+import { registrarStatus } from './status';
 
 const cfg = configWorker();
 const db = criarDb(cfg.supabaseUrl, cfg.supabaseServiceKey);
@@ -171,6 +172,15 @@ async function iniciar() {
     horario_consultas: cfg.janela?.texto ?? 'sem restrição',
     intervalo_horas: cfg.intervaloHoras,
     armazenamento: arm.usaR2 ? 'Cloudflare R2 (criptografado)' : 'Supabase Storage',
+  });
+  await registrarStatus(db, 'coletor', {
+    iniciado_em: new Date().toISOString(),
+    armazenamento: arm.usaR2 ? 'r2' : 'supabase',
+    r2_variaveis: ['R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY'].filter((v) => !process.env[v]?.trim()).length
+      ? `faltando: ${['R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY'].filter((v) => !process.env[v]?.trim()).join(', ')}`
+      : 'ok',
+    empresas_simultaneas: cfg.concorrencia,
+    horario_consultas: cfg.janela?.texto ?? 'sem restrição',
   });
   if (process.env.CRON_RODADAS) log.warn('CRON_RODADAS não é mais usada: o coletor agenda cada empresa pelo INTERVALO_HORAS.');
 
