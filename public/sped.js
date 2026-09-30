@@ -168,7 +168,7 @@ if (typeof window !== 'undefined') {
           h('div', { class: 'sp-envio-corpo' },
             h('strong', { text: `${nome}${r.competencia ? ` · ${textoCompetencia(r.competencia)}` : ''}` }),
             h('span', { class: 'meta', text: `${f.name} · ${res.texto}` })),
-          r.empresaId ? h('a', { class: 'botao pequeno', href: `#/empresas/${r.empresaId}/sped`, onclick: () => { if (r.competencia) definirCompetencia(r.competencia, false); } }, 'Ver resultado')
+          r.empresaId ? h('a', { class: 'botao pequeno', href: `#/empresas/${r.empresaId}/sped`, onclick: (ev) => { ev.preventDefault(); window.spedAbrir(r); } }, 'Ver resultado')
             : r.sugestao ? h('a', { class: 'botao pequeno', href: `#/sped?cadastro=${r.sugestao.id}`, onclick: (ev) => { ev.preventDefault(); sp.foco = r.sugestao.id; spRender(); } }, 'Conferir cadastro') : null);
       } catch (e) {
         li.replaceChildren(h('span', { class: 'vg-simbolo problema', 'aria-hidden': 'true', text: '✕' }),
@@ -180,7 +180,50 @@ if (typeof window !== 'undefined') {
     spCarregar();
   }
 
+  /**
+   * Atalho da Visão Geral: um arquivo vai direto para a empresa dona do CNPJ, no mês e no tipo do arquivo
+   * (ou para o pré-cadastro, se o CNPJ ainda não for cliente). Vários arquivos vão para a tela SPED.
+   */
+  async function spEnviarDaHome(arquivos) {
+    const lista = [...arquivos].filter((f) => f.size);
+    if (!lista.length || !pode('operar')) return;
+    if (lista.length > 1) {
+      irPara('#/sped');
+      spEnviar(lista);
+      return;
+    }
+    const f = lista[0];
+    const botao = $('vg-enviar-sped');
+    const rotulo = botao.querySelector('span');
+    botao.disabled = true;
+    rotulo.textContent = `Lendo ${f.name.length > 24 ? `${f.name.slice(0, 22)}…` : f.name}`;
+    try {
+      const r = await enviarArquivo(`/api/sped?nome=${encodeURIComponent(f.name)}`, f);
+      if (!r.valido) {
+        const erro = (r.ocorrencias || []).find((o) => o.nivel === 'erro');
+        avisar(erro ? erro.mensagem : 'O arquivo não parece ser um SPED Fiscal nem um SPED Contribuições.');
+      } else if (r.empresaId) {
+        window.spedAbrir(r);
+      } else {
+        avisar('CNPJ ainda não é cliente: confira o pré-cadastro.');
+        irPara(r.sugestao ? `#/sped?cadastro=${r.sugestao.id}` : '#/sped');
+      }
+    } catch (e) {
+      avisar(e.message);
+    } finally {
+      botao.disabled = false;
+      rotulo.textContent = 'Enviar SPED';
+      $('vg-sped-arquivos').value = '';
+    }
+  }
+
   function spLigar() {
+    $('vg-enviar-sped').addEventListener('click', () => $('vg-sped-arquivos').click());
+    $('vg-sped-arquivos').addEventListener('change', (ev) => spEnviarDaHome(ev.target.files));
+    const home = $('tela-visao');
+    home.addEventListener('dragover', (ev) => { if (pode('operar') && ev.dataTransfer && [...ev.dataTransfer.types].includes('Files')) { ev.preventDefault(); home.classList.add('arrastando'); } });
+    home.addEventListener('dragleave', (ev) => { if (ev.target === home) home.classList.remove('arrastando'); });
+    home.addEventListener('drop', (ev) => { if (!ev.dataTransfer || !ev.dataTransfer.files.length) return; ev.preventDefault(); home.classList.remove('arrastando'); spEnviarDaHome(ev.dataTransfer.files); });
     $('sp-enviar').addEventListener('click', () => $('sp-arquivos').click());
     $('sp-arquivos').addEventListener('change', (ev) => spEnviar(ev.target.files));
     const tela = $('tela-sped');

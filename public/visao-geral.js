@@ -234,6 +234,7 @@ if (typeof window !== 'undefined') {
     $('tela-notas').hidden = true;
     $('tela-usuarios').hidden = true;
     $('tela-visao').hidden = false;
+    $('vg-enviar-sped').hidden = !pode('operar');
     window.scrollTo(0, 0);
     iniciarAtualizacao();
     vgCarregar();

@@ -377,6 +377,7 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
     return responder(res, 200, {
       vigente: a ? servicoSped.resposta(a) : null, arquivos: await servicoSped.historico(sped[1], comp),
       contribuicoes: { vigente: c ? servicoSped.resposta(c) : null, arquivos: await servicoSped.historico(sped[1], comp, 'efd_contribuicoes') },
+      sugestao: await servicoSped.sugestaoPendente(sped[1]),
     });
   }
   if ((metodo === 'POST' && sped) || (metodo === 'POST' && rota === '/api/sped')) {

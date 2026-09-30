@@ -304,6 +304,12 @@ export class ServicoSped {
     return { id: nova.id, campos: diferencas.length || null };
   }
 
+  /** Sugestão de cadastro ainda pendente da empresa (some depois de aprovada ou recusada). */
+  async sugestaoPendente(empresaId: string): Promise<{ id: number } | null> {
+    const l = ok(await this.db.from('cadastro_sugestoes').select('id').eq('empresa_id', empresaId).eq('status', 'pendente').limit(1), 'sugestão pendente') as { id: number }[];
+    return l[0] ?? null;
+  }
+
   /** Sugestões pendentes (com o cadastro atual para mostrar a diferença) e as últimas decididas. */
   async listarSugestoes() {
     const pendentes = ok(

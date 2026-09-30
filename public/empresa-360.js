@@ -472,16 +472,22 @@ if (typeof window !== 'undefined') {
     if (!empresaNotas) return;
     const id = empresaNotas.id;
     const mes = mesSelecionado();
-    if (!forcar && e3.sped && e3.sped.id === id && e3.sped.mes === mes && !e3.sped.erro) { spedRender(); return; }
-    const sugestoes = e3.sped && e3.sped.id === id ? { fiscal: e3.sped.fiscal && e3.sped.fiscal.sugestao, contrib: e3.sped.contrib && e3.sped.contrib.sugestao } : {};
-    e3.sped = { id, mes, fiscal: spedParte(), contrib: spedParte(), carregando: true };
+    // Mesma empresa e competência: mostra o que já tem e atualiza em segundo plano (ex.: cadastro aprovado em outra tela)
+    const temCache = e3.sped && e3.sped.id === id && e3.sped.mes === mes && !e3.sped.erro && !e3.sped.carregando;
+    if (!temCache || forcar === 'limpar') {
+      e3.sped = { id, mes, fiscal: spedParte(), contrib: spedParte(), carregando: true };
+    }
     spedRender();
     try {
       const d = await chamar(`/api/empresas/${id}/sped?mes=${mes}`);
       if (!empresaNotas || empresaNotas.id !== id || mesSelecionado() !== mes) return;
       const c = d.contribuicoes || {};
-      e3.sped = { id, mes, carregando: false,
-        fiscal: spedParte(d.vigente, d.arquivos, sugestoes.fiscal), contrib: spedParte(c.vigente, c.arquivos, sugestoes.contrib) };
+      const antes = e3.sped && e3.sped.id === id && e3.sped.mes === mes ? e3.sped : null;
+      e3.sped = { id, mes, carregando: false, sugestao: d.sugestao || null,
+        fiscal: spedParte(d.vigente, d.arquivos), contrib: spedParte(c.vigente, c.arquivos) };
+      // Mantém o filtro escolhido na lista de divergências
+      if (antes && antes.fiscal) e3.sped.fiscal.filtro = antes.fiscal.filtro;
+      if (antes && antes.contrib) e3.sped.contrib.filtro = antes.contrib.filtro;
       // Abre no que existe: se só o Contribuições foi enviado, mostra ele
       if (!e3.spedAba && !d.vigente && c.vigente) e3.spedAba = 'contrib';
     } catch (err) {
@@ -491,7 +497,7 @@ if (typeof window !== 'undefined') {
     spedRender();
   }
 
-  function spedParte(r = null, arquivos = [], sugestao = null) { return { r: r || null, arquivos: arquivos || [], filtro: '', sugestao: sugestao || null }; }
+  function spedParte(r = null, arquivos = []) { return { r: r || null, arquivos: arquivos || [], filtro: '' }; }
 
   async function spedEnviar(arquivo) {
     if (!arquivo || !empresaNotas) return;
@@ -508,10 +514,12 @@ if (typeof window !== 'undefined') {
       }
       const parte = r.tipo === 'efd_contribuicoes' ? 'contrib' : 'fiscal';
       e3.spedAba = parte;
-      e3.sped = { id, mes: r.competencia, fiscal: spedParte(), contrib: spedParte() };
-      e3.sped[parte] = spedParte(r, [], r.sugestao);
+      e3.sped = { id, mes: r.competencia, fiscal: spedParte(), contrib: spedParte(), sugestao: r.sugestao || null };
+      e3.sped[parte] = spedParte(r, []);
       spedRender();
-      if (r.competencia === mesSelecionado()) spedCarregar(true);
+      // O Appura vai para o mês do arquivo (a troca de competência recarrega a aba)
+      if (r.competencia !== mesSelecionado()) definirCompetencia(r.competencia);
+      else spedCarregar(true);
       // Cabeçalho, etapas e "Precisa de atenção" passam a contar o SPED novo
       window.e360Chave = null;
       e360Carregar();
@@ -591,10 +599,11 @@ if (typeof window !== 'undefined') {
       h('div', { class: 'sped-envio-acoes' },
         pode('operar') ? h('button', { type: 'button', id: 'sped-refazer', class: 'botao pequeno', title: dicaRefazer, onclick: spedRefazer }, icone('refresh-cw'), 'Refazer comparação') : null,
         h('a', { class: 'botao pequeno', href: '#', onclick: (ev) => { ev.preventDefault(); spedBaixar(r.id, arq.nome); } }, icone('file-text'), 'Baixar arquivo'))));
-    if (est.sugestao) {
+    const sug = e3.sped && e3.sped.sugestao;
+    if (sug) {
       blocos.push(h('div', { class: 'sped-aviso' }, icone('building-2'),
         h('span', { text: 'O SPED trouxe dados de cadastro diferentes do que está no Appura (IE, endereço, contador…). Confira antes de gravar.' }),
-        h('a', { class: 'botao pequeno', href: `#/sped?cadastro=${est.sugestao.id}` }, 'Conferir cadastro')));
+        h('a', { class: 'botao pequeno', href: `#/sped?cadastro=${sug.id}` }, 'Conferir cadastro')));
     }
     // Período × competência
     if (res.periodo && res.periodo !== competencia) {
@@ -880,5 +889,12 @@ if (typeof window !== 'undefined') {
   window.e360Folha = e360Folha;
   window.spedRender = spedRender;
   window.spedCarregar = spedCarregar;
+  /** Abre o resultado de um SPED enviado fora da empresa (atalho da Visão Geral): vai para a empresa, o mês e o tipo do arquivo. */
+  window.spedAbrir = (r) => {
+    e3.spedAba = r.tipo === 'efd_contribuicoes' ? 'contrib' : 'fiscal';
+    e3.sped = null;
+    if (r.competencia) definirCompetencia(r.competencia, false);
+    irPara(`#/empresas/${r.empresaId}/sped`);
+  };
   window.spedBaixar = spedBaixar;
 }

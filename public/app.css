@@ -1207,3 +1207,6 @@ button.e360-etapa-botao:hover { border-color: var(--linha-forte); background: va
   #painel-sped .vg-card-topo { flex-wrap: wrap; }
   #painel-sped .vg-card-topo > * { flex: 1 1 100%; }
 }
+#vg-enviar-sped .icone-svg { width: 16px; height: 16px; }
+#tela-visao.arrastando { outline: 2px dashed var(--primaria); outline-offset: 6px; border-radius: var(--raio); }
+@media (max-width: 760px) { #vg-enviar-sped { width: 100%; min-height: 44px; order: -1; } }
