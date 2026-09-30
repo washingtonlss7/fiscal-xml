@@ -1249,6 +1249,9 @@ function ligarEventos() {
 
 ligarEventos();
 preencherUfs();
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}); });
+}
 sessao = lerSessao();
 if (sessao) {
   chamar('/api/eu').then(abrirApp).catch(() => sair());

@@ -50,11 +50,17 @@ const ARQUIVOS: Record<string, [string, string]> = {
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/app.css': ['app.css', 'text/css; charset=utf-8'],
   '/icone.svg': ['icone.svg', 'image/svg+xml'],
+  '/manifest.webmanifest': ['manifest.webmanifest', 'application/manifest+json; charset=utf-8'],
+  '/sw.js': ['sw.js', 'text/javascript; charset=utf-8'],
+  '/icone-192.png': ['icone-192.png', 'image/png'],
+  '/icone-512.png': ['icone-512.png', 'image/png'],
+  '/icone-maskable-512.png': ['icone-maskable-512.png', 'image/png'],
+  '/apple-touch-icon.png': ['apple-touch-icon.png', 'image/png'],
 };
 
 const CABECALHOS_SEGURANCA = {
   'Content-Security-Policy':
-    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'no-referrer',
   'X-Frame-Options': 'DENY',
@@ -592,7 +598,8 @@ function arquivoEstatico(res: http.ServerResponse, url: URL): boolean {
   res.writeHead(200, {
     ...CABECALHOS_SEGURANCA,
     'Content-Type': tipo,
-    'Cache-Control': nome === 'index.html' ? 'no-cache' : 'public, max-age=300',
+    // index e service worker sempre revalidados, para uma publicação nova chegar logo em quem instalou o app
+    'Cache-Control': nome === 'index.html' || nome === 'sw.js' ? 'no-cache' : 'public, max-age=300',
   });
   res.end(fs.readFileSync(path.join(PASTA_PUBLICA, nome)));
   return true;
