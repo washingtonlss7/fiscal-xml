@@ -368,12 +368,16 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
     return responder(res, 200, { ...r, resultados: r.resultados.filter((x) => x.situacao === 'rejeitada').slice(0, 200) });
   }
 
-  // SPED Fiscal (EFD ICMS/IPI): lê, valida, compara com os XMLs e guarda o arquivo e o resultado.
+  // SPED Fiscal (EFD ICMS/IPI) e SPED Contribuições (EFD PIS/COFINS): lê, valida, compara e guarda o arquivo e o resultado.
   const sped = rota.match(/^\/api\/empresas\/([0-9a-f-]{36})\/sped$/);
   if (sped && metodo === 'GET') {
     const f = filtroNotas(url);
-    const a = await servicoSped.vigente(sped[1], `${f.mes}-01`);
-    return responder(res, 200, { vigente: a ? servicoSped.resposta(a) : null, arquivos: await servicoSped.historico(sped[1], `${f.mes}-01`) });
+    const comp = `${f.mes}-01`;
+    const [a, c] = await Promise.all([servicoSped.vigente(sped[1], comp), servicoSped.vigente(sped[1], comp, 'efd_contribuicoes')]);
+    return responder(res, 200, {
+      vigente: a ? servicoSped.resposta(a) : null, arquivos: await servicoSped.historico(sped[1], comp),
+      contribuicoes: { vigente: c ? servicoSped.resposta(c) : null, arquivos: await servicoSped.historico(sped[1], comp, 'efd_contribuicoes') },
+    });
   }
   if ((metodo === 'POST' && sped) || (metodo === 'POST' && rota === '/api/sped')) {
     let esperada: { id: string; cnpj: string } | undefined;

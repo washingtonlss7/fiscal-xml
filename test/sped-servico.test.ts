@@ -65,14 +65,17 @@ const arm = {
 
 /* ---------- SPED sintético ---------- */
 const CNPJ = '55885998000140';
-function sped(periodo: string, opts: { cep?: string; chaves?: string[]; e110?: [number, number] } = {}) {
+function sped(periodo: string, opts: { cep?: string; chaves?: string[]; e110?: [number, number]; vendas?: string[] } = {}) {
   const [a, m] = periodo.split('-');
   const ult = new Date(Number(a), Number(m), 0).getDate();
   const ini = `01${m}${a}`; const fim = `${ult}${m}${a}`;
   const c100 = (opts.chaves ?? []).flatMap((ch, i) => [
     `|C100|0|1|F1|55|00|1|${i + 1}|${ch}|05${m}${a}|06${m}${a}|100,00|1|0|0|100,00|9|0|0|0|0|0|0|0|0|0|0|0|0|`,
     '|C190|000|1102|0|100,00|100,00|0|0|0|0|0||',
-  ]);
+  ]).concat((opts.vendas ?? []).flatMap((ch, i) => [
+    `|C100|1|0||65|00|1|${900 + i}|${ch}|10${m}${a}|10${m}${a}|50,00|0|0|0|50,00|9|0|0|0|0|0|0|0|0|0|0|0|0|`,
+    '|C190|060|5405|0|50,00|0|0|0|0|0|0||',
+  ]));
   const l = [
     `|0000|017|0|${ini}|${fim}|FARMA TESTE LTDA|${CNPJ}||ES|084358580|3201209|||A|1|`, '|0001|0|',
     `|0005|FARMA TESTE|${opts.cep ?? '29306306'}|RUA A|10||CENTRO|2835224869|||`,
@@ -87,6 +90,40 @@ function sped(periodo: string, opts: { cep?: string; chaves?: string[]; e110?: [
   const l9 = ['|9001|0|', ...nomes.map((r) => `|9900|${r}|${cont.get(r)}|`)];
   l9.push(`|9990|${l9.length + 2}|`, `|9999|${l.length + l9.length + 2}|`);
   return Buffer.from([...l, ...l9].join('\r\n') + '\r\n', 'latin1');
+}
+/** SPED Contribuições sintético (cumulativo) com NFC-e de venda e o CST informado. */
+function contrib(periodo: string, vendas: { chave: string; cst: string }[]) {
+  const [a, m] = periodo.split('-');
+  const ult = new Date(Number(a), Number(m), 0).getDate();
+  const c = vendas.flatMap((v, i) => [
+    `|C100|1|0||65|00|1|${900 + i}|${v.chave}|10${m}${a}|10${m}${a}|50,00|0|0|0|50,00|9|0|0|0|0|0|0|0|0|${v.cst === '01' ? '0,33' : '0'}|${v.cst === '01' ? '1,50' : '0'}|0|0|`,
+    `|C175|5405|50,00|0|${v.cst}|50,00|0,65|||${v.cst === '01' ? '0,33' : '0'}|${v.cst}|50,00|3|||${v.cst === '01' ? '1,50' : '0'}|1||`,
+  ]);
+  const pis = vendas.filter((v) => v.cst === '01').length * 0.33; const cof = vendas.filter((v) => v.cst === '01').length * 1.5;
+  const f = (x: number) => x.toFixed(2).replace('.', ',');
+  const l = [
+    `|0000|006|0|||01${m}${a}|${ult}${m}${a}|FARMA TESTE LTDA|${CNPJ}|ES|3201209||00|2|`, '|0001|0|',
+    '|0100|JOSE CONTADOR|12345678909|ES-012345/O||29300000|RUA C|1|||2733334444||contab@exemplo.com.br|3205309|',
+    '|0110|2|||9|', `|0140|EMP1|FARMA TESTE LTDA|${CNPJ}|ES|084358580|3201209|||`, '|0990|6|',
+    '|A001|1|', '|A990|2|', '|C001|0|', `|C010|${CNPJ}|2|`, ...c, `|C990|${c.length + 3}|`,
+    '|D001|1|', '|D990|2|', '|F001|1|', '|F990|2|', '|M001|0|',
+    `|M200|0|0|0|0|0|0|0|${f(pis)}|0|0|${f(pis)}|${f(pis)}|`, `|M600|0|0|0|0|0|0|0|${f(cof)}|0|0|${f(cof)}|${f(cof)}|`, '|M990|4|',
+    '|1001|1|', '|1990|2|',
+  ];
+  const cont = new Map<string, number>();
+  for (const x of l) { const r = x.split('|')[1]; cont.set(r, (cont.get(r) ?? 0) + 1); }
+  const nomes = [...cont.keys(), '9001', '9900', '9990', '9999'];
+  cont.set('9001', 1); cont.set('9900', nomes.length); cont.set('9990', 1); cont.set('9999', 1);
+  const l9 = ['|9001|0|', ...nomes.map((r) => `|9900|${r}|${cont.get(r)}|`)];
+  l9.push(`|9990|${l9.length + 2}|`, `|9999|${l.length + l9.length + 2}|`);
+  return Buffer.from([...l, ...l9].join('\r\n') + '\r\n', 'latin1');
+}
+function chaveNfce(num: number, mes: string) {
+  const base = `3226${mes}${CNPJ}650010000009${String(num).padStart(2, '0')}10000009${String(num).padStart(2, '0')}`.slice(0, 43);
+  let soma = 0; let peso = 2;
+  for (let i = 42; i >= 0; i--) { soma += Number(base[i]) * peso; peso = peso === 9 ? 2 : peso + 1; }
+  const r = soma % 11;
+  return base + (r < 2 ? 0 : 11 - r);
 }
 function chave(num: number, mes: string) {
   const base = `3226${mes}11222333000181550010000000${String(num).padStart(2, '0')}1000000${String(num).padStart(2, '0')}`.slice(0, 43);
@@ -165,6 +202,25 @@ function chave(num: number, mes: string) {
   assert.ok(nov.valido && nov.ocorrencias.some((o: any) => o.codigo === 'E110_SALDO_ANTERIOR' && /Diferença de R\$\s?20,00/.test(o.mensagem)));
   const dez = await s.receber('farma-12.txt', sped('2026-12', { e110: [80, 0] }), 'analista@x.com');
   assert.ok(dez.valido && !dez.ocorrencias.some((o: any) => o.codigo === 'E110_SALDO_ANTERIOR'));
+  // 6) SPED Contribuições: guardado à parte, CST 49 em venda é erro e cruza com o SPED Fiscal do mês
+  const v1 = chaveNfce(1, '10'); const v2 = chaveNfce(2, '10');
+  const rc = await s.receber('contrib-10.txt', contrib('2026-10', [{ chave: v1, cst: '49' }, { chave: v2, cst: '01' }]), 'analista@x.com');
+  assert.ok(rc.valido);
+  if (!rc.valido) return;
+  assert.equal(rc.tipo, 'efd_contribuicoes');
+  assert.deepEqual(rc.ocorrencias.filter((o: any) => o.nivel !== 'info').map((o: any) => o.codigo), ['CST_49_VENDA'], JSON.stringify(rc.ocorrencias));
+  assert.equal(rc.resumo.receitaBruta, 100); assert.deepEqual(rc.resumo.apuracao.pis, { contribuicao: 0.33, creditos: 0, recolher: 0.33 });
+  assert.equal(rc.comparacao.contagem.contribuicoes_sem_fiscal, 2, 'o SPED Fiscal de outubro não tem essas NFC-e');
+  const contribRow = await s.vigente(emp.id, '2026-10-01', 'efd_contribuicoes');
+  assert.equal(contribRow!.divergencias, 2);
+  assert.equal((await s.vigente(emp.id, '2026-10-01'))!.tipo, 'efd_icms_ipi', 'o vigente do Fiscal não muda');
+  // Chega o SPED Fiscal de outubro com as duas vendas: o Contribuições é cruzado de novo
+  await s.receber('farma-10b.txt', sped('2026-10', { e110: [0, 100], vendas: [v1, v2] }), 'analista@x.com');
+  const depois = await s.vigente(emp.id, '2026-10-01', 'efd_contribuicoes');
+  assert.equal(depois!.divergencias, 0); assert.equal(depois!.comparacao.totais.conferidas, 2);
+  assert.equal((await s.historico(emp.id, '2026-10-01', 'efd_contribuicoes')).length, 1);
+  const refeito2 = await s.recomparar(depois!);
+  assert.equal(refeito2.divergencias, 0);
   console.log('ok  SPED guardado, cliente novo aprovado, sugestões (recusa, mais nova, só diferenças) e comparação com o mês seguinte');
   console.log('\nTestes do serviço de SPED passaram.');
 })().catch((e) => { console.error(e); process.exit(1); });

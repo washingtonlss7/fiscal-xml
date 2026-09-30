@@ -21,6 +21,8 @@ const t = require('../public/sped.js');
   assert.equal(r({ comparacao: null, clienteNovo: true }).texto, 'arquivo sem erros · cliente novo: aguardando aprovação do cadastro');
   assert.equal(r({ sugestao: { id: 1 } }).tom, 'info');
   assert.equal(t.spResumoEnvio({ valido: false }).tom, 'problema');
+  assert.equal(r({ tipo: 'efd_contribuicoes', ocorrencias: [{ nivel: 'erro' }], comparacao: null }).texto, 'SPED Contribuições · 1 erro no arquivo · sem SPED Fiscal do mês para cruzar');
+  assert.equal(r({ tipo: 'efd_contribuicoes', comparacao: { divergencias: [] } }).texto, 'SPED Contribuições · arquivo sem erros · vendas conferem com o SPED Fiscal');
   console.log('ok  resumo do envio (erros, divergências, cliente novo, cadastro a conferir)');
 }
 console.log('\nTestes da tela SPED passaram.');

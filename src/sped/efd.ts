@@ -101,12 +101,12 @@ export interface ResumoEfd {
   inventario: boolean;
 }
 
-const num = (v: string | undefined) => {
+export const num = (v: string | undefined) => {
   if (!v) return 0;
   const n = Number(v.replace(/\./g, '').replace(',', '.'));
   return Number.isFinite(n) ? n : 0;
 };
-const data = (v: string | undefined) => (v && /^\d{8}$/.test(v) ? `${v.slice(4, 8)}-${v.slice(2, 4)}-${v.slice(0, 2)}` : '');
+export const data = (v: string | undefined) => (v && /^\d{8}$/.test(v) ? `${v.slice(4, 8)}-${v.slice(2, 4)}-${v.slice(0, 2)}` : '');
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
 /** Decodifica o arquivo. O PVA gera ISO-8859-1; aceita UTF-8 e desfaz a conversão dupla (Ê → Ã‡). */
@@ -147,7 +147,7 @@ export function chaveValida(ch: string): boolean {
   return (r < 2 ? 0 : 11 - r) === Number(ch[43]);
 }
 
-const CANCELADOS = new Set(['02', '03', '04', '05']);
+export const CANCELADOS = new Set(['02', '03', '04', '05']);
 
 /** Lê o texto do SPED Fiscal. */
 export function lerEfd(texto: string): { efd: Efd; malformadas: number[] } {
@@ -230,7 +230,36 @@ export function lerEfd(texto: string): { efd: Efd; malformadas: number[] } {
   return { efd, malformadas };
 }
 
-function ultimoDia(iso: string) {
+/** Registros de encerramento: 9999 (linhas do arquivo), 9900 (linhas por registro) e x990 (linhas por bloco). Vale para qualquer EFD. */
+export function validarEstrutura(texto: string, contagem: Map<string, number>, totalLinhas: number,
+  add: (nivel: Nivel, codigo: string, mensagem: string, linhas?: number[], quantidade?: number) => void) {
+  const efd = { contagem, totalLinhas };
+  const dec = { texto };
+  const qtd9999 = Number(dec.texto.match(/^\|9999\|(\d+)\|/m)?.[1] ?? NaN);
+  if (!Number.isFinite(qtd9999)) add('erro', '9999', 'Registro 9999 (encerramento do arquivo) não encontrado.');
+  else if (qtd9999 !== efd.totalLinhas) add('erro', '9999', `O 9999 informa ${qtd9999} linhas, mas o arquivo tem ${efd.totalLinhas}.`);
+  const informado9900 = new Map<string, number>();
+  for (const m of dec.texto.matchAll(/^\|9900\|([^|]+)\|(\d+)\|/gm)) informado9900.set(m[1], Number(m[2]));
+  const div9900: string[] = [];
+  for (const [reg, q] of efd.contagem) {
+    const inf = informado9900.get(reg);
+    if (inf === undefined) div9900.push(`${reg}: ${q} no arquivo, sem 9900`);
+    else if (inf !== q) div9900.push(`${reg}: 9900 diz ${inf}, arquivo tem ${q}`);
+  }
+  for (const [reg, q] of informado9900) if (!efd.contagem.has(reg)) div9900.push(`${reg}: 9900 diz ${q}, arquivo não tem`);
+  if (div9900.length) add('erro', '9900', `Totalizadores 9900 não batem: ${div9900.slice(0, 8).join('; ')}${div9900.length > 8 ? '…' : ''}`, [], div9900.length);
+  // Encerramento de blocos (x990 = linhas do bloco, incluindo abertura e encerramento)
+  const linhasBloco = new Map<string, number>();
+  for (const [reg, q] of efd.contagem) linhasBloco.set(reg[0], (linhasBloco.get(reg[0]) ?? 0) + q);
+  for (const m of dec.texto.matchAll(/^\|([0-9A-Z])990\|(\d+)\|/gm)) {
+    const b = m[1]; const inf = Number(m[2]);
+    const real = linhasBloco.get(b) ?? 0;
+    if (inf !== real) add('erro', `${b}990`, `O ${b}990 informa ${inf} linhas no bloco ${b}, mas o bloco tem ${real}.`);
+  }
+
+}
+
+export function ultimoDia(iso: string) {
   const [a, m] = iso.split('-').map(Number);
   return new Date(a, m, 0).getDate();
 }
@@ -253,7 +282,7 @@ export function analisarEfd(buf: Buffer): ResultadoEfd {
 
   // EFD-Contribuições (PIS/COFINS) tem 0000 com outro leiaute e blocos A, F, M e P: não é lido aqui
   if (['0110', 'A001', 'F001', 'M001', 'P001'].some((r) => efd.contagem.has(r))) {
-    add('erro', 'CONTRIBUICOES', 'Este arquivo é o SPED Contribuições (EFD PIS/COFINS), não o SPED Fiscal (EFD ICMS/IPI). A leitura do SPED Contribuições ainda não está disponível.');
+    add('erro', 'CONTRIBUICOES', 'Este arquivo é o SPED Contribuições (EFD PIS/COFINS), não o SPED Fiscal (EFD ICMS/IPI).');
     efd.cabecalho = null;
     return { efd, ocorrencias: oc, resumo: montarResumo(efd) };
   }
@@ -272,28 +301,7 @@ export function analisarEfd(buf: Buffer): ResultadoEfd {
   if (!['A', 'B', 'C'].includes(cab.perfil)) add('erro', '0000_PERFIL', `Perfil "${cab.perfil}" inválido (A, B ou C).`);
   if (cab.codFin === '1') add('info', '0000_SUBSTITUTO', 'Arquivo substituto (COD_FIN 1). Depois do prazo, a retificação exige autorização da SEFAZ.');
 
-  // Totais do bloco 9
-  const qtd9999 = Number(dec.texto.match(/^\|9999\|(\d+)\|/m)?.[1] ?? NaN);
-  if (!Number.isFinite(qtd9999)) add('erro', '9999', 'Registro 9999 (encerramento do arquivo) não encontrado.');
-  else if (qtd9999 !== efd.totalLinhas) add('erro', '9999', `O 9999 informa ${qtd9999} linhas, mas o arquivo tem ${efd.totalLinhas}.`);
-  const informado9900 = new Map<string, number>();
-  for (const m of dec.texto.matchAll(/^\|9900\|([^|]+)\|(\d+)\|/gm)) informado9900.set(m[1], Number(m[2]));
-  const div9900: string[] = [];
-  for (const [reg, q] of efd.contagem) {
-    const inf = informado9900.get(reg);
-    if (inf === undefined) div9900.push(`${reg}: ${q} no arquivo, sem 9900`);
-    else if (inf !== q) div9900.push(`${reg}: 9900 diz ${inf}, arquivo tem ${q}`);
-  }
-  for (const [reg, q] of informado9900) if (!efd.contagem.has(reg)) div9900.push(`${reg}: 9900 diz ${q}, arquivo não tem`);
-  if (div9900.length) add('erro', '9900', `Totalizadores 9900 não batem: ${div9900.slice(0, 8).join('; ')}${div9900.length > 8 ? '…' : ''}`, [], div9900.length);
-  // Encerramento de blocos (x990 = linhas do bloco, incluindo abertura e encerramento)
-  const linhasBloco = new Map<string, number>();
-  for (const [reg, q] of efd.contagem) linhasBloco.set(reg[0], (linhasBloco.get(reg[0]) ?? 0) + q);
-  for (const m of dec.texto.matchAll(/^\|([0-9A-Z])990\|(\d+)\|/gm)) {
-    const b = m[1]; const inf = Number(m[2]);
-    const real = linhasBloco.get(b) ?? 0;
-    if (inf !== real) add('erro', `${b}990`, `O ${b}990 informa ${inf} linhas no bloco ${b}, mas o bloco tem ${real}.`);
-  }
+  validarEstrutura(dec.texto, efd.contagem, efd.totalLinhas, add);
 
   // Participantes
   const cnpjRuim = [...efd.participantes.values()].filter((p) => p.cnpj && !cnpjValido(p.cnpj));

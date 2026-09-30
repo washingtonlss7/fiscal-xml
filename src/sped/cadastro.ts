@@ -1,4 +1,5 @@
 import type { Efd } from './efd';
+import type { EfdContrib } from './contribuicoes';
 import municipios from './municipios.json';
 
 /**
@@ -68,6 +69,31 @@ export function dadosDoSped(efd: Efd): DadosCadastro | null {
     por('fone', digitos(c.fone));
     por('email', espacos(c.email).toLowerCase());
   }
+  if (k) {
+    por('contador_nome', espacos(k.nome));
+    por('contador_crc', espacos(k.crc).toUpperCase());
+    por('contador_cnpj', digitos(k.cnpj).length === 14 ? digitos(k.cnpj) : '');
+    por('contador_email', espacos(k.email).toLowerCase());
+    por('contador_fone', digitos(k.fone));
+  }
+  return d;
+}
+
+/** Dados de cadastro do SPED Contribuições: 0000 (nome, município), 0140 (IE do estabelecimento) e 0100 (contador). */
+export function dadosDoContribuicoes(efd: EfdContrib): DadosCadastro | null {
+  const cab = efd.cabecalho;
+  if (!cab) return null;
+  const d: DadosCadastro = { cnpj: cab.cnpj, uf: cab.uf };
+  const por = (campo: CampoCadastro, v: string) => { if (v) d[campo] = v; };
+  por('razao_social', espacos(cab.nome));
+  const est = efd.estabelecimentos.find((e) => e.cnpj === cab.cnpj);
+  if (est) por('ie', espacos(est.ie).toUpperCase());
+  if (/^\d{7}$/.test(cab.codMun)) {
+    d.cod_municipio = cab.codMun;
+    const nome = nomeMunicipio(cab.codMun);
+    if (nome) d.municipio = nome;
+  }
+  const k = efd.contador;
   if (k) {
     por('contador_nome', espacos(k.nome));
     por('contador_crc', espacos(k.crc).toUpperCase());

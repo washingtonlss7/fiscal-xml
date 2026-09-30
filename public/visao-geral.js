@@ -30,21 +30,26 @@ function vgAuditoria(e) {
 
 const vgPlural = (n, s, p) => `${n} ${n === 1 ? s : p}`;
 
-/** SPED Fiscal da competência (o arquivo): não enviado, com erros de estrutura/apuração ou recebido. */
+/** Arquivos SPED da competência (Fiscal e Contribuições): não enviado, com erros ou recebido. */
 function vgSped(e) {
-  const s = e.sped;
-  if (!s) return { tom: 'neutro', simbolo: '–', texto: 'Não enviado' };
-  if (s.erros > 0) return { tom: 'pendente', simbolo: '!', texto: vgPlural(s.erros, 'erro no arquivo', 'erros no arquivo') };
-  return { tom: 'ok', simbolo: '✓', texto: s.alertas ? `Recebido · ${vgPlural(s.alertas, 'alerta', 'alertas')}` : 'Recebido' };
+  const f = e.sped; const c = e.contrib;
+  if (!f && !c) return { tom: 'neutro', simbolo: '–', texto: 'Não enviado' };
+  const erros = (f ? f.erros : 0) + (c ? c.erros : 0);
+  if (erros > 0) return { tom: 'pendente', simbolo: '!', texto: vgPlural(erros, 'erro no arquivo', 'erros no arquivo') };
+  const quais = f && c ? 'Fiscal e Contrib.' : f ? 'Fiscal recebido' : 'Contrib. recebido';
+  const alertas = (f ? f.alertas : 0) + (c ? c.alertas : 0);
+  return { tom: 'ok', simbolo: '✓', texto: alertas ? `${quais} · ${vgPlural(alertas, 'alerta', 'alertas')}` : quais };
 }
 
-/** Validação XML × SPED (comparação por chave de acesso). */
+/** Validação: XML × SPED Fiscal e SPED Fiscal × Contribuições (nota a nota). */
 function vgValidacao(e) {
-  const s = e.sped;
-  if (!s) return { tom: 'neutro', simbolo: '–', texto: 'Aguardando SPED' };
-  if (s.divergencias === null || s.divergencias === undefined) return { tom: 'neutro', simbolo: '–', texto: 'Sem comparação' };
-  if (s.divergencias > 0) return { tom: 'pendente', simbolo: '!', texto: vgPlural(s.divergencias, 'divergência', 'divergências') };
-  return { tom: 'ok', simbolo: '✓', texto: 'XML e SPED conferem' };
+  const f = e.sped; const c = e.contrib;
+  if (!f && !c) return { tom: 'neutro', simbolo: '–', texto: 'Aguardando SPED' };
+  const n = [f && f.divergencias, c && c.divergencias].filter((x) => x !== null && x !== undefined && x !== false);
+  if (!n.length) return { tom: 'neutro', simbolo: '–', texto: 'Sem comparação' };
+  const total = n.reduce((t, x) => t + x, 0);
+  if (total > 0) return { tom: 'pendente', simbolo: '!', texto: vgPlural(total, 'divergência', 'divergências') };
+  return { tom: 'ok', simbolo: '✓', texto: f ? 'XML e SPED conferem' : 'Conferido' };
 }
 
 /** Status geral do fechamento da empresa (sem "Concluído" enquanto as guias não existirem). */
@@ -74,7 +79,7 @@ function vgCalcular(dados, regime, hojeISO) {
   const auditadas = comNotas.filter((e) => vgAuditoria(e).tom === 'ok').length;
   const comPendencias = conta((e) => vgGeral(e).chave === 'bloqueado' || vgGeral(e).chave === 'pendencias');
   const certVencidos = conta((e) => e.status === 'certificado_vencido');
-  const comSped = ativas.filter((e) => e.sped);
+  const comSped = ativas.filter((e) => e.sped || e.contrib);
 
   const kpis = {
     empresas: base,
@@ -89,8 +94,8 @@ function vgCalcular(dados, regime, hojeISO) {
     { id: 'xml', nome: 'Captação de XML', icone: 'cloud-download', tom: 'info', feito: xmlEmDia, total: base },
     { id: 'auditoria', nome: 'Auditoria das notas', icone: 'shield-check', tom: 'ok', feito: auditadas, total: comNotas.length, semTotal: 'Nenhuma empresa com notas na competência' },
     { id: 'st', nome: 'ICMS-ST (entradas)', icone: 'calculator', indisponivel: 'Sob demanda' },
-    { id: 'sped', nome: 'SPED Fiscal recebido', icone: 'file-spreadsheet', tom: 'progresso', feito: comSped.filter((e) => !e.sped.erros).length, total: base },
-    { id: 'validacao', nome: 'Validação XML × SPED', icone: 'file-check', tom: 'ok', feito: comSped.filter((e) => e.sped.divergencias === 0).length, total: base },
+    { id: 'sped', nome: 'SPED recebido sem erros', icone: 'file-spreadsheet', tom: 'progresso', feito: comSped.filter((e) => vgSped(e).tom === 'ok').length, total: base },
+    { id: 'validacao', nome: 'Validação XML × SPED', icone: 'file-check', tom: 'ok', feito: comSped.filter((e) => vgValidacao(e).tom === 'ok').length, total: base },
     { id: 'guias', nome: 'Guias (DUA, DAS etc.)', icone: 'receipt', indisponivel: 'Não disponível' },
   ];
 
@@ -126,8 +131,8 @@ function vgCalcular(dados, regime, hojeISO) {
     { id: 'auditoria', texto: 'Auditorias pendentes', tom: 'pendente', icone: 'shield-alert', n: conta((e) => e.apont_abertos > 0), destino: { central: 'auditoria' } },
     { id: 'cert-vencendo', texto: 'Certificados vencendo em 30 dias', tom: 'pendente', icone: 'triangle-alert', n: kpis.certVencendo, destino: { empresasStatus: ['certificado_vencendo'] } },
     { id: 'lacunas', texto: 'Empresas com notas faltantes (NSU)', icone: 'file-warning', breve: true },
-    { id: 'sped', texto: 'Divergências SPED × XML', tom: 'pendente', icone: 'file-spreadsheet', n: conta((e) => e.sped && e.sped.divergencias > 0), destino: { central: 'validacao' } },
-    { id: 'sped-erros', texto: 'SPED com erros no arquivo', tom: 'pendente', icone: 'file-warning', n: conta((e) => e.sped && e.sped.erros > 0), destino: { central: 'sped' } },
+    { id: 'sped', texto: 'Divergências SPED × XML', tom: 'pendente', icone: 'file-spreadsheet', n: conta((e) => vgPendencias(e).some((p) => p.etapa === 'validacao')), destino: { central: 'validacao' } },
+    { id: 'sped-erros', texto: 'SPED com erros no arquivo', tom: 'pendente', icone: 'file-warning', n: conta((e) => vgPendencias(e).some((p) => p.etapa === 'sped')), destino: { central: 'sped' } },
     { id: 'cadastros', texto: 'Cadastros do SPED para conferir', tom: 'info', icone: 'building-2', n: Number(dados.cadastrosPendentes || 0), destino: { rota: '#/sped' } },
     { id: 'st', texto: 'Empresas sem ST calculado', icone: 'calculator', breve: true },
     { id: 'guias', texto: 'Guias não geradas', icone: 'receipt', breve: true },
@@ -158,6 +163,8 @@ function vgPendencias(e) {
   if (e.apont_abertos > 0) lista.push({ etapa: 'auditoria', tom: 'pendente', texto: `${e.apont_abertos} na auditoria`, n: e.apont_abertos });
   if (e.sped && e.sped.erros > 0) lista.push({ etapa: 'sped', tom: 'pendente', texto: `SPED: ${vgPlural(e.sped.erros, 'erro', 'erros')} no arquivo`, n: e.sped.erros });
   if (e.sped && e.sped.divergencias > 0) lista.push({ etapa: 'validacao', tom: 'pendente', texto: vgPlural(e.sped.divergencias, 'divergência SPED × XML', 'divergências SPED × XML'), n: e.sped.divergencias });
+  if (e.contrib && e.contrib.erros > 0) lista.push({ etapa: 'sped', tom: 'pendente', texto: `SPED Contribuições: ${vgPlural(e.contrib.erros, 'erro', 'erros')}`, n: e.contrib.erros });
+  if (e.contrib && e.contrib.divergencias > 0) lista.push({ etapa: 'validacao', tom: 'pendente', texto: vgPlural(e.contrib.divergencias, 'divergência Fiscal × Contribuições', 'divergências Fiscal × Contribuições'), n: e.contrib.divergencias });
   return lista;
 }
 function vgQtdPendencias(e) { return vgPendencias(e).reduce((t, p) => t + p.n, 0); }
@@ -442,7 +449,7 @@ if (typeof window !== 'undefined') {
       aud: () => vgCelula(vgAuditoria(e), e.notas_mes ? `${base}/auditoria` : null, 'Auditoria'),
       st: () => vgCelula(st, e.uf === 'ES' ? `${base}/icms-st` : null, 'ICMS-ST'),
       stTabela: () => vgCelula(stTabela, e.uf === 'ES' ? `${base}/icms-st` : null, 'ICMS-ST'),
-      sped: () => vgCelula({ ...vgSped(e), compacto: true }, `${base}/sped`, 'SPED'), val: () => vgCelula({ ...vgValidacao(e), compacto: true }, e.sped ? `${base}/sped` : null, 'Validação'),
+      sped: () => vgCelula({ ...vgSped(e), compacto: true }, `${base}/sped`, 'SPED'), val: () => vgCelula({ ...vgValidacao(e), compacto: true }, e.sped || e.contrib ? `${base}/sped` : null, 'Validação'),
       guias: () => vgCelula(na, null, 'Guias'),
     };
     return { e, g, ult, cel };

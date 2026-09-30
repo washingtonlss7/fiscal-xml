@@ -21,10 +21,12 @@ function spResumoEnvio(r) {
   const partes = [];
   const erros = (r.ocorrencias || []).filter((o) => o.nivel === 'erro').length;
   partes.push(erros ? `${erros} erro${erros === 1 ? '' : 's'} no arquivo` : 'arquivo sem erros');
+  const contrib = r.tipo === 'efd_contribuicoes';
+  if (contrib) partes.unshift('SPED Contribuições');
   if (r.comparacao) {
     const n = r.comparacao.divergencias.filter((d) => d.nivel !== 'info').length;
-    partes.push(n ? `${n} divergência${n === 1 ? '' : 's'} com os XMLs` : 'XML e SPED conferem');
-  }
+    partes.push(n ? `${n} divergência${n === 1 ? '' : 's'} com ${contrib ? 'o SPED Fiscal' : 'os XMLs'}` : contrib ? 'vendas conferem com o SPED Fiscal' : 'XML e SPED conferem');
+  } else if (contrib && !r.clienteNovo) partes.push('sem SPED Fiscal do mês para cruzar');
   if (r.clienteNovo) partes.push('cliente novo: aguardando aprovação do cadastro');
   else if (r.sugestao) partes.push('dados de cadastro para conferir');
   return { tom: erros ? 'pendente' : r.clienteNovo || r.sugestao ? 'info' : 'ok', texto: partes.join(' · ') };

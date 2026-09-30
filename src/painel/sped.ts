@@ -5,7 +5,8 @@ import { log } from '../log';
 import { codigoUf } from '../uf';
 import { analisarEfd, Efd, ResultadoEfd } from '../sped/efd';
 import { Comparacao, compararXmlSped, XmlDoc } from '../sped/comparar';
-import { alteracaoAprovada, CAMPOS_CADASTRO, campoValido, chaveComparacao, DadosCadastro, dadosDoSped, diferencasCadastro } from '../sped/cadastro';
+import { analisarContribuicoes, Cruzamento, cruzarFiscalContribuicoes, EfdContrib, ehContribuicoes } from '../sped/contribuicoes';
+import { dadosDoContribuicoes, alteracaoAprovada, CAMPOS_CADASTRO, campoValido, chaveComparacao, DadosCadastro, dadosDoSped, diferencasCadastro } from '../sped/cadastro';
 
 /**
  * SPED Fiscal guardado: o arquivo vai criptografado para o armazenamento (R2) e o resultado
@@ -33,6 +34,7 @@ interface EmpresaSped { id: string; cnpj: string; razao_social: string; uf: stri
 
 export interface ArquivoSped {
   id: number;
+  tipo: string;
   empresa_id: string | null;
   cnpj: string;
   competencia: string;
@@ -46,14 +48,21 @@ export interface ArquivoSped {
   alertas: number;
   divergencias: number | null;
   divergencias_info: number | null;
-  resumo: ResultadoEfd['resumo'];
+  resumo: any;
   ocorrencias: ResultadoEfd['ocorrencias'];
-  comparacao: Comparacao | null;
+  comparacao: any;
 }
 
 /** Chaves de entrada (C100 de entrada e D100): servem para não acusar nota escriturada no mês seguinte. */
 function chavesEntrada(efd: Efd): string[] {
   return [...efd.c100.filter((d) => d.indOper === '0' && d.chave).map((d) => d.chave), ...efd.d100.filter((d) => d.chave).map((d) => d.chave)];
+}
+
+const TIPO_CONTRIB = 'efd_contribuicoes';
+function contarCruzamento(c: Cruzamento | null): { divergencias: number | null; divergencias_info: number | null } {
+  if (!c) return { divergencias: null, divergencias_info: null };
+  const graves = c.divergencias.filter((d) => d.nivel !== 'info').length;
+  return { divergencias: graves, divergencias_info: c.divergencias.length - graves };
 }
 
 function contarDivergencias(c: Comparacao | null): { divergencias: number | null; divergencias_info: number | null } {
@@ -103,6 +112,7 @@ export class ServicoSped {
    * Sem empresa esperada (tela SPED), o arquivo vai para a empresa do CNPJ ou vira pré-cadastro de cliente novo.
    */
   async receber(nome: string, corpo: Buffer, email: string, empresaEsperada?: { id: string; cnpj: string }) {
+    if (ehContribuicoes(corpo)) return this.receberContribuicoes(nome, corpo, email, empresaEsperada);
     const r = analisarEfd(corpo);
     const cab = r.efd.cabecalho;
     if (!cab) return { valido: false as const, arquivo: { nome, tamanho: corpo.length }, resumo: r.resumo, ocorrencias: r.ocorrencias };
@@ -129,7 +139,7 @@ export class ServicoSped {
 
     // O mesmo arquivo enviado de novo: reaproveita o que está guardado e refaz a comparação.
     const igual = ok(
-      await this.db.from('sped_arquivos').select('id,caminho').eq('cnpj', cnpj).eq('competencia', competencia).eq('sha256', sha256).limit(1),
+      await this.db.from('sped_arquivos').select('id,caminho').eq('cnpj', cnpj).eq('tipo', 'efd_icms_ipi').eq('competencia', competencia).eq('sha256', sha256).limit(1),
       'procurar SPED igual',
     ) as { id: number; caminho: string }[];
     const caminho = igual[0]?.caminho ?? await this.arm.salvar(`sped/${cnpj}/${r.resumo.periodo}/${sha256}.txt`, corpo);
@@ -150,16 +160,63 @@ export class ServicoSped {
     if (empresa) {
       const anterior = await this.vigente(empresa.id, mesVizinho(competencia, -1));
       if (anterior) await this.recomparar(anterior).catch((e) => log.warn('não foi possível refazer a comparação do mês anterior', { id: anterior.id, erro: (e as Error).message }));
+      // O Contribuições do mesmo mês é cruzado de novo com este SPED Fiscal
+      const contrib = await this.vigente(empresa.id, competencia, 'efd_contribuicoes');
+      if (contrib) await this.recomparar(contrib, r.efd).catch((e) => log.warn('não foi possível refazer o cruzamento com o Contribuições', { id: contrib.id, erro: (e as Error).message }));
     }
 
-    const sugestao = await this.sugerirCadastro(empresa, r.efd, salvo.id, competencia, email);
+    const sugestao = await this.sugerirCadastro(empresa, dadosDoSped(r.efd), salvo.id, competencia, email);
     log.info('SPED Fiscal recebido', { cnpj, competencia, por: email, id: salvo.id, erros: nErros, divergencias: salvo.divergencias, clienteNovo: !empresa, sugestao: sugestao?.id ?? null });
     return { valido: true as const, ...this.resposta(salvo), empresaId: empresa?.id ?? null, clienteNovo: !empresa, sugestao };
   }
 
-  async vigente(empresaId: string, competencia: string): Promise<ArquivoSped | null> {
+  /** SPED Contribuições: guarda, valida e cruza com o SPED Fiscal do mesmo mês (se já estiver no Appura). */
+  async receberContribuicoes(nome: string, corpo: Buffer, email: string, empresaEsperada?: { id: string; cnpj: string }) {
+    const r = analisarContribuicoes(corpo);
+    const cab = r.efd.cabecalho;
+    if (!cab) return { valido: false as const, tipo: TIPO_CONTRIB, arquivo: { nome, tamanho: corpo.length }, resumo: r.resumo, ocorrencias: r.ocorrencias };
+    const cnpj = cab.cnpj;
+    if (empresaEsperada && cnpj !== empresaEsperada.cnpj) {
+      throw new ErroSped(422, `Este SPED Contribuições é de outro contribuinte (${cab.nome}, CNPJ ${cnpj}). Abra a empresa certa para enviar.`);
+    }
+    const empresa = await this.empresaPorCnpj(cnpj);
+    const competencia = `${r.resumo.periodo}-01`;
+    const sha256 = crypto.createHash('sha256').update(corpo).digest('hex');
+    const igual = ok(
+      await this.db.from('sped_arquivos').select('id,caminho').eq('cnpj', cnpj).eq('tipo', TIPO_CONTRIB).eq('competencia', competencia).eq('sha256', sha256).limit(1),
+      'procurar SPED Contribuições igual',
+    ) as { id: number; caminho: string }[];
+    const caminho = igual[0]?.caminho ?? await this.arm.salvar(`sped-contribuicoes/${cnpj}/${r.resumo.periodo}/${sha256}.txt`, corpo);
+    const cruz = empresa ? await this.cruzar(empresa.id, competencia, r.efd) : null;
+    const linha = {
+      empresa_id: empresa?.id ?? null, cnpj, tipo: TIPO_CONTRIB, competencia, nome: nome.slice(0, 200), tamanho: corpo.length, sha256, caminho,
+      finalidade: r.resumo.finalidade, cod_ver: r.resumo.codVer, enviado_por: email, enviado_em: new Date().toISOString(), processado_em: new Date().toISOString(),
+      erros: r.ocorrencias.filter((o) => o.nivel === 'erro').length, alertas: r.ocorrencias.filter((o) => o.nivel === 'alerta').length,
+      ...contarCruzamento(cruz), resumo: r.resumo, ocorrencias: r.ocorrencias, comparacao: cruz, chaves_entrada: [],
+    };
+    const salvo = (igual[0]
+      ? ok(await this.db.from('sped_arquivos').update(linha).eq('id', igual[0].id).select('*').single(), 'atualizar SPED Contribuições')
+      : ok(await this.db.from('sped_arquivos').insert(linha).select('*').single(), 'gravar SPED Contribuições')) as ArquivoSped;
+    const sugestao = await this.sugerirCadastro(empresa, dadosDoContribuicoes(r.efd), salvo.id, competencia, email, 'sped_contribuicoes');
+    log.info('SPED Contribuições recebido', { cnpj, competencia, por: email, id: salvo.id, erros: linha.erros, divergencias: salvo.divergencias, clienteNovo: !empresa });
+    return { valido: true as const, ...this.resposta(salvo), empresaId: empresa?.id ?? null, clienteNovo: !empresa, sugestao };
+  }
+
+  /** Cruza o Contribuições com o SPED Fiscal vigente do mesmo mês. Sem SPED Fiscal, devolve null. */
+  private async cruzar(empresaId: string, competencia: string, contrib: EfdContrib, fiscal?: Efd): Promise<Cruzamento | null> {
+    let efdFiscal = fiscal;
+    if (!efdFiscal) {
+      const f = await this.vigente(empresaId, competencia);
+      if (!f) return null;
+      efdFiscal = analisarEfd(await this.arm.ler(f.caminho)).efd;
+    }
+    const c = cruzarFiscalContribuicoes(efdFiscal, contrib);
+    return { ...c, divergencias: c.divergencias.slice(0, MAX_DIVERGENCIAS) };
+  }
+
+  async vigente(empresaId: string, competencia: string, tipo = 'efd_icms_ipi'): Promise<ArquivoSped | null> {
     const l = ok(
-      await this.db.from('sped_arquivos').select('*').eq('empresa_id', empresaId).eq('tipo', 'efd_icms_ipi').eq('competencia', competencia)
+      await this.db.from('sped_arquivos').select('*').eq('empresa_id', empresaId).eq('tipo', tipo).eq('competencia', competencia)
         .order('enviado_em', { ascending: false }).order('id', { ascending: false }).limit(1),
       'ler SPED vigente',
     ) as ArquivoSped[];
@@ -170,9 +227,15 @@ export class ServicoSped {
     return ok(await this.db.from('sped_arquivos').select('*').eq('id', id).maybeSingle(), 'ler SPED') as ArquivoSped | null;
   }
 
-  /** Lê de novo o arquivo guardado e refaz a comparação com os XMLs de agora. */
-  async recomparar(a: ArquivoSped): Promise<ArquivoSped> {
+  /** Lê de novo o arquivo guardado e refaz a comparação: Fiscal × XMLs de agora; Contribuições × SPED Fiscal do mês. */
+  async recomparar(a: ArquivoSped, fiscal?: Efd): Promise<ArquivoSped> {
     if (!a.empresa_id) throw new ErroSped(422, 'Este SPED ainda não está ligado a uma empresa cadastrada.');
+    if (a.tipo === TIPO_CONTRIB) {
+      const rc = analisarContribuicoes(await this.arm.ler(a.caminho));
+      const cruz = await this.cruzar(a.empresa_id, String(a.competencia).slice(0, 10), rc.efd, fiscal);
+      return ok(await this.db.from('sped_arquivos').update({ processado_em: new Date().toISOString(), ...contarCruzamento(cruz), comparacao: cruz })
+        .eq('id', a.id).select('*').single(), 'atualizar cruzamento') as ArquivoSped;
+    }
     const r = analisarEfd(await this.arm.ler(a.caminho));
     const comparacao = await this.comparar(a.empresa_id, r.efd);
     return ok(await this.db.from('sped_arquivos').update({
@@ -189,6 +252,7 @@ export class ServicoSped {
   resposta(a: ArquivoSped) {
     return {
       id: a.id,
+      tipo: a.tipo,
       competencia: String(a.competencia).slice(0, 7),
       arquivo: { nome: a.nome, tamanho: a.tamanho, enviadoEm: a.enviado_em, enviadoPor: a.enviado_por, processadoEm: a.processado_em },
       resumo: a.resumo,
@@ -198,10 +262,10 @@ export class ServicoSped {
   }
 
   /** Arquivos enviados de uma empresa numa competência (o primeiro é o vigente). */
-  async historico(empresaId: string, competencia: string) {
+  async historico(empresaId: string, competencia: string, tipo = 'efd_icms_ipi') {
     return ok(
       await this.db.from('sped_arquivos').select('id,nome,tamanho,enviado_em,enviado_por,erros,alertas,divergencias,finalidade')
-        .eq('empresa_id', empresaId).eq('competencia', competencia).order('enviado_em', { ascending: false }).order('id', { ascending: false }).limit(30),
+        .eq('empresa_id', empresaId).eq('tipo', tipo).eq('competencia', competencia).order('enviado_em', { ascending: false }).order('id', { ascending: false }).limit(30),
       'histórico do SPED',
     ) as unknown[];
   }
@@ -212,8 +276,7 @@ export class ServicoSped {
    * Cria (ou atualiza) a sugestão de cadastro. Não sugere de novo o que o escritório já recusou,
    * nem troca dados por um SPED mais antigo que o da última sugestão.
    */
-  async sugerirCadastro(empresa: EmpresaSped | null, efd: Efd, arquivoId: number, competencia: string, email: string) {
-    const dados = dadosDoSped(efd);
+  async sugerirCadastro(empresa: EmpresaSped | null, dados: DadosCadastro | null, arquivoId: number, competencia: string, email: string, origem = 'sped') {
     if (!dados) return null;
     const diferencas = empresa ? diferencasCadastro(empresa as Record<string, string | null>, dados) : [];
     if (empresa && !diferencas.length) return null;
@@ -222,17 +285,21 @@ export class ServicoSped {
         .order('criado_em', { ascending: false }).limit(20),
       'sugestões anteriores',
     ) as { id: number; status: string; competencia: string | null; dados: DadosCadastro }[];
-    const mesmaProposta = (d: DadosCadastro) => CAMPOS_CADASTRO.every(({ campo }) => chaveComparacao(d[campo]) === chaveComparacao(dados[campo]));
-    if (anteriores.some((s) => s.status === 'rejeitado' && mesmaProposta(s.dados))) return null;
+    // Compara só os campos que este arquivo traz (o Contribuições não tem endereço, por exemplo)
+    const iguaisNoQueTraz = (d: DadosCadastro) => CAMPOS_CADASTRO.every(({ campo }) => !dados[campo] || chaveComparacao(d[campo]) === chaveComparacao(dados[campo]));
+    if (anteriores.some((s) => s.status === 'rejeitado' && iguaisNoQueTraz(s.dados))) return null;
     const maisNova = anteriores.map((s) => s.competencia ?? '').sort().pop() ?? '';
     if (maisNova > competencia) return null;
     const pendente = anteriores.find((s) => s.status === 'pendente');
+    let proposta = dados;
     if (pendente) {
-      if (mesmaProposta(pendente.dados)) return { id: pendente.id, campos: diferencas.length || null };
+      if (iguaisNoQueTraz(pendente.dados)) return { id: pendente.id, campos: diferencas.length || null };
+      // Junta com a sugestão pendente: o que este arquivo traz prevalece, o resto continua
+      proposta = { ...pendente.dados, ...Object.fromEntries(Object.entries(dados).filter(([, v]) => v)) } as DadosCadastro;
       ok(await this.db.from('cadastro_sugestoes').update({ status: 'substituido', decidido_em: new Date().toISOString() }).eq('id', pendente.id), 'substituir sugestão');
     }
     const nova = ok(await this.db.from('cadastro_sugestoes').insert({
-      empresa_id: empresa?.id ?? null, cnpj: dados.cnpj, origem: 'sped', sped_arquivo_id: arquivoId, competencia, dados, criado_por: email,
+      empresa_id: empresa?.id ?? null, cnpj: dados.cnpj, origem, sped_arquivo_id: arquivoId, competencia, dados: proposta, criado_por: email,
     }).select('id').single(), 'criar sugestão de cadastro') as { id: number };
     return { id: nova.id, campos: diferencas.length || null };
   }

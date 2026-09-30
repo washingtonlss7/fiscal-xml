@@ -1193,3 +1193,17 @@ button.e360-etapa-botao:hover { border-color: var(--linha-forte); background: va
   #tela-sped .sped-botoes, #tela-sped .sped-botoes .botao { width: 100%; }
 }
 @media (max-width: 760px) { .sp-tabela tr > * { min-width: 0; overflow-wrap: anywhere; } }
+.sped-segmentos { align-self: flex-start; flex-wrap: wrap; }
+.sped-segmentos .segmento { display: inline-flex; align-items: center; gap: 8px; }
+.sped-segmentos .selo { font-size: var(--t-xs); }
+.e360-lista-num li.destaque-pendente > span { color: var(--pendente); font-weight: 600; }
+.sped-tabela { min-width: 0; }
+@media (max-width: 760px) {
+  .sped-tabela-caixa { display: block; }
+  .sped-segmentos { width: 100%; }
+  .sped-segmentos .segmento { flex: 1 1 auto; justify-content: center; min-height: 44px; }
+}
+@media (max-width: 760px) {
+  #painel-sped .vg-card-topo { flex-wrap: wrap; }
+  #painel-sped .vg-card-topo > * { flex: 1 1 100%; }
+}

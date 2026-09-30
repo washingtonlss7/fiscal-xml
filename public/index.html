@@ -276,14 +276,14 @@
       <div class="cabecalho-pagina">
         <div>
           <h1>SPED e pré-cadastro</h1>
-          <p class="subtitulo">Envie o SPED Fiscal de qualquer cliente: o Appura identifica a empresa pelo CNPJ, guarda o arquivo e compara com os XMLs. Dados de cadastro diferentes ficam aqui para o escritório conferir.</p>
+          <p class="subtitulo">Envie o SPED Fiscal ou o SPED Contribuições de qualquer cliente: o Appura identifica a empresa pelo CNPJ, guarda o arquivo e compara com os XMLs. Dados de cadastro diferentes ficam aqui para o escritório conferir.</p>
         </div>
       </div>
       <section class="vg-card" aria-labelledby="sp-envio-titulo">
         <div class="vg-card-topo">
           <div>
-            <h2 id="sp-envio-titulo" class="vg-card-titulo">Enviar SPED Fiscal (EFD ICMS/IPI)</h2>
-            <p class="meta">Um ou vários arquivos .txt. CNPJ que ainda não é cliente vira um pré-cadastro para aprovar.</p>
+            <h2 id="sp-envio-titulo" class="vg-card-titulo">Enviar SPED Fiscal ou Contribuições</h2>
+            <p class="meta">Um ou vários arquivos .txt, de qualquer tipo: o Appura reconhece se é EFD ICMS/IPI ou EFD PIS/COFINS. CNPJ que ainda não é cliente vira um pré-cadastro para aprovar.</p>
           </div>
           <div class="sped-botoes">
             <button id="sp-enviar" type="button" class="botao primario"><svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-file-spreadsheet"></use></svg>Escolher arquivos</button>
@@ -442,11 +442,11 @@
         <section class="vg-card sped-envio" aria-labelledby="sped-titulo">
           <div class="vg-card-topo">
             <div>
-              <h2 id="sped-titulo" class="vg-card-titulo">SPED Fiscal (EFD ICMS/IPI)</h2>
-              <p class="meta">Envie o arquivo .txt do SPED Fiscal. O Appura guarda o arquivo (criptografado), confere a estrutura e a apuração e compara com os XMLs captados. O resultado entra na Central de Fechamento.</p>
+              <h2 id="sped-titulo" class="vg-card-titulo">SPED Fiscal e SPED Contribuições</h2>
+              <p class="meta">Envie o .txt do SPED Fiscal (EFD ICMS/IPI) ou do SPED Contribuições (EFD PIS/COFINS): o Appura reconhece o tipo, guarda o arquivo (criptografado), confere a estrutura e a apuração e compara com os XMLs e entre os dois SPEDs. O resultado entra na Central de Fechamento.</p>
             </div>
             <div class="sped-botoes">
-              <button id="sped-enviar" type="button" class="botao primario"><svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-file-spreadsheet"></use></svg>Enviar SPED Fiscal (.txt)</button>
+              <button id="sped-enviar" type="button" class="botao primario"><svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-file-spreadsheet"></use></svg>Enviar SPED (.txt)</button>
               <input id="sped-arquivo" type="file" accept=".txt,text/plain" hidden>
             </div>
           </div>
@@ -455,7 +455,7 @@
         <div id="sped-resultado" class="pilha" aria-live="polite"></div>
         <div class="e360-breve pequeno">
           <svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-file-spreadsheet"></use></svg>
-          <div><strong>SPED Contribuições e SINTEGRA · Em breve</strong><p>A leitura e a comparação desses arquivos entram nesta mesma aba.</p></div>
+          <div><strong>SINTEGRA · Em breve</strong><p>A leitura e a comparação do SINTEGRA (Simples Nacional) entram nesta mesma aba.</p></div>
         </div>
       </div>
       <div id="painel-guias" class="pilha" role="tabpanel" aria-labelledby="aba-guias" hidden>

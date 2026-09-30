@@ -72,7 +72,13 @@ const dados = {
   const gama = comSped.empresas.find((e: any) => e.id === 'c');
   assert.equal(vg.vgGeral(gama).chave, 'pendencias', 'divergência SPED × XML é pendência');
   assert.deepEqual(vg.vgPendencias(gama).map((p: any) => [p.etapa, p.n]), [['validacao', 18]]);
-  assert.equal(vg.vgSped(gama).texto, 'Recebido · 1 alerta');
+  assert.equal(vg.vgSped(gama).texto, 'Fiscal recebido · 1 alerta');
+  const ambos = emp({ sped: { erros: 0, alertas: 0, divergencias: 0 }, contrib: { erros: 1, alertas: 1, divergencias: 3 } });
+  assert.equal(vg.vgSped(ambos).texto, '1 erro no arquivo');
+  assert.equal(vg.vgValidacao(ambos).texto, '3 divergências');
+  assert.deepEqual(vg.vgPendencias(ambos).map((p: any) => [p.etapa, p.n]), [['sped', 1], ['validacao', 3]]);
+  assert.equal(vg.vgSped(emp({ sped: { erros: 0, alertas: 0, divergencias: 0 }, contrib: { erros: 0, alertas: 0, divergencias: 0 } })).texto, 'Fiscal e Contrib.');
+  assert.equal(vg.vgValidacao(emp({ contrib: { erros: 0, alertas: 0, divergencias: null } })).texto, 'Sem comparação', 'Contribuições sem SPED Fiscal para cruzar');
   assert.equal(vg.vgValidacao(gama).texto, '18 divergências');
   assert.equal(vg.vgSped(emp({})).texto, 'Não enviado');
   assert.equal(vg.vgValidacao(emp({ sped: { erros: 0, alertas: 0, divergencias: 0 } })).tom, 'ok');

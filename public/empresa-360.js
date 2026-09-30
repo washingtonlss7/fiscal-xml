@@ -56,8 +56,8 @@ function e360LinhaCentral(d) {
   const e = d.empresa || {};
   const a = e360Auditoria(d);
   const docs = e360Documentos(d);
-  const sp = d.sped ? { erros: d.sped.erros, alertas: d.sped.alertas, divergencias: d.sped.divergencias, enviado_em: d.sped.enviado_em } : null;
-  return { ...e, notas_mes: docs.total, nao_auditadas: docs.naoAuditadas, apont_abertos: a.erro + a.alerta, apont_total: a.total, sped: sp };
+  const resumo = (x) => (x ? { erros: x.erros, alertas: x.alertas, divergencias: x.divergencias, enviado_em: x.enviado_em } : null);
+  return { ...e, notas_mes: docs.total, nao_auditadas: docs.naoAuditadas, apont_abertos: a.erro + a.alerta, apont_total: a.total, sped: resumo(d.sped), contrib: resumo(d.contrib) };
 }
 
 /**
@@ -86,18 +86,25 @@ function e360Etapas(d) {
     : { estado: 'indisponivel', texto: 'Não se aplica (fora do ES)' };
 
   const p = (n, s1, sn) => `${n} ${n === 1 ? s1 : sn}`;
-  const sp = d.sped;
+  const sp = d.sped; const ct = d.contrib;
   let sped;
   let val;
-  if (!sp) {
-    sped = { estado: 'nao_iniciado', texto: 'Nenhum SPED Fiscal enviado' };
+  if (!sp && !ct) {
+    sped = { estado: 'nao_iniciado', texto: 'Nenhum SPED enviado' };
     val = { estado: 'nao_iniciado', texto: 'Aguardando o SPED' };
   } else {
-    sped = sp.erros ? { estado: 'pendencia', texto: p(sp.erros, 'erro no arquivo', 'erros no arquivo') }
-      : { estado: 'concluido', texto: sp.alertas ? `Recebido · ${p(sp.alertas, 'alerta', 'alertas')}` : 'Recebido sem erros' };
-    val = sp.divergencias === null || sp.divergencias === undefined ? { estado: 'nao_iniciado', texto: 'Sem comparação' }
-      : sp.divergencias ? { estado: 'pendencia', texto: p(sp.divergencias, 'divergência com os XMLs', 'divergências com os XMLs') }
-        : { estado: 'concluido', texto: 'XML e SPED conferem' };
+    const erros = (sp ? sp.erros : 0) + (ct ? ct.erros : 0);
+    const alertas = (sp ? sp.alertas : 0) + (ct ? ct.alertas : 0);
+    const quais = sp && ct ? 'Fiscal e Contribuições' : sp ? 'SPED Fiscal' : 'SPED Contribuições';
+    sped = erros ? { estado: 'pendencia', texto: `${quais} · ${p(erros, 'erro no arquivo', 'erros no arquivo')}` }
+      : { estado: 'concluido', texto: `${quais} recebido${sp && ct ? 's' : ''}${alertas ? ` · ${p(alertas, 'alerta', 'alertas')}` : ''}` };
+    const partes = [];
+    if (sp && sp.divergencias) partes.push(p(sp.divergencias, 'divergência com os XMLs', 'divergências com os XMLs'));
+    if (ct && ct.divergencias) partes.push(p(ct.divergencias, 'divergência Fiscal × Contribuições', 'divergências Fiscal × Contribuições'));
+    const comparou = (sp && sp.divergencias !== null && sp.divergencias !== undefined) || (ct && ct.divergencias !== null && ct.divergencias !== undefined);
+    val = partes.length ? { estado: 'pendencia', texto: partes.join(' · ') }
+      : !comparou ? { estado: 'nao_iniciado', texto: 'Sem comparação' }
+        : { estado: 'concluido', texto: sp ? 'XML e SPED conferem' : 'Conferido' };
   }
 
   return [
@@ -130,6 +137,9 @@ function e360Atencao(d, st, hoje = new Date()) {
   const sp = d.sped;
   if (sp && sp.erros) itens.push({ id: 'sped-erros', tom: 'pendente', icone: 'file-warning', texto: `SPED Fiscal com ${sp.erros} erro${sp.erros === 1 ? '' : 's'} no arquivo`, aba: 'sped' });
   if (sp && sp.divergencias) itens.push({ id: 'sped', tom: 'pendente', icone: 'file-spreadsheet', texto: `${sp.divergencias} divergência${sp.divergencias === 1 ? '' : 's'} entre SPED e XML`, aba: 'sped' });
+  const ct = d.contrib;
+  if (ct && ct.erros) itens.push({ id: 'contrib-erros', tom: 'pendente', icone: 'file-warning', texto: `SPED Contribuições com ${ct.erros} erro${ct.erros === 1 ? '' : 's'} (ex.: venda fora da receita do PIS/COFINS)`, aba: 'sped', spedAba: 'contrib' });
+  if (ct && ct.divergencias) itens.push({ id: 'contrib', tom: 'pendente', icone: 'file-spreadsheet', texto: `${ct.divergencias} divergência${ct.divergencias === 1 ? '' : 's'} entre SPED Fiscal e Contribuições`, aba: 'sped', spedAba: 'contrib' });
   if (d.sugestao) itens.push({ id: 'cadastro', tom: 'info', icone: 'building-2', texto: 'Dados do SPED para conferir no cadastro', acao: 'cadastro' });
   if (cert.situacao === 'vencendo') itens.push({ id: 'cert', tom: 'pendente', icone: 'triangle-alert', texto: `Certificado vence em ${cert.dias} dia${cert.dias === 1 ? '' : 's'}`, acao: 'certificado' });
   if (st && st.uf === 'ES' && st.total > 0) {
@@ -168,7 +178,8 @@ function e360Historico(d) {
       case 'sped': {
         const comp = v.competencia ? String(v.competencia).slice(0, 7).split('-').reverse().join('/') : '';
         const partes = [comp ? `Competência ${comp}` : '', v.erros ? `${v.erros} erro${v.erros === 1 ? '' : 's'}` : 'sem erros', v.divergencias ? `${v.divergencias} divergência${v.divergencias === 1 ? '' : 's'}` : ''];
-        return { em: x.em, tom: v.erros || v.divergencias ? 'pendente' : 'ok', icone: 'file-spreadsheet', titulo: `SPED Fiscal enviado${v.nome ? `: ${v.nome}` : ''}`, detalhe: partes.filter(Boolean).join(' · '), por: x.por };
+        const tipo = v.tipo === 'efd_contribuicoes' ? 'SPED Contribuições' : 'SPED Fiscal';
+        return { em: x.em, tom: v.erros || v.divergencias ? 'pendente' : 'ok', icone: 'file-spreadsheet', titulo: `${tipo} enviado${v.nome ? `: ${v.nome}` : ''}`, detalhe: partes.filter(Boolean).join(' · '), por: x.por };
       }
       case 'cadastro': {
         const n = (v.campos || []).length;
@@ -214,7 +225,7 @@ if (typeof window !== 'undefined') {
   /** Chamado ao abrir a empresa: limpa a tela anterior (sem mostrar dados de outra empresa) e carrega. */
   function e360Resetar(e) {
     e3.dados = null; e3.st = null; e3.erro = null; e3.confirmarPausa = false;
-    if (e3.sped && e3.sped.id !== e.id) e3.sped = null;
+    if (e3.sped && e3.sped.id !== e.id) { e3.sped = null; e3.spedAba = null; }
     spedRender();
     $('e360-status').className = 'selo neutro';
     $('e360-status').textContent = '—';
@@ -314,7 +325,7 @@ if (typeof window !== 'undefined') {
     const at = e360Atencao(d, e3.st && !e3.st.erro ? e3.st : null);
     $('e360-atencao').replaceChildren(...(at.length ? at.map((a) => {
       const corpo = [h('span', { class: `vg-atencao-icone ${a.tom}` }, icone(a.icone)), h('span', { class: 'vg-atencao-texto', text: a.texto })];
-      const destino = a.aba ? () => { if (a.filtroSituacao) $('notas-situacao').value = a.filtroSituacao; trocarAba(a.aba); }
+      const destino = a.aba ? () => { if (a.filtroSituacao) $('notas-situacao').value = a.filtroSituacao; if (a.spedAba) e3.spedAba = a.spedAba; trocarAba(a.aba); }
         : a.acao === 'certificado' && pode('certificados') ? () => abrirGaveta(empresaNotas)
           : a.acao === 'cadastro' ? () => irPara(`#/sped?cadastro=${d.sugestao.id}`) : null;
       return h('li', {}, destino
@@ -428,7 +439,7 @@ if (typeof window !== 'undefined') {
       ...importacoes.map((x) => linha(`Importação de ${e3Num(x.dados.n)} documento${Number(x.dados.n) === 1 ? '' : 's'}`, 'XML/ZIP importado', '—', e3Quando(x.em), 'Importação pelo painel', 'Não registrado', null)),
     ];
     for (const a of d.spedArquivos || []) {
-      linhas.push(linha(a.nome, 'SPED Fiscal (EFD ICMS/IPI)', textoCompetencia(String(a.competencia).slice(0, 7)), e3Quando(a.enviado_em), 'Envio pelo painel', a.enviado_por,
+      linhas.push(linha(a.nome, a.tipo === 'efd_contribuicoes' ? 'SPED Contribuições (EFD PIS/COFINS)' : 'SPED Fiscal (EFD ICMS/IPI)', textoCompetencia(String(a.competencia).slice(0, 7)), e3Quando(a.enviado_em), 'Envio pelo painel', a.enviado_por,
         h('button', { type: 'button', class: 'botao pequeno', onclick: () => spedBaixar(a.id, a.nome) }, 'Baixar')));
     }
     if (d.empresa.uf === 'ES') {
@@ -441,7 +452,7 @@ if (typeof window !== 'undefined') {
       h('div', { class: 'vg-tabela-caixa' }, h('table', { class: 'vg-tabela e360-arquivos' },
         h('thead', {}, h('tr', {}, ...['Nome', 'Tipo', 'Competência', 'Data', 'Origem', 'Usuário', 'Ação'].map((t) => h('th', { scope: 'col', text: t })))),
         h('tbody', {}, ...linhas))),
-      h('div', { class: 'e360-breve pequeno' }, icone('file-spreadsheet'), h('div', {}, h('strong', { text: 'SPED Contribuições, SINTEGRA e guias' }), h('p', { text: 'Os arquivos entram nesta lista quando esses módulos existirem.' })))));
+      h('div', { class: 'e360-breve pequeno' }, icone('file-spreadsheet'), h('div', {}, h('strong', { text: 'SINTEGRA e guias' }), h('p', { text: 'Os arquivos entram nesta lista quando esses módulos existirem.' })))));
   }
 
 
@@ -462,18 +473,25 @@ if (typeof window !== 'undefined') {
     const id = empresaNotas.id;
     const mes = mesSelecionado();
     if (!forcar && e3.sped && e3.sped.id === id && e3.sped.mes === mes && !e3.sped.erro) { spedRender(); return; }
-    e3.sped = { id, mes, r: null, arquivos: [], filtro: '', carregando: true };
+    const sugestoes = e3.sped && e3.sped.id === id ? { fiscal: e3.sped.fiscal && e3.sped.fiscal.sugestao, contrib: e3.sped.contrib && e3.sped.contrib.sugestao } : {};
+    e3.sped = { id, mes, fiscal: spedParte(), contrib: spedParte(), carregando: true };
     spedRender();
     try {
       const d = await chamar(`/api/empresas/${id}/sped?mes=${mes}`);
       if (!empresaNotas || empresaNotas.id !== id || mesSelecionado() !== mes) return;
-      e3.sped = { id, mes, r: d.vigente, arquivos: d.arquivos || [], filtro: '', carregando: false };
+      const c = d.contribuicoes || {};
+      e3.sped = { id, mes, carregando: false,
+        fiscal: spedParte(d.vigente, d.arquivos, sugestoes.fiscal), contrib: spedParte(c.vigente, c.arquivos, sugestoes.contrib) };
+      // Abre no que existe: se só o Contribuições foi enviado, mostra ele
+      if (!e3.spedAba && !d.vigente && c.vigente) e3.spedAba = 'contrib';
     } catch (err) {
       if (!empresaNotas || empresaNotas.id !== id) return;
-      e3.sped = { id, mes, r: null, arquivos: [], filtro: '', carregando: false, erro: err.message };
+      e3.sped = { id, mes, fiscal: spedParte(), contrib: spedParte(), carregando: false, erro: err.message };
     }
     spedRender();
   }
+
+  function spedParte(r = null, arquivos = [], sugestao = null) { return { r: r || null, arquivos: arquivos || [], filtro: '', sugestao: sugestao || null }; }
 
   async function spedEnviar(arquivo) {
     if (!arquivo || !empresaNotas) return;
@@ -485,10 +503,13 @@ if (typeof window !== 'undefined') {
       const r = await enviarArquivo(`/api/empresas/${id}/sped?nome=${encodeURIComponent(arquivo.name)}`, arquivo);
       if (!empresaNotas || empresaNotas.id !== id) return;
       if (!r.valido) {
-        alvo.replaceChildren(h('div', { class: 'vg-erro', role: 'alert' }, h('strong', { text: 'Este arquivo não parece ser um SPED Fiscal.' }), ...(r.ocorrencias || []).map((o) => h('span', { text: o.mensagem }))));
+        alvo.replaceChildren(h('div', { class: 'vg-erro', role: 'alert' }, h('strong', { text: 'Este arquivo não parece ser um SPED Fiscal nem um SPED Contribuições.' }), ...(r.ocorrencias || []).filter((o) => o.nivel === 'erro').map((o) => h('span', { text: o.mensagem }))));
         return;
       }
-      e3.sped = { id, mes: r.competencia, r, arquivos: [], filtro: '', recemEnviado: true, sugestao: r.sugestao };
+      const parte = r.tipo === 'efd_contribuicoes' ? 'contrib' : 'fiscal';
+      e3.spedAba = parte;
+      e3.sped = { id, mes: r.competencia, fiscal: spedParte(), contrib: spedParte() };
+      e3.sped[parte] = spedParte(r, [], r.sugestao);
       spedRender();
       if (r.competencia === mesSelecionado()) spedCarregar(true);
       // Cabeçalho, etapas e "Precisa de atenção" passam a contar o SPED novo
@@ -503,7 +524,7 @@ if (typeof window !== 'undefined') {
   }
 
   async function spedRefazer() {
-    const est = e3.sped;
+    const est = e3.sped && e3.sped[e3.spedAba === 'contrib' ? 'contrib' : 'fiscal'];
     if (!est || !est.r) return;
     const botao = $('sped-refazer');
     if (botao) { botao.disabled = true; botao.lastChild.textContent = 'Comparando…'; }
@@ -518,6 +539,8 @@ if (typeof window !== 'undefined') {
     }
   }
 
+  var SPED_ABAS = { fiscal: 'SPED Fiscal', contrib: 'SPED Contribuições' };
+
   function spedRender() {
     const alvo = $('sped-resultado');
     $('sped-enviar').hidden = !pode('operar');
@@ -530,25 +553,43 @@ if (typeof window !== 'undefined') {
         h('button', { type: 'button', class: 'botao pequeno', onclick: () => spedCarregar(true) }, icone('refresh-cw'), 'Tentar de novo')));
       return;
     }
-    if (!est.r) {
-      alvo.replaceChildren(h('div', { class: 'vg-vazio pequeno' }, h('strong', { text: `Nenhum SPED Fiscal de ${textoCompetencia(est.mes)} enviado ainda.` }),
-        h('span', { text: 'Quando o arquivo for enviado, a validação e a comparação com os XMLs ficam guardadas aqui e entram na Central de Fechamento.' })));
+    const aba = e3.spedAba === 'contrib' ? 'contrib' : 'fiscal';
+    const selo = (parte) => {
+      const r = parte.r;
+      if (!r) return h('span', { class: 'selo neutro', text: 'Não enviado' });
+      const erros = (r.ocorrencias || []).filter((o) => o.nivel === 'erro').length;
+      const div = r.comparacao ? r.comparacao.divergencias.filter((d) => d.nivel !== 'info').length : 0;
+      return erros ? h('span', { class: 'selo problema', text: `${erros} erro${erros === 1 ? '' : 's'}` })
+        : div ? h('span', { class: 'selo pendente', text: `${div} diverg.` }) : h('span', { class: 'selo ok', text: 'OK' });
+    };
+    const troca = h('div', { class: 'segmentos sped-segmentos', role: 'tablist', 'aria-label': 'Tipo de SPED' },
+      ...Object.entries(SPED_ABAS).map(([k, rotulo]) => h('button', {
+        type: 'button', role: 'tab', class: `segmento${aba === k ? ' ativo' : ''}`, 'aria-selected': String(aba === k),
+        onclick: () => { e3.spedAba = k; spedRender(); },
+      }, rotulo, ' ', selo(est[k]))));
+    const parte = est[aba];
+    parte.mes = est.mes;
+    if (!parte.r) {
+      alvo.replaceChildren(troca, h('div', { class: 'vg-vazio pequeno' }, h('strong', { text: `Nenhum ${SPED_ABAS[aba]} de ${textoCompetencia(est.mes)} enviado ainda.` }),
+        h('span', { text: aba === 'fiscal'
+          ? 'Quando o arquivo for enviado, a validação e a comparação com os XMLs ficam guardadas aqui e entram na Central de Fechamento.'
+          : 'Quando o arquivo for enviado, o Appura confere a estrutura, a classificação das receitas (CST) e a apuração do PIS/COFINS, e cruza as vendas com o SPED Fiscal do mês.' })));
       return;
     }
+    alvo.replaceChildren(troca, ...(aba === 'fiscal' ? spedBlocosFiscal(parte) : spedBlocosContrib(parte)));
+  }
+
+  /** Quem enviou, ações (refazer/baixar), cadastro a conferir e aviso de competência. */
+  function spedTopo(est, dicaRefazer) {
     const { r } = est;
     const res = r.resumo;
-    const fmt = (v) => moeda(v);
-    const dataBR = (iso) => (iso ? iso.split('-').reverse().join('/') : '—');
-    const oc = r.ocorrencias || [];
-    const nErros = oc.filter((o) => o.nivel === 'erro').length;
-    const nAlertas = oc.filter((o) => o.nivel === 'alerta').length;
     const blocos = [];
     // Envio: quem, quando e ações sobre o arquivo guardado
     const arq = r.arquivo;
     blocos.push(h('div', { class: 'sped-envio-info' },
       h('span', { class: 'meta', text: `Enviado ${e3Quando(arq.enviadoEm)} por ${arq.enviadoPor}${arq.processadoEm && arq.processadoEm !== arq.enviadoEm ? ` · comparação refeita ${e3Quando(arq.processadoEm)}` : ''}` }),
       h('div', { class: 'sped-envio-acoes' },
-        pode('operar') ? h('button', { type: 'button', id: 'sped-refazer', class: 'botao pequeno', title: 'Compara de novo com os XMLs que estão no Appura agora', onclick: spedRefazer }, icone('refresh-cw'), 'Refazer comparação') : null,
+        pode('operar') ? h('button', { type: 'button', id: 'sped-refazer', class: 'botao pequeno', title: dicaRefazer, onclick: spedRefazer }, icone('refresh-cw'), 'Refazer comparação') : null,
         h('a', { class: 'botao pequeno', href: '#', onclick: (ev) => { ev.preventDefault(); spedBaixar(r.id, arq.nome); } }, icone('file-text'), 'Baixar arquivo'))));
     if (est.sugestao) {
       blocos.push(h('div', { class: 'sped-aviso' }, icone('building-2'),
@@ -561,6 +602,41 @@ if (typeof window !== 'undefined') {
         h('span', { text: `O arquivo é de ${textoCompetencia(res.periodo)}, e a competência selecionada é ${textoCompetencia(competencia)}.` }),
         h('button', { type: 'button', class: 'botao pequeno', onclick: () => definirCompetencia(res.periodo) }, `Mudar para ${textoCompetencia(res.periodo)}`)));
     }
+    return blocos;
+  }
+
+  function spedOcorrencias(oc, descricao) {
+    return (h('section', { class: 'vg-card' },
+      h('div', { class: 'vg-card-topo' }, h('h2', { class: 'vg-card-titulo', text: 'Validação do arquivo' }),
+        h('span', { class: 'meta', text: descricao })),
+      oc.length ? h('ul', { class: 'sped-ocorrencias' }, ...oc.map((o) => h('li', { class: o.nivel },
+        h('span', { class: `selo ${NIVEL[o.nivel].tom}`, text: NIVEL[o.nivel].texto }),
+        h('div', {}, h('p', { text: o.mensagem }), o.linhas ? h('span', { class: 'meta', text: `Linha${o.linhas.length > 1 ? 's' : ''} ${o.linhas.join(', ')}${o.quantidade > o.linhas.length ? ` e mais ${o.quantidade - o.linhas.length}` : ''}` }) : null))))
+        : h('div', { class: 'e360-tudo-ok' }, h('span', { class: 'vg-simbolo ok', 'aria-hidden': 'true', text: '✓' }), 'Nenhum problema encontrado na estrutura e na apuração.')));
+  }
+
+  function spedEnvios(est) {
+    if (!est.arquivos || est.arquivos.length < 2) return null;
+    return (h('section', { class: 'vg-card' },
+        h('div', { class: 'vg-card-topo' }, h('h2', { class: 'vg-card-titulo', text: `Envios de ${textoCompetencia(est.mes)}` }),
+          h('span', { class: 'meta', text: 'Vale o mais recente (retificador substitui o anterior).' })),
+        h('ul', { class: 'sped-envios' }, ...est.arquivos.map((a, i) => h('li', {},
+          h('span', { class: `selo ${i === 0 ? 'ok' : 'neutro'}`, text: i === 0 ? 'Vigente' : 'Substituído' }),
+          h('strong', { text: a.nome }),
+          h('span', { class: 'meta', text: `${e3Quando(a.enviado_em)} · ${a.enviado_por} · ${a.erros ? `${a.erros} erro${a.erros === 1 ? '' : 's'}` : 'sem erros'}${a.divergencias ? ` · ${a.divergencias} divergência${a.divergencias === 1 ? '' : 's'}` : ''}` }),
+          h('a', { class: 'botao pequeno', href: '#', onclick: (ev) => { ev.preventDefault(); spedBaixar(a.id, a.nome); } }, 'Baixar'))))));
+  }
+
+  function spedBlocosFiscal(est) {
+    const { r } = est;
+    const res = r.resumo;
+    const fmt = (v) => moeda(v);
+    const dataBR = (iso) => (iso ? iso.split('-').reverse().join('/') : '—');
+    const oc = r.ocorrencias || [];
+    const nErros = oc.filter((o) => o.nivel === 'erro').length;
+    const nAlertas = oc.filter((o) => o.nivel === 'alerta').length;
+    const blocos = [];
+    blocos.push(...spedTopo(est, 'Compara de novo com os XMLs que estão no Appura agora'));
     // Cabeçalho do resultado
     const situacao = nErros ? { tom: 'problema', texto: `${nErros} erro${nErros === 1 ? '' : 's'} a corrigir` }
       : nAlertas ? { tom: 'pendente', texto: `Sem erros · ${nAlertas} alerta${nAlertas === 1 ? '' : 's'}` } : { tom: 'ok', texto: 'Sem erros nem alertas' };
@@ -589,14 +665,7 @@ if (typeof window !== 'undefined') {
         h('div', { class: 'e360-card-topo' }, h('span', { class: 'vg-kpi-icone progresso' }, icone('file-text')), h('h3', { text: 'Documentos escriturados' })),
         h('ul', { class: 'e360-lista-num' }, ...res.documentos.map((d) => h('li', {}, h('span', { text: d.rotulo }),
           h('strong', { text: `${e3Num(d.qtd)}${d.canceladas ? ` (${e3Num(d.canceladas)} canc.)` : ''} · ${fmt(d.valor)}` })))))));
-    // Ocorrências
-    blocos.push(h('section', { class: 'vg-card' },
-      h('div', { class: 'vg-card-topo' }, h('h2', { class: 'vg-card-titulo', text: 'Validação do arquivo' }),
-        h('span', { class: 'meta', text: 'Estrutura (9900, 9999, blocos), chaves de acesso, datas, C190 × C100 e E110 × documentos.' })),
-      oc.length ? h('ul', { class: 'sped-ocorrencias' }, ...oc.map((o) => h('li', { class: o.nivel },
-        h('span', { class: `selo ${NIVEL[o.nivel].tom}`, text: NIVEL[o.nivel].texto }),
-        h('div', {}, h('p', { text: o.mensagem }), o.linhas ? h('span', { class: 'meta', text: `Linha${o.linhas.length > 1 ? 's' : ''} ${o.linhas.join(', ')}${o.quantidade > o.linhas.length ? ` e mais ${o.quantidade - o.linhas.length}` : ''}` }) : null))))
-        : h('div', { class: 'e360-tudo-ok' }, h('span', { class: 'vg-simbolo ok', 'aria-hidden': 'true', text: '✓' }), 'Nenhum problema encontrado na estrutura e na apuração.')));
+    blocos.push(spedOcorrencias(oc, 'Estrutura (9900, 9999, blocos), chaves de acesso, datas, C190 × C100 e E110 × documentos.'));
     // Comparação
     const c = r.comparacao;
     if (c) {
@@ -627,17 +696,106 @@ if (typeof window !== 'undefined') {
           h('span', { class: 'mono sped-chave', text: d.chave })))) : null,
         lista.length > 300 ? h('p', { class: 'meta', text: `Mostrando 300 de ${e3Num(lista.length)}.` }) : null));
     }
-    if (est.arquivos && est.arquivos.length > 1) {
+    const envios = spedEnvios(est);
+    if (envios) blocos.push(envios);
+    return blocos;
+  }
+
+  var CRUZ_TIPOS = {
+    fiscal_sem_contribuicoes: 'Venda fora do Contribuições',
+    contribuicoes_sem_fiscal: 'Fora do SPED Fiscal',
+    valor: 'Valor diferente',
+    situacao: 'Situação diferente',
+  };
+
+  /** SPED Contribuições: regime, receitas por CST, apuração do PIS/COFINS, validação e cruzamento com o SPED Fiscal. */
+  function spedBlocosContrib(est) {
+    const { r } = est;
+    const res = r.resumo;
+    const fmt = (v) => moeda(v);
+    const dataBR = (iso) => (iso ? iso.split('-').reverse().join('/') : '—');
+    const oc = r.ocorrencias || [];
+    const nErros = oc.filter((o) => o.nivel === 'erro').length;
+    const nAlertas = oc.filter((o) => o.nivel === 'alerta').length;
+    const blocos = [...spedTopo(est, 'Cruza de novo com o SPED Fiscal do mês guardado no Appura')];
+    const situacao = nErros ? { tom: 'problema', texto: `${nErros} erro${nErros === 1 ? '' : 's'} a corrigir` }
+      : nAlertas ? { tom: 'pendente', texto: `Sem erros · ${nAlertas} alerta${nAlertas === 1 ? '' : 's'}` } : { tom: 'ok', texto: 'Sem erros nem alertas' };
+    const ap = res.apuracao || {}; const calc = res.calculada || { pis: 0, cofins: 0 };
+    const pis = ap.pis || { contribuicao: 0, creditos: 0, recolher: 0 };
+    const cof = ap.cofins || { contribuicao: 0, creditos: 0, recolher: 0 };
+    const confere = Math.abs(pis.contribuicao - calc.pis) <= 1 && Math.abs(cof.contribuicao - calc.cofins) <= 1;
+    blocos.push(h('div', { class: 'sped-cards' },
+      h('section', { class: 'vg-card' },
+        h('div', { class: 'e360-card-topo' }, h('span', { class: 'vg-kpi-icone info' }, icone('file-spreadsheet')), h('h3', { text: 'Arquivo' })),
+        h('div', { class: 'e360-card-valor' }, h('strong', { text: textoCompetencia(res.periodo) }), h('span', { text: r.arquivo.nome })),
+        h('ul', { class: 'e360-lista-num' },
+          h('li', {}, h('span', { text: 'Situação' }), h('span', { class: `selo ${situacao.tom}`, text: situacao.texto })),
+          h('li', {}, h('span', { text: 'Regime' }), h('strong', { text: res.regime ? res.regime.texto : '—' })),
+          h('li', {}, h('span', { text: 'Critério (cumulativo)' }), h('strong', { text: res.regime && res.regime.criterio ? res.regime.criterio : '—' })),
+          h('li', {}, h('span', { text: 'Leiaute / finalidade' }), h('strong', { text: `${res.codVer} / ${res.finalidade === 'retificadora' ? 'Retificadora' : 'Original'}` })),
+          h('li', {}, h('span', { text: 'Estabelecimentos' }), h('strong', { text: e3Num(res.estabelecimentos) })),
+          h('li', {}, h('span', { text: 'Linhas' }), h('strong', { text: e3Num(res.linhas) })))),
+      h('section', { class: 'vg-card' },
+        h('div', { class: 'e360-card-topo' }, h('span', { class: `vg-kpi-icone ${confere ? 'ok' : 'pendente'}` }, icone('calculator')), h('h3', { text: 'Apuração PIS/COFINS (M200/M600)' })),
+        h('div', { class: 'e360-card-valor' }, h('strong', { text: fmt(pis.recolher + cof.recolher) }), h('span', { text: 'PIS + COFINS a recolher' })),
+        h('ul', { class: 'e360-lista-num' },
+          h('li', {}, h('span', { text: 'PIS apurado' }), h('strong', { text: fmt(pis.contribuicao) })),
+          h('li', {}, h('span', { text: 'COFINS apurada' }), h('strong', { text: fmt(cof.contribuicao) })),
+          pis.creditos || cof.creditos ? h('li', {}, h('span', { text: 'Créditos descontados' }), h('strong', { text: `${fmt(pis.creditos)} / ${fmt(cof.creditos)}` })) : null,
+          h('li', {}, h('span', { text: 'Confere com os documentos' }), h('span', { class: `selo ${confere ? 'ok' : 'pendente'}`, text: confere ? 'Sim' : 'Não: veja os alertas' })))),
+      h('section', { class: 'vg-card' },
+        h('div', { class: 'e360-card-topo' }, h('span', { class: 'vg-kpi-icone progresso' }, icone('file-text')), h('h3', { text: 'Saídas por CST' })),
+        h('div', { class: 'e360-card-valor' }, h('strong', { text: fmt(res.receitaBruta) }), h('span', { text: 'saídas nos documentos (líquidas de desconto)' })),
+        h('ul', { class: 'e360-lista-num' }, ...(res.receitas.length ? res.receitas.map((c) => h('li', { class: c.cst === '49' || c.cst === '99' ? 'destaque-pendente' : '' },
+          h('span', { text: `${c.cst} · ${c.descricao}` }), h('strong', { text: `${fmt(c.valor)}${c.pis || c.cofins ? ` · PIS ${fmt(c.pis)} · COFINS ${fmt(c.cofins)}` : ''}` })))
+          : [h('li', { class: 'meta', text: 'Nenhuma receita nos documentos.' })])))));
+    if (res.porCfop && res.porCfop.length) {
       blocos.push(h('section', { class: 'vg-card' },
-        h('div', { class: 'vg-card-topo' }, h('h2', { class: 'vg-card-titulo', text: `Envios de ${textoCompetencia(est.mes)}` }),
-          h('span', { class: 'meta', text: 'Vale o mais recente (retificador substitui o anterior).' })),
-        h('ul', { class: 'sped-envios' }, ...est.arquivos.map((a, i) => h('li', {},
-          h('span', { class: `selo ${i === 0 ? 'ok' : 'neutro'}`, text: i === 0 ? 'Vigente' : 'Substituído' }),
-          h('strong', { text: a.nome }),
-          h('span', { class: 'meta', text: `${e3Quando(a.enviado_em)} · ${a.enviado_por} · ${a.erros ? `${a.erros} erro${a.erros === 1 ? '' : 's'}` : 'sem erros'}${a.divergencias ? ` · ${a.divergencias} divergência${a.divergencias === 1 ? '' : 's'}` : ''}` }),
-          h('a', { class: 'botao pequeno', href: '#', onclick: (ev) => { ev.preventDefault(); spedBaixar(a.id, a.nome); } }, 'Baixar'))))));
+        h('div', { class: 'vg-card-topo' }, h('h2', { class: 'vg-card-titulo', text: 'Saídas por CFOP e CST' }),
+          h('span', { class: 'meta', text: 'Venda é receita: CST 49 e 99 ("outras operações") ficam fora do PIS/COFINS.' })),
+        h('div', { class: 'vg-tabela-caixa sped-tabela-caixa' }, h('table', { class: 'vg-tabela sped-tabela' },
+          h('thead', {}, h('tr', {}, ...['CFOP', 'CST PIS/COFINS', 'Valor'].map((t) => h('th', { scope: 'col', class: t === 'Valor' ? 'num' : null, text: t })))),
+          h('tbody', {}, ...res.porCfop.map((x) => h('tr', {},
+            h('td', { class: 'mono', text: x.cfop }), h('td', {}, h('span', { class: `selo ${['49', '99'].includes(x.cst) && /^[567]1|^[56]40[1235]$/.test(x.cfop) ? 'problema' : 'neutro'}`, text: x.cst }), ` ${({ '01': 'Tributada', '04': 'Monofásica', '05': 'ST', '06': 'Alíquota zero', '07': 'Isenta', '08': 'Sem incidência', '09': 'Suspensão', '49': 'Outras saídas', '99': 'Outras' })[x.cst] || ''}`),
+            h('td', { class: 'num', text: fmt(x.valor) }))))))));
     }
-    alvo.replaceChildren(...blocos);
+    blocos.push(spedOcorrencias(oc, 'Estrutura (9900, 9999, blocos), regime (0110), chaves, CST das receitas, M200/M600 e M400/M800 × documentos.'));
+    // Cruzamento com o SPED Fiscal
+    const c = r.comparacao;
+    if (!c) {
+      blocos.push(h('div', { class: 'e360-breve pequeno' }, icone('file-check'), h('div', {}, h('strong', { text: 'Cruzamento com o SPED Fiscal' }),
+        h('p', { text: `Envie o SPED Fiscal de ${textoCompetencia(res.periodo)} para conferir, nota a nota, se todas as vendas estão no Contribuições.` }))));
+    } else {
+      const t = c.totais;
+      const tipos = Object.entries(c.contagem).filter(([, n]) => n);
+      const filtro = est.filtro;
+      const lista = c.divergencias.filter((d) => !filtro || d.tipo === filtro);
+      blocos.push(h('section', { class: 'vg-card' },
+        h('div', { class: 'vg-card-topo' }, h('h2', { class: 'vg-card-titulo', text: 'Cruzamento SPED Fiscal × Contribuições' }),
+          h('span', { class: 'meta', text: 'Por chave de acesso: toda venda do SPED Fiscal precisa estar no Contribuições.' })),
+        h('div', { class: 'sped-totais' },
+          h('div', {}, h('span', { class: 'meta', text: 'Vendas no SPED Fiscal' }), h('strong', { text: `${e3Num(t.vendasFiscal)} · ${fmt(t.valorFiscal)}` })),
+          h('div', {}, h('span', { class: 'meta', text: 'Conferidas no Contribuições' }), h('strong', { text: `${e3Num(t.conferidas)}${t.vendasFiscal ? ` (${Math.round((t.conferidas / t.vendasFiscal) * 100)}%)` : ''}` })),
+          h('div', {}, h('span', { class: 'meta', text: 'Saídas no Contribuições' }), h('strong', { text: `${e3Num(t.saidasContrib)} · ${fmt(t.valorContrib)}` })),
+          h('div', {}, h('span', { class: 'meta', text: 'Fiscal sem CFOP de venda' }), h('strong', { text: e3Num(t.ignoradasFiscal) }))),
+        c.observacoes.length ? h('ul', { class: 'sped-obs' }, ...c.observacoes.map((o) => h('li', { text: o }))) : null,
+        tipos.length ? h('div', { class: 'sped-filtros', role: 'group', 'aria-label': 'Filtrar divergências' },
+          h('button', { type: 'button', class: `vg-chip-f${!filtro ? ' ativo' : ''}`, 'aria-pressed': String(!filtro), onclick: () => { est.filtro = ''; spedRender(); } }, `Todas ${e3Num(c.divergencias.length)}`),
+          ...tipos.map(([k, n]) => h('button', { type: 'button', class: `vg-chip-f${filtro === k ? ' ativo' : ''}`, 'aria-pressed': String(filtro === k), onclick: () => { est.filtro = k; spedRender(); } }, `${CRUZ_TIPOS[k]} ${e3Num(n)}`)))
+          : h('div', { class: 'e360-tudo-ok' }, h('span', { class: 'vg-simbolo ok', 'aria-hidden': 'true', text: '✓' }), 'Todas as vendas do SPED Fiscal estão no Contribuições, com o mesmo valor.'),
+        lista.length ? h('ul', { class: 'sped-div' }, ...lista.slice(0, 300).map((d) => h('li', { class: d.nivel },
+          h('div', { class: 'sped-div-topo' },
+            h('span', { class: `selo ${NIVEL[d.nivel].tom}`, text: CRUZ_TIPOS[d.tipo] }),
+            h('strong', { text: `${({ '55': 'NF-e', '65': 'NFC-e' })[d.modelo] || d.modelo} ${d.numero}` }),
+            h('span', { class: 'meta', text: dataBR(d.data) }),
+            h('span', { class: 'sped-div-valores' }, d.valorFiscal !== null ? `Fiscal ${fmt(d.valorFiscal)}` : '', d.valorFiscal !== null && d.valorContrib !== null ? ' · ' : '', d.valorContrib !== null ? `Contrib. ${fmt(d.valorContrib)}` : '')),
+          h('span', { class: 'meta', text: d.detalhe }),
+          h('span', { class: 'mono sped-chave', text: d.chave })))) : null,
+        lista.length > 300 ? h('p', { class: 'meta', text: `Mostrando 300 de ${e3Num(lista.length)}.` }) : null));
+    }
+    const envios = spedEnvios(est);
+    if (envios) blocos.push(envios);
+    return blocos;
   }
 
   /** Baixa o SPED guardado (o servidor descriptografa; o arquivo sai igual ao enviado). */

@@ -28,6 +28,7 @@ const base = (x: Record<string, any> = {}) => ({
   historico: x.historico ?? [],
   sped: x.sped ?? null,
   sugestao: x.sugestao ?? null,
+  contrib: x.contrib ?? null,
 });
 
 // 1) Números da competência
@@ -69,6 +70,12 @@ const base = (x: Record<string, any> = {}) => ({
   const ok = Object.fromEntries(e3.e360Etapas(base({ sped: { erros: 0, alertas: 0, divergencias: 0 } })).map((x: any) => [x.id, x.estado]));
   assert.equal(ok.validacao, 'concluido');
   assert.equal(e3.e360Etapas(base({ sped: { erros: 3, alertas: 0, divergencias: 0 } }))[3].estado, 'pendencia');
+  const comContrib = base({ auditoria: [], sped: { erros: 0, alertas: 0, divergencias: 0 }, contrib: { erros: 1, alertas: 0, divergencias: 2 } });
+  const ec = Object.fromEntries(e3.e360Etapas(comContrib).map((x: any) => [x.id, x]));
+  assert.equal(ec.sped.texto, 'Fiscal e Contribuições · 1 erro no arquivo');
+  assert.equal(ec.validacao.texto, '2 divergências Fiscal × Contribuições');
+  assert.equal(vg.vgGeral(e3.e360LinhaCentral(comContrib)).chave, 'pendencias');
+  assert.deepEqual(e3.e360Atencao(comContrib, null, hoje).map((x: any) => x.id).filter((i: string) => i.startsWith('contrib')), ['contrib-erros', 'contrib']);
   console.log('ok  etapas do fechamento (com SPED guardado) e status geral pela mesma regra da Central');
 }
 
