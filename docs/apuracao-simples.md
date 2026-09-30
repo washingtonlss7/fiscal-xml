@@ -9,7 +9,10 @@ Objetivo: fechar o ciclo do Simples sem sair do Appura:
 5. O Appura transmite o PGDAS-D.
 6. O Appura gera o DAS e o envia à Acessórias.
 
-Status: **desenho**, ainda não implementado. As decisões em aberto estão no fim.
+Status:
+
+- **Etapa B implementada.** É a aba "Apuração" da Empresa 360°, com prévia, alertas e ajustes. O motor está em `src/fiscal/simples.ts` e o serviço em `src/painel/apuracao.ts`.
+- **Etapas A, C e D:** a fazer.
 
 ## 1. Como a Receita recebe a declaração (Integra Contador)
 
@@ -167,12 +170,16 @@ A etapa B já entrega valor sozinha. Mesmo com a transmissão feita fora, ela mo
 
 O desenho não fecha a porta para nenhum deles: todos são outras atividades e qualificações no mesmo pedido.
 
-## 8. Decisões em aberto
+## 8. Decisões
 
-1. **Fonte das saídas:** API Sieg/Jettax, importação mensal de XML ou as duas?
-2. **Quem transmite:** qualquer perfil que opera, ou transmissão só por supervisor/admin depois da conferência do analista?
-3. **Escopo da 1ª versão:** só comércio (revenda, Anexo I), que cobre as farmácias?
-4. **Regras do escritório a validar:**
+Tomadas em 30/09/2026:
+
+1. **Fonte das saídas:** API Sieg/Jettax como fonte principal, com a importação de XML/ZIP de reserva.
+2. **Quem transmite:** o analista confere e simula; **supervisor ou admin transmite**.
+3. **Escopo da 1ª versão:** só comércio (revenda, Anexo I).
+4. **Ordem:** a etapa B primeiro, antes da fonte automática e do SERPRO.
+
+**Ainda a validar com o escritório:**
    - devolução deduzida no mês da devolução;
    - frete destacado na nota entra na receita;
    - bonificação fora da receita.

@@ -386,6 +386,7 @@
         <button id="aba-auditoria" type="button" role="tab" class="aba-tela" data-aba="auditoria">Auditoria <span id="aba-auditoria-qtd" class="contador" hidden></span></button>
         <button id="aba-st" type="button" role="tab" class="aba-tela" data-aba="st">ICMS-ST</button>
         <button id="aba-sped" type="button" role="tab" class="aba-tela" data-aba="sped">SPED</button>
+        <button id="aba-apuracao" type="button" role="tab" class="aba-tela" data-aba="apuracao">Apuração</button>
         <button id="aba-guias" type="button" role="tab" class="aba-tela" data-aba="guias">Guias</button>
         <button id="aba-arquivos" type="button" role="tab" class="aba-tela" data-aba="arquivos">Arquivos</button>
         <button id="aba-historico" type="button" role="tab" class="aba-tela" data-aba="historico">Histórico</button>
@@ -496,6 +497,9 @@
           <p id="sped-sem-permissao" class="meta" hidden>Seu perfil só consulta: peça a um analista para enviar o arquivo.</p>
         </section>
         <div id="sped-resultado" class="pilha" aria-live="polite"></div>
+      </div>
+      <div id="painel-apuracao" class="pilha" role="tabpanel" aria-labelledby="aba-apuracao" hidden>
+        <div id="ap-conteudo" class="pilha" aria-live="polite"></div>
       </div>
       <div id="painel-guias" class="pilha" role="tabpanel" aria-labelledby="aba-guias" hidden>
         <div id="gu-empresa" class="pilha" aria-live="polite"></div>
@@ -694,6 +698,7 @@
   <script src="/empresa-360.js?v=__VERSAO__"></script>
   <script src="/sped.js?v=__VERSAO__"></script>
   <script src="/guias.js?v=__VERSAO__"></script>
+  <script src="/apuracao.js?v=__VERSAO__"></script>
   <script src="/ia.js?v=__VERSAO__"></script>
 </body>
 </html>

@@ -26,8 +26,8 @@ function textoCompetencia(v) {
 
 /* ---------- rotas ---------- */
 /** Abas da Empresa 360° e o pedaço do endereço de cada uma. */
-const ABA_NO_ENDERECO = { visao: '', notas: '/notas', auditoria: '/auditoria', st: '/icms-st', sped: '/sped', guias: '/guias', arquivos: '/arquivos', historico: '/historico' };
-const ABA_DO_ENDERECO = { notas: 'notas', auditoria: 'auditoria', 'icms-st': 'st', sped: 'sped', guias: 'guias', arquivos: 'arquivos', historico: 'historico' };
+const ABA_NO_ENDERECO = { visao: '', notas: '/notas', auditoria: '/auditoria', st: '/icms-st', sped: '/sped', apuracao: '/apuracao', guias: '/guias', arquivos: '/arquivos', historico: '/historico' };
+const ABA_DO_ENDERECO = { notas: 'notas', auditoria: 'auditoria', 'icms-st': 'st', sped: 'sped', apuracao: 'apuracao', guias: 'guias', arquivos: 'arquivos', historico: 'historico' };
 
 /**
  * Traduz o endereço (#/...) na tela a abrir. Endereço desconhecido ou sem permissão volta para a Visão Geral,

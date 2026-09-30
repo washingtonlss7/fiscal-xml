@@ -23,6 +23,22 @@ export class Consulta {
   like(c: string, v: string) { const r = new RegExp(`^${String(v).split('%').map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`); this.filtros.push((l) => r.test(String(l[c] ?? ''))); return this; }
   gte(c: string, v: any) { this.filtros.push((l) => l[c] >= v); return this; }
   lte(c: string, v: any) { this.filtros.push((l) => l[c] <= v); return this; }
+  lt(c: string, v: any) { this.filtros.push((l) => l[c] < v); return this; }
+  gt(c: string, v: any) { this.filtros.push((l) => l[c] > v); return this; }
+  /** Subconjunto do or() do PostgREST: "col.op.valor,col.op.valor" com eq, gt, in.(a,b), like, ilike. */
+  or(expr: string) {
+    const partes = expr.match(/[^,(]+(\([^)]*\))?/g)!.map((x) => x.replace(/^,/, '')).filter(Boolean);
+    const testes = partes.map((p) => {
+      const [c, op, ...resto] = p.split('.'); const v = resto.join('.');
+      if (op === 'in') { const l = v.replace(/^\(|\)$/g, '').split(','); return (x: Linha) => l.includes(String(x[c])); }
+      if (op === 'gt') return (x: Linha) => Number(x[c]) > Number(v);
+      if (op === 'eq') return (x: Linha) => String(x[c]) === v;
+      const r = new RegExp(`^${v.split('%').map((y) => y.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`, op === 'ilike' ? 'i' : '');
+      return (x: Linha) => r.test(String(x[c] ?? ''));
+    });
+    this.filtros.push((l) => testes.some((t) => t(l)));
+    return this;
+  }
   order(c: string, o: { ascending?: boolean } = {}) { this.ordem.push([c, o.ascending !== false]); return this; }
   limit(n: number) { this.lim = n; return this; }
   range(de: number, ate: number) { this.de = de; this.lim = ate - de + 1; return this; }

@@ -1422,3 +1422,44 @@ body.com-dialogo { overflow: hidden; }
 .ia-resumo { overflow-wrap: anywhere; }
 @media (max-width: 640px) { .ia-numeros { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 900px) { .ia-tabela-caixa { display: block; } }
+/* Apuração do Simples (aba da empresa) */
+.ap-receita { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--esp-4); }
+.ap-total { font-size: 32px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.ap-comps { display: flex; flex-wrap: wrap; gap: var(--esp-4); }
+.ap-comp { display: flex; flex-direction: column; gap: 2px; }
+.ap-comp strong { font-variant-numeric: tabular-nums; }
+.ap-comp .selo { align-self: flex-start; }
+.ap-dica { margin: 0; }
+.ap-grupos, .ap-alertas, .ap-fora, .ap-ncms, .ap-exemplos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.ap-grupos > li { display: flex; flex-direction: column; gap: 6px; padding: var(--esp-3) 0; border-bottom: 1px solid var(--linha); }
+.ap-grupos > li:last-child { border-bottom: 0; }
+.ap-grupo-topo { display: flex; justify-content: space-between; gap: var(--esp-3); align-items: flex-start; }
+.ap-grupo-topo > div:first-child { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ap-grupo-valor { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ap-barra { height: 6px; border-radius: 3px; background: var(--superficie-2); overflow: hidden; }
+.ap-barra span { display: block; height: 100%; border-radius: 3px; background: var(--neutro, var(--tinta-2)); }
+.ap-barra .ap-barra-a1 { background: var(--primaria); }
+.ap-barra .ap-barra-a2_st { background: var(--progresso); }
+.ap-barra .ap-barra-a2_mono { background: var(--ok); }
+.ap-barra .ap-barra-a2_st_mono { background: var(--pendente); }
+.ap-barra .ap-barra-a3 { background: var(--info); }
+.ap-ncms li, .ap-exemplos li { display: flex; gap: var(--esp-3); align-items: baseline; padding: 4px 0; font-size: var(--t-s); }
+.ap-ncm-produto { flex: 1; min-width: 0; color: var(--tinta-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-exemplos li span { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--tinta-2); }
+.ap-exemplos li strong, .ap-ncms li strong { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ap-alertas > li { display: flex; gap: var(--esp-3); align-items: flex-start; padding: var(--esp-3) 0; border-bottom: 1px solid var(--linha); }
+.ap-alertas > li:last-child { border-bottom: 0; }
+.ap-alertas > li > .selo { flex: none; min-width: 84px; justify-content: center; }
+.ap-alertas > li > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ap-fora > li { display: flex; justify-content: space-between; gap: var(--esp-3); padding: var(--esp-2) 0; border-bottom: 1px solid var(--linha); }
+.ap-fora > li:last-child { border-bottom: 0; }
+.ap-fora > li > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ap-fora > li > strong { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ap-tudo-ok { display: flex; gap: var(--esp-2); align-items: center; color: var(--ok); }
+.ap-form-linha { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--esp-3); }
+.ap-form textarea { width: 100%; }
+.ap-novo-ajuste { margin-top: var(--esp-2); }
+@media (max-width: 640px) {
+  .ap-total { font-size: 26px; }
+  .ap-alertas > li { flex-direction: column; gap: 6px; }
+}

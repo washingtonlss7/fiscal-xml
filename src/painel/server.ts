@@ -26,6 +26,7 @@ import { rotaMcp, OpcoesMcpHttp } from '../mcp/http';
 import { Confirmacoes } from '../mcp/acoes';
 import { usoMcp } from '../mcp/uso';
 import { ErroApontamento, resolverApontamento } from './apontamentos';
+import { ErroApuracao, ServicoApuracao } from './apuracao';
 import { authDoSupabase, ErroUsuario, GestaoUsuarios, PERFIS_INFO, PERMISSOES, permissaoDaRota } from './usuarios';
 
 function exigir(nome: string): string {
@@ -62,6 +63,7 @@ const ARQUIVOS: Record<string, [string, string]> = {
   '/empresa-360.js': ['empresa-360.js', 'text/javascript; charset=utf-8'],
   '/sped.js': ['sped.js', 'text/javascript; charset=utf-8'],
   '/guias.js': ['guias.js', 'text/javascript; charset=utf-8'],
+  '/apuracao.js': ['apuracao.js', 'text/javascript; charset=utf-8'],
   '/ia.js': ['ia.js', 'text/javascript; charset=utf-8'],
   '/nucleo.js': ['nucleo.js', 'text/javascript; charset=utf-8'],
   '/app.css': ['app.css', 'text/css; charset=utf-8'],
@@ -495,6 +497,25 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
   }
 
   // Empresa 360°: cadastro, certificado, captação, números da competência e histórico numa chamada só
+  // Apuração do Simples Nacional (etapa B: prévia da segregação e ajustes manuais)
+  const apu = rota.match(/^\/api\/empresas\/([0-9a-f-]{36})\/apuracao(\/ajustes)?$/);
+  if (apu) {
+    const mesApu = url.searchParams.get('mes') ?? new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }).slice(0, 7);
+    if (metodo === 'GET' && !apu[2]) return responder(res, 200, await servicoApuracao.previa(apu[1], mesApu));
+    if (metodo === 'POST' && apu[2]) {
+      const c = await lerCorpo(req, 10_000);
+      const r = await servicoApuracao.adicionarAjuste(apu[1], String(c.mes ?? mesApu), c, email);
+      log.info('apuração: ajuste lançado', { empresa: apu[1], mes: c.mes ?? mesApu, valor: c.valor, atividade: c.atividade, por: email });
+      return responder(res, 200, r);
+    }
+  }
+  const apuAj = rota.match(/^\/api\/apuracao\/ajustes\/(\d+)$/);
+  if (apuAj && metodo === 'DELETE') {
+    const r = await servicoApuracao.removerAjuste(Number(apuAj[1]));
+    log.info('apuração: ajuste removido', { ...r, por: email });
+    return responder(res, 200, { ok: true });
+  }
+
   // Conexões de IA (MCP): cada usuário vê, cria e revoga só as próprias
   if (rota === '/api/mcp/conexoes' && metodo === 'GET') {
     return responder(res, 200, { url: `${urlPublica(req)}/mcp`, ...(await servicoOAuth.conexoes(email)) });
@@ -682,6 +703,7 @@ const cfgIntegra = configIntegra();
 const servicoGuias = new ServicoGuias(db, arm, cfg.masterKey, (c, contratante, registrar) => new IntegraContador(c, contratante, transporteHttps, registrar), cfgIntegra);
 if (cfgIntegra) log.info('Integra Contador com chaves do servidor', { ambiente: cfgIntegra.ambiente });
 const servicoAcessorias = new ServicoAcessorias(db, arm, cfg.masterKey);
+const servicoApuracao = new ServicoApuracao(db);
 servicoGuias.acessorias = servicoAcessorias;
 
 /* ---------- MCP do Appura (IA): OAuth 2.1 próprio + ferramentas de leitura ---------- */
@@ -878,7 +900,7 @@ const servidor = http.createServer(async (req, res) => {
     if (e instanceof ErroIntegra) return responder(res, e.status, { erro: e.message, ...(e.codigo ? { codigo: e.codigo } : {}) });
     if (e instanceof ErroAcessorias) return responder(res, e.status, { erro: e.message });
     if (e instanceof ErroOAuth) return responder(res, e.status, { erro: e.message });
-    if (e instanceof ErroHttp || e instanceof ErroUsuario || e instanceof ErroSped || e instanceof ErroApontamento) return responder(res, e.status, { erro: e.message });
+    if (e instanceof ErroHttp || e instanceof ErroUsuario || e instanceof ErroSped || e instanceof ErroApontamento || e instanceof ErroApuracao) return responder(res, e.status, { erro: e.message });
     log.error('erro no painel', { rota: url.pathname, erro: (e as Error).message });
     responder(res, 500, { erro: 'Erro inesperado no servidor. Tente de novo.' });
   }
