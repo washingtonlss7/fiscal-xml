@@ -99,6 +99,9 @@ const docs = [
   const duplicado = [...docs, ...docs.slice(0, 3)];
   assert.ok(cod(montar(duplicado)).includes('C100_DUPLICADO'));
   assert.ok(cod(Buffer.from('isto não é sped')).includes('0000'));
+  const contrib = analisarEfd(Buffer.from('|0000|006|0|||01042026|30042026|FARMA LTDA|55885998000140|ES|3201209||00|2|\r\n|0110|2||||\r\n|M001|0|\r\n', 'latin1'));
+  assert.deepEqual(contrib.ocorrencias.map((o) => o.codigo), ['CONTRIBUICOES']);
+  assert.equal(contrib.efd.cabecalho, null);
   console.log('ok  9999, E110 × documentos, chave inválida, C190 ausente, VL_OPR, datas, participante, duplicidade e arquivo inválido');
 }
 

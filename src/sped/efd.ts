@@ -251,6 +251,12 @@ export function analisarEfd(buf: Buffer): ResultadoEfd {
   const { efd, malformadas } = lerEfd(dec.texto);
   if (malformadas.length) add('erro', 'LINHA', 'Linhas fora do formato |REG|...| (devem começar e terminar com "|").', malformadas, malformadas.length);
 
+  // EFD-Contribuições (PIS/COFINS) tem 0000 com outro leiaute e blocos A, F, M e P: não é lido aqui
+  if (['0110', 'A001', 'F001', 'M001', 'P001'].some((r) => efd.contagem.has(r))) {
+    add('erro', 'CONTRIBUICOES', 'Este arquivo é o SPED Contribuições (EFD PIS/COFINS), não o SPED Fiscal (EFD ICMS/IPI). A leitura do SPED Contribuições ainda não está disponível.');
+    efd.cabecalho = null;
+    return { efd, ocorrencias: oc, resumo: montarResumo(efd) };
+  }
   const cab = efd.cabecalho;
   if (!cab) {
     add('erro', '0000', 'Registro 0000 não encontrado: o arquivo não parece ser um SPED Fiscal (EFD ICMS/IPI).');

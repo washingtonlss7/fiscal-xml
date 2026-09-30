@@ -14,7 +14,10 @@ function spPadraoMarcados(diferencas, clienteNovo) {
 
 /** Texto curto do resultado de um envio. */
 function spResumoEnvio(r) {
-  if (!r.valido) return { tom: 'problema', texto: 'Não é um SPED Fiscal' };
+  if (!r.valido) {
+    const erro = (r.ocorrencias || []).find((o) => o.nivel === 'erro');
+    return { tom: 'problema', texto: erro ? erro.mensagem : 'Não é um SPED Fiscal' };
+  }
   const partes = [];
   const erros = (r.ocorrencias || []).filter((o) => o.nivel === 'erro').length;
   partes.push(erros ? `${erros} erro${erros === 1 ? '' : 's'} no arquivo` : 'arquivo sem erros');
