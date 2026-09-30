@@ -114,8 +114,9 @@ if (typeof window !== 'undefined') {
     }
     const passos = h('ol', { class: 'gu-passos' },
       passo(s.configurado, 'Contrato e chaves do SERPRO', s.configurado
-        ? `Chaves configuradas no servidor${s.ambiente === 'trial' ? ' (ambiente de teste)' : ''}.`
-        : 'Contratar o Integra Contador na loja do SERPRO e colocar a Consumer Key e a Consumer Secret nas variáveis do servidor (SERPRO_CONSUMER_KEY e SERPRO_CONSUMER_SECRET, no Easypanel). Nunca envie as chaves por chat ou e-mail.'),
+        ? `Chaves cadastradas${s.chaves && s.chaves.origem === 'servidor' ? ' nas variáveis do servidor' : ' no Appura'}${s.ambiente === 'trial' ? ' (ambiente de teste do SERPRO)' : ''}.`
+        : 'Contratar o Integra Contador na loja do SERPRO e cadastrar a Consumer Key e a Consumer Secret em Administração › Escritório. Nunca envie as chaves por chat ou e-mail.',
+        !s.configurado && pode('configuracoes') && location.hash !== '#/escritorio' ? h('a', { class: 'botao pequeno gu-passo-acao', href: '#/escritorio' }, 'Cadastrar chaves') : null),
       passo(certOk, 'e-CNPJ do escritório no Appura', esc
         ? (certOk ? `${esc.razao_social} · ${formatarCnpj(esc.cnpj)} · certificado válido até ${guData(esc.certificadoValidoAte)}.` : `${esc.razao_social}: ${esc.certificadoValidoAte ? 'certificado vencido' : 'sem certificado'}. Cadastre o mesmo e-CNPJ do contrato.`)
         : 'Cadastrar o escritório (CNPJ do contrato) com o certificado e-CNPJ.',
@@ -369,7 +370,7 @@ if (typeof window !== 'undefined') {
   }
 
   /* ----- Administração › Escritório (#/escritorio) ----- */
-  var es = { dados: null, erro: null };
+  var es = { dados: null, erro: null, editandoChaves: false, confirmarRemover: false };
   function esMostrar() {
     for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias']) $(id).hidden = true;
     $('tela-escritorio').hidden = false;
@@ -416,7 +417,7 @@ if (typeof window !== 'undefined') {
         h('ul', { class: 'e360-lista-num' },
           h('li', {}, h('span', { text: 'UF' }), h('strong', { text: esc.uf || '—' })),
           h('li', {}, h('span', { text: 'Titular do certificado' }), h('strong', { text: esc.titular || '—' })),
-          h('li', {}, h('span', { text: 'Certificado válido até' }), h('strong', { text: venc ? venc.toLocaleDateString('pt-BR') : '—' }))),
+          h('li', {}, h('span', { text: 'Certificado válido até' }), h('strong', { text: venc ? guData(esc.certificadoValidoAte) : '—' }))),
         esc.outros && esc.outros.length ? h('div', { class: 'sped-aviso' }, icone('triangle-alert'),
           h('span', { text: `Também marcada${esc.outros.length === 1 ? '' : 's'} como escritório: ${esc.outros.join(', ')}. O Integra Contador usa ${esc.razao_social}.` })) : null,
         h('p', { class: 'meta', text: 'Para que serve:' }), usos,
@@ -424,7 +425,72 @@ if (typeof window !== 'undefined') {
           h('button', { type: 'button', class: 'botao primario', onclick: () => abrirGaveta(empresa, 'escritorio') }, icone('key-round'), 'Trocar certificado'),
           h('a', { class: 'botao', href: `#/empresas/${esc.id}` }, 'Abrir empresa')));
     }
-    alvo.replaceChildren(card, guIntegraCard(s, false));
+    alvo.replaceChildren(card, esCardChaves(s), guIntegraCard(s, false));
+  }
+
+  /** Consumer Key e Secret do contrato do SERPRO: só o administrador cadastra; ninguém vê o valor depois de salvo. */
+  function esCardChaves(s) {
+    const c = s.chaves || {};
+    const selo = c.origem === 'painel' ? { tom: 'ok', texto: 'Cadastradas' } : c.origem === 'servidor' ? { tom: 'info', texto: 'No servidor' } : { tom: 'neutro', texto: 'Não cadastradas' };
+    const info = c.origem === 'painel'
+      ? `${s.ambiente === 'trial' ? 'Ambiente de teste do SERPRO' : `Consumer Key terminando em ••••${c.finalChave || ''}`} · cadastradas ${guQuando(c.atualizadoEm)} por ${c.atualizadoPor}`
+      : c.origem === 'servidor' ? 'O Appura está usando as chaves das variáveis do servidor. Se cadastrar aqui, estas passam a valer.' : 'Copie as duas chaves da área do cliente do SERPRO e cole aqui.';
+    const podeEditar = pode('configuracoes');
+    const aberto = es.editandoChaves || (!c.origem && podeEditar);
+    const topo = h('div', { class: 'vg-card-topo' },
+      h('div', {}, h('h2', { class: 'vg-card-titulo', text: 'Chaves do Integra Contador' }),
+        h('p', { class: 'meta', text: 'Ficam cifradas no servidor (como os certificados). Depois de salvas, ninguém vê o valor, nem o administrador.' })),
+      h('span', { class: `selo ${selo.tom}`, text: selo.texto }));
+    const partes = [topo, h('p', { class: 'meta', text: info })];
+    if (!podeEditar) {
+      partes.push(h('p', { class: 'meta', text: 'Só um administrador cadastra ou troca as chaves.' }));
+    } else if (!aberto) {
+      partes.push(h('div', { class: 'gu-botoes' },
+        h('button', { type: 'button', class: 'botao pequeno', onclick: () => { es.editandoChaves = true; esRender(); } }, icone('key-round'), c.origem === 'painel' ? 'Trocar chaves' : 'Cadastrar chaves no Appura'),
+        c.origem === 'painel' ? (es.confirmarRemover
+          ? h('span', { class: 'gu-botoes' }, h('button', { type: 'button', class: 'botao pequeno fantasma', onclick: () => { es.confirmarRemover = false; esRender(); } }, 'Cancelar'),
+            h('button', { type: 'button', class: 'botao pequeno perigo-cheio', onclick: (ev) => comOcupado(ev.currentTarget, 'Removendo…', async () => {
+              es.dados = await chamar('/api/guias/chaves', { method: 'DELETE' }); es.confirmarRemover = false; avisar('Chaves removidas.', { tipo: 'ok' }); esRender();
+            }, 'es-remover') }, h('span', { text: 'Confirmar remoção' })))
+          : h('button', { type: 'button', class: 'botao pequeno perigo', onclick: () => { es.confirmarRemover = true; esRender(); } }, 'Remover chaves')) : null));
+    } else {
+      const form = h('form', { class: 'es-chaves', autocomplete: 'off', novalidate: true, onsubmit: (ev) => { ev.preventDefault(); esSalvarChaves(form); } },
+        h('label', { class: 'campo' }, h('span', { text: 'Ambiente' }),
+          h('select', { id: 'es-ambiente', onchange: () => { const t = $('es-ambiente').value === 'trial'; $('es-key').required = !t; $('es-secret').required = !t; } },
+            h('option', { value: 'producao', text: 'Produção (contrato do escritório)' }),
+            h('option', { value: 'trial', text: 'Teste do SERPRO (dados fictícios, nada é gravado)' }))),
+        h('label', { class: 'campo' }, h('span', { text: 'Consumer Key' }),
+          h('input', { id: 'es-key', type: 'text', required: true, autocomplete: 'off', spellcheck: 'false', autocapitalize: 'off', maxlength: '200' })),
+        h('label', { class: 'campo' }, h('span', { text: 'Consumer Secret' }),
+          h('div', { class: 'senha' }, h('input', { id: 'es-secret', type: 'password', required: true, autocomplete: 'new-password', spellcheck: 'false', maxlength: '200' }),
+            h('button', { type: 'button', class: 'botao fantasma pequeno', 'aria-pressed': 'false', onclick: (ev) => { const i = $('es-secret'); const mostrar = i.type === 'password'; i.type = mostrar ? 'text' : 'password'; ev.currentTarget.textContent = mostrar ? 'Ocultar' : 'Mostrar'; ev.currentTarget.setAttribute('aria-pressed', String(mostrar)); } }, 'Mostrar'))),
+        h('p', { id: 'es-erro', class: 'erro', role: 'alert', hidden: true }),
+        h('div', { class: 'gu-botoes' },
+          c.origem ? h('button', { type: 'button', class: 'botao fantasma', onclick: () => { es.editandoChaves = false; esRender(); } }, 'Cancelar') : null,
+          h('button', { type: 'submit', class: 'botao primario' }, h('span', { text: 'Salvar chaves' }))));
+      partes.push(form);
+    }
+    return h('section', { class: 'vg-card' }, ...partes);
+  }
+
+  async function esSalvarChaves(form) {
+    const erro = $('es-erro');
+    const ambiente = $('es-ambiente').value;
+    const consumerKey = $('es-key').value.trim(); const consumerSecret = $('es-secret').value.trim();
+    erro.hidden = true;
+    if (ambiente !== 'trial' && (!consumerKey || !consumerSecret)) {
+      erro.textContent = 'Informe a Consumer Key e a Consumer Secret.'; erro.hidden = false;
+      (consumerKey ? $('es-secret') : $('es-key')).setAttribute('aria-invalid', 'true');
+      return;
+    }
+    await comOcupado(form.querySelector('button[type=submit]'), 'Salvando…', async () => {
+      try {
+        es.dados = await chamar('/api/guias/chaves', { method: 'POST', body: { ambiente, consumerKey, consumerSecret } });
+      } catch (e) { erro.textContent = e.message; erro.hidden = false; return; }
+      es.editandoChaves = false;
+      avisar('Chaves salvas. Use "Testar conexão" para conferir com o SERPRO.', { tipo: 'ok' });
+      esRender();
+    }, 'es-chaves');
   }
 
   window.esMostrar = esMostrar;

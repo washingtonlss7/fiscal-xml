@@ -124,7 +124,7 @@ function pfxEscritorio() {
 
 async function testeGuias() {
   const MK = Buffer.alloc(32, 7).toString('base64');
-  const { db, t } = bancoFalso(['empresas', 'certificados', 'integra_chamadas', 'integra_procuracoes', 'pgdas_declaracoes', 'guias']);
+  const { db, t } = bancoFalso(['empresas', 'certificados', 'integra_chamadas', 'integra_procuracoes', 'pgdas_declaracoes', 'guias', 'integra_config']);
   t.empresas.push(
     { id: 'e-esc', cnpj: ESC, razao_social: 'CONTABIL FARMA', regime: 'real', ativo: true, escritorio: true },
     { id: 'e-sn', cnpj: CLI, razao_social: 'FARMA TESTE', regime: 'simples', ativo: true, escritorio: false },
@@ -150,7 +150,8 @@ async function testeGuias() {
       return gw(400, null, [{ codigo: '[Erro-X]', texto: 'serviço não simulado' }]);
     },
   };
-  const criar = (cfg: 'producao' | 'trial') => new ServicoGuias(db, arm, MK, (contratante, registrar) => new IntegraContador({ ambiente: cfg, consumerKey: 'k', consumerSecret: 's' }, contratante, transporte, registrar));
+  const fabrica = (c: any, contratante: any, registrar: any) => new IntegraContador(c, contratante, transporte, registrar);
+  const criar = (cfg: 'producao' | 'trial') => new ServicoGuias(db, arm, MK, fabrica, { ambiente: cfg, consumerKey: 'k', consumerSecret: 's' });
 
   // Sem certificado do escritório: pendência e erro claro
   let s = criar('producao');
@@ -212,15 +213,33 @@ async function testeGuias() {
   assert.ok(t.integra_chamadas.some((c: any) => c.servico === 'GERARDAS12' && c.empresa_id === 'e-sn'));
 
   // Não configurado e trial: nada gravado
-  const semChave = new ServicoGuias(db, arm, MK, null);
+  const semChave = new ServicoGuias(db, arm, MK, fabrica, null);
   assert.equal((await semChave.situacao()).configurado, false);
   await assert.rejects(semChave.gerarDas('e-sn', '2026-09', 'a@x.com'), /não configurado/);
+
+  // Chaves cadastradas pelo painel: cifradas no banco, nunca devolvidas, com prioridade sobre as do servidor
+  await assert.rejects(semChave.salvarChaves({ consumerKey: 'abc', consumerSecret: '' }, 'adm@x.com'), /Consumer Key e a Consumer Secret/);
+  await assert.rejects(semChave.salvarChaves({ consumerKey: 'chave com espaco', consumerSecret: 'segredo-longo-123' }, 'adm@x.com'), /formato inválido/);
+  const sitChaves = await semChave.salvarChaves({ consumerKey: 'CHAVE-DO-SERPRO-9f3a', consumerSecret: 'SEGREDO-DO-SERPRO-77' }, 'adm@x.com');
+  assert.equal(sitChaves.configurado, true); assert.equal(sitChaves.ambiente, 'producao');
+  assert.deepEqual([sitChaves.chaves.origem, sitChaves.chaves.finalChave, sitChaves.chaves.atualizadoPor], ['painel', '9f3a', 'adm@x.com']);
+  assert.ok(!JSON.stringify(sitChaves).includes('SEGREDO-DO-SERPRO') && !JSON.stringify(sitChaves).includes('CHAVE-DO-SERPRO'), 'a API nunca devolve as chaves');
+  const linha = t.integra_config[0];
+  assert.ok(!String(linha.consumer_key_cifrada).includes('CHAVE') && !String(linha.consumer_secret_cifrada).includes('SEGREDO'), 'banco guarda só cifrado');
+  const { integra: cli } = await semChave.cliente();
+  assert.deepEqual([cli!.cfg.consumerKey, cli!.cfg.consumerSecret], ['CHAVE-DO-SERPRO-9f3a', 'SEGREDO-DO-SERPRO-77'], 'decifra com a MASTER_KEY');
+  const comServidor = new ServicoGuias(db, arm, MK, fabrica, { ambiente: 'producao', consumerKey: 'srv', consumerSecret: 'srv' });
+  assert.equal((await comServidor.situacao()).chaves.origem, 'painel', 'painel tem prioridade');
+  await comServidor.removerChaves('adm@x.com');
+  assert.equal((await comServidor.situacao()).chaves.origem, 'servidor', 'sem chaves no painel, usa as do servidor');
+  assert.equal((await semChave.salvarChaves({ ambiente: 'trial' }, 'adm@x.com')).ambiente, 'trial', 'trial sem chaves');
+  await semChave.removerChaves('adm@x.com');
   const antes = t.guias.length;
   const trial = criar('trial');
   await assert.rejects(trial.gerarDas('e-sn', '2026-09', 'a@x.com', true), /ambiente de teste do SERPRO/);
   assert.equal(t.guias.length, antes);
   assert.equal((await trial.testarConexao('a@x.com')).ok, true);
-  console.log('ok  guias: certificado do escritório, procuração, declaração, DAS do Simples e do MEI, PDF guardado, sem geração duplicada, lote, registro e trial');
+  console.log('ok  guias: certificado do escritório, procuração, declaração, DAS do Simples e do MEI, PDF guardado, sem geração duplicada, lote, registro, chaves cifradas no painel e trial');
 }
 
 (async () => {

@@ -1,9 +1,9 @@
 import { Armazenamento } from '../armazenamento';
 import { Certificado, criarAgente, lerPfx } from '../cert';
-import { decifrar } from '../cripto';
+import { cifrar, decifrar } from '../cripto';
 import { buscarTodos, Db, ok } from '../db';
 import { log } from '../log';
-import { Contratante, ErroIntegra, IntegraContador, RegistroChamada } from '../integra/cliente';
+import { Ambiente, ConfigIntegra, Contratante, ErroIntegra, IntegraContador, RegistroChamada } from '../integra/cliente';
 import { Guia, lerGuias, lerProcuracoes, lerUltimaDeclaracao, periodoApuracao, situacaoProcuracao, temErro, textoMensagens } from '../integra/respostas';
 
 /**
@@ -17,6 +17,7 @@ import { Guia, lerGuias, lerProcuracoes, lerUltimaDeclaracao, periodoApuracao, s
  */
 
 export const ErroGuias = ErroIntegra;
+export type OrigemChaves = 'painel' | 'servidor' | null;
 
 export const TIPO_GUIA: Record<string, { tipo: string; sistema: string; servico: string; rotulo: string }> = {
   simples: { tipo: 'das_simples', sistema: 'PGDASD', servico: 'GERARDAS12', rotulo: 'DAS do Simples Nacional' },
@@ -31,15 +32,78 @@ interface EmpresaGuia { id: string; cnpj: string; razao_social: string; regime: 
 
 export class ServicoGuias {
   private certCache: { id: string; c: Contratante; validoAte: string } | null = null;
-  readonly integra: IntegraContador | null;
+  /** Cliente do SERPRO em uso e a versão da configuração que o criou (recriado quando as chaves mudam). */
+  private clienteCache: { versao: string; integra: IntegraContador | null; origem: OrigemChaves; lidoEm: number } | null = null;
 
   constructor(
     private readonly db: Db,
     private readonly arm: Armazenamento,
     private readonly masterKey: string,
-    criar: ((contratante: () => Promise<Contratante>, registrar: (r: RegistroChamada) => Promise<void>) => IntegraContador) | null,
-  ) {
-    this.integra = criar ? criar(() => this.contratante(), (r) => this.registrar(r)) : null;
+    private readonly criar: (cfg: ConfigIntegra, contratante: () => Promise<Contratante>, registrar: (r: RegistroChamada) => Promise<void>) => IntegraContador,
+    /** Chaves das variáveis do servidor (opcional): valem só se o painel não tiver chaves cadastradas. */
+    private readonly cfgServidor: ConfigIntegra | null = null,
+  ) {}
+
+  /* ---------- chaves do SERPRO (cadastradas no painel, cifradas com a MASTER_KEY) ---------- */
+
+  private async configPainel() {
+    return ok(await this.db.from('integra_config').select('*').eq('id', 1).maybeSingle(), 'chaves do Integra Contador') as
+      { ambiente: Ambiente; consumer_key_cifrada: string | null; consumer_secret_cifrada: string | null; final_chave: string | null; atualizado_em: string; atualizado_por: string } | null;
+  }
+
+  /** Cliente do Integra Contador: chaves do painel; se não houver, as do servidor; senão, não configurado. Relê a configuração a cada 30 s. */
+  async cliente(): Promise<{ integra: IntegraContador | null; origem: OrigemChaves }> {
+    if (this.clienteCache && Date.now() - this.clienteCache.lidoEm < 30_000) return this.clienteCache;
+    const p = await this.configPainel();
+    let versao = 'nenhuma'; let cfg: ConfigIntegra | null = null; let origem: OrigemChaves = null;
+    if (p && (p.ambiente === 'trial' || (p.consumer_key_cifrada && p.consumer_secret_cifrada))) {
+      versao = `painel:${p.atualizado_em}`; origem = 'painel';
+      try {
+        cfg = {
+          ambiente: p.ambiente,
+          consumerKey: p.consumer_key_cifrada ? decifrar(p.consumer_key_cifrada, this.masterKey).toString('utf8') : '',
+          consumerSecret: p.consumer_secret_cifrada ? decifrar(p.consumer_secret_cifrada, this.masterKey).toString('utf8') : '',
+        };
+      } catch {
+        log.error('não foi possível decifrar as chaves do Integra Contador (MASTER_KEY diferente?)');
+        cfg = null; origem = null;
+      }
+    } else if (this.cfgServidor) {
+      versao = 'servidor'; cfg = this.cfgServidor; origem = 'servidor';
+    }
+    if (!this.clienteCache || this.clienteCache.versao !== versao) {
+      this.clienteCache = { versao, origem, lidoEm: Date.now(), integra: cfg ? this.criar(cfg, () => this.contratante(), (r) => this.registrar(r)) : null };
+    } else this.clienteCache.lidoEm = Date.now();
+    return this.clienteCache;
+  }
+
+  async salvarChaves(dados: { consumerKey?: unknown; consumerSecret?: unknown; ambiente?: unknown }, email: string) {
+    const ambiente: Ambiente = dados.ambiente === 'trial' ? 'trial' : 'producao';
+    const key = String(dados.consumerKey ?? '').trim();
+    const secret = String(dados.consumerSecret ?? '').trim();
+    if (ambiente === 'producao') {
+      if (!key || !secret) throw new ErroIntegra(422, 'Informe a Consumer Key e a Consumer Secret.');
+      if (/\s/.test(key) || /\s/.test(secret) || key.length < 8 || secret.length < 8 || key.length > 200 || secret.length > 200) {
+        throw new ErroIntegra(422, 'Chave em formato inválido: copie a Consumer Key e a Consumer Secret exatamente como aparecem na área do cliente do SERPRO.');
+      }
+    }
+    ok(await this.db.from('integra_config').upsert({
+      id: 1, ambiente,
+      consumer_key_cifrada: key ? cifrar(Buffer.from(key, 'utf8'), this.masterKey) : null,
+      consumer_secret_cifrada: secret ? cifrar(Buffer.from(secret, 'utf8'), this.masterKey) : null,
+      final_chave: key ? key.slice(-4) : null,
+      atualizado_em: new Date().toISOString(), atualizado_por: email,
+    }, { onConflict: 'id' }), 'gravar chaves do Integra Contador');
+    this.clienteCache = null;
+    log.info('chaves do Integra Contador atualizadas', { ambiente, por: email });
+    return this.situacao();
+  }
+
+  async removerChaves(email: string) {
+    ok(await this.db.from('integra_config').delete().eq('id', 1), 'remover chaves do Integra Contador');
+    this.clienteCache = null;
+    log.info('chaves do Integra Contador removidas', { por: email });
+    return this.situacao();
   }
 
   /** Empresa marcada como escritório, com certificado ativo (é o contratante do SERPRO). */
@@ -76,10 +140,11 @@ export class ServicoGuias {
     if (error) log.warn('não registrou chamada do Integra Contador', { erro: error.message });
   }
 
-  private exigirIntegra(real = true): IntegraContador {
-    if (!this.integra) throw new ErroIntegra(503, 'Integra Contador não configurado: faltam as chaves do SERPRO (Consumer Key e Secret) no servidor.');
-    if (real && this.integra.cfg.ambiente === 'trial') throw new ErroIntegra(409, 'O Appura está no ambiente de teste do SERPRO (dados fictícios): só o teste de conexão funciona e nada é gravado.');
-    return this.integra;
+  private async exigirIntegra(real = true): Promise<IntegraContador> {
+    const { integra } = await this.cliente();
+    if (!integra) throw new ErroIntegra(503, 'Integra Contador não configurado: cadastre a Consumer Key e a Consumer Secret em Administração › Escritório.');
+    if (real && integra.cfg.ambiente === 'trial') throw new ErroIntegra(409, 'O Appura está no ambiente de teste do SERPRO (dados fictícios): só o teste de conexão funciona e nada é gravado.');
+    return integra;
   }
 
   private async empresa(id: string): Promise<EmpresaGuia> {
@@ -91,32 +156,38 @@ export class ServicoGuias {
   /* ---------- situação do módulo ---------- */
 
   async situacao() {
-    const e = await this.escritorio();
+    const [e, { integra, origem }, painel] = await Promise.all([this.escritorio(), this.cliente(), this.configPainel()]);
     const ini = `${mesAtualSP()}-01T03:00:00Z`;
     const chamadas = ok(await this.db.from('integra_chamadas').select('servico,sucesso').gte('em', ini).limit(100000), 'chamadas do mês') as { servico: string; sucesso: boolean }[];
     const porServico: Record<string, number> = {};
     for (const c of chamadas) porServico[c.servico] = (porServico[c.servico] ?? 0) + 1;
     const pendencias: string[] = [];
-    if (!this.integra) pendencias.push('Contratar o Integra Contador na loja do SERPRO e colocar a Consumer Key e a Consumer Secret nas variáveis do servidor (SERPRO_CONSUMER_KEY e SERPRO_CONSUMER_SECRET).');
+    if (!integra) pendencias.push('Cadastrar a Consumer Key e a Consumer Secret do contrato do SERPRO em Administração › Escritório.');
     if (!e) pendencias.push('Cadastrar o escritório (Administração › Escritório) com o certificado e-CNPJ do contrato do SERPRO.');
     else if (!e.certificado) pendencias.push('Cadastrar o certificado e-CNPJ da empresa do escritório.');
     else if (new Date(e.certificado.valido_ate).getTime() < Date.now()) pendencias.push('Renovar o certificado e-CNPJ do escritório (vencido).');
     return {
-      configurado: !!this.integra,
-      ambiente: this.integra?.cfg.ambiente ?? null,
+      configurado: !!integra,
+      ambiente: integra?.cfg.ambiente ?? null,
+      chaves: {
+        origem,
+        finalChave: origem === 'painel' ? painel?.final_chave ?? null : null,
+        atualizadoEm: origem === 'painel' ? painel?.atualizado_em ?? null : null,
+        atualizadoPor: origem === 'painel' ? painel?.atualizado_por ?? null : null,
+      },
       escritorio: e ? {
         id: e.id, cnpj: e.cnpj, razao_social: e.razao_social, uf: e.uf, titular: e.certificado?.titular ?? null,
         certificadoValidoAte: e.certificado?.valido_ate ?? null, outros: e.outros,
       } : null,
       chamadasMes: { total: chamadas.length, comErro: chamadas.filter((c) => !c.sucesso).length, porServico },
       pendencias,
-      pronto: !!this.integra && this.integra.cfg.ambiente === 'producao' && !pendencias.length,
+      pronto: !!integra && integra.cfg.ambiente === 'producao' && !pendencias.length,
     };
   }
 
   /** Teste de conexão: em produção, só a autenticação (não gera cobrança de serviço); no trial, uma consulta de demonstração. */
   async testarConexao(email: string) {
-    const integra = this.exigirIntegra(false);
+    const integra = await this.exigirIntegra(false);
     if (integra.cfg.ambiente === 'producao') {
       await integra.autenticar(true);
       log.info('Integra Contador: autenticação testada', { por: email });
@@ -129,7 +200,7 @@ export class ServicoGuias {
   /* ---------- procurações ---------- */
 
   async verificarProcuracao(empresaId: string, email: string) {
-    const integra = this.exigirIntegra();
+    const integra = await this.exigirIntegra();
     const e = await this.empresa(empresaId);
     const esc = await this.contratante();
     const r = await integra.chamar({
@@ -153,7 +224,7 @@ export class ServicoGuias {
   /* ---------- PGDAS-D: declaração do mês ---------- */
 
   async consultarDeclaracao(empresaId: string, competencia: string, email: string) {
-    const integra = this.exigirIntegra();
+    const integra = await this.exigirIntegra();
     const e = await this.empresa(empresaId);
     if (e.regime !== 'simples') throw new ErroIntegra(422, 'A declaração do PGDAS-D é do Simples Nacional. Confira o regime da empresa.');
     const pa = periodoApuracao(competencia);
@@ -172,7 +243,7 @@ export class ServicoGuias {
   /* ---------- DAS ---------- */
 
   async gerarDas(empresaId: string, competencia: string, email: string, forcar = false) {
-    const integra = this.exigirIntegra();
+    const integra = await this.exigirIntegra();
     const e = await this.empresa(empresaId);
     const t = TIPO_GUIA[e.regime ?? ''];
     if (!t) throw new ErroIntegra(422, 'Pelo Integra Contador, esta etapa gera o DAS do Simples Nacional e do MEI. Para outros regimes (DCTFWeb/DARF), aguarde a próxima etapa.');
@@ -254,7 +325,7 @@ export class ServicoGuias {
   /* ---------- lote (sequencial: respeita o SERPRO e mostra o resultado de cada empresa) ---------- */
 
   async lote(acao: 'procuracao' | 'das', ids: string[], competencia: string, email: string) {
-    this.exigirIntegra();
+    await this.exigirIntegra();
     const unicos = [...new Set(ids)].slice(0, LOTE_MAX);
     const resultados: { id: string; ok: boolean; mensagem: string }[] = [];
     for (const id of unicos) {

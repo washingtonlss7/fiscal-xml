@@ -1386,3 +1386,6 @@ body.com-dialogo { overflow: hidden; }
 .gu-sel { display: inline-grid; place-items: center; min-width: 32px; min-height: 32px; cursor: pointer; }
 @media (max-width: 760px) { .gu-sel { min-width: var(--alvo-toque); min-height: var(--alvo-toque); margin: -10px -10px 0 0; } }
 .gu-passo-acao { align-self: flex-start; margin-top: var(--esp-2); }
+.es-chaves { display: flex; flex-direction: column; gap: var(--esp-3); max-width: 560px; }
+.es-chaves .senha { display: flex; gap: var(--esp-2); }
+.es-chaves .senha input { flex: 1; }

@@ -494,6 +494,8 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
     if (metodo === 'GET' && rota === '/api/guias') return responder(res, 200, await servicoGuias.painel(mes));
     if (metodo === 'GET' && rota === '/api/guias/situacao') return responder(res, 200, await servicoGuias.situacao());
     if (metodo === 'POST' && rota === '/api/guias/testar') return responder(res, 200, await servicoGuias.testarConexao(email));
+    if (metodo === 'POST' && rota === '/api/guias/chaves') return responder(res, 200, await servicoGuias.salvarChaves(await lerCorpo(req, 10_000), email));
+    if (metodo === 'DELETE' && rota === '/api/guias/chaves') return responder(res, 200, await servicoGuias.removerChaves(email));
     if (metodo === 'POST' && rota === '/api/guias/lote') {
       const c = await lerCorpo(req);
       const acao = c.acao === 'das' ? 'das' : c.acao === 'procuracao' ? 'procuracao' : null;
@@ -673,8 +675,9 @@ const arm = new Armazenamento(db, configArmazenamento(cfg.masterKey, process.env
 const lerXmlStorage = (caminho: string) => arm.ler(caminho);
 const servicoSped = new ServicoSped(db, arm);
 const cfgIntegra = configIntegra();
-const servicoGuias = new ServicoGuias(db, arm, cfg.masterKey, cfgIntegra ? (contratante, registrar) => new IntegraContador(cfgIntegra, contratante, transporteHttps, registrar) : null);
-if (cfgIntegra) log.info('Integra Contador configurado', { ambiente: cfgIntegra.ambiente });
+// Chaves do SERPRO: as cadastradas no painel (cifradas no banco) têm prioridade; as variáveis do servidor são opcionais
+const servicoGuias = new ServicoGuias(db, arm, cfg.masterKey, (c, contratante, registrar) => new IntegraContador(c, contratante, transporteHttps, registrar), cfgIntegra);
+if (cfgIntegra) log.info('Integra Contador com chaves do servidor', { ambiente: cfgIntegra.ambiente });
 
 async function baixarXml(res: http.ServerResponse, id: string, chave: string) {
   if (!/^\d{44}$/.test(chave)) throw new ErroHttp(400, 'Chave inválida.');
