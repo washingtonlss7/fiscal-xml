@@ -40,6 +40,7 @@ function resolverRota(hash, pode = () => true) {
   if (/^#\/fechamento(\?.*)?$/.test(r)) return { tela: 'fechamento', base: '#/fechamento', consulta: consulta(r) };
   if (/^#\/sped(\?.*)?$/.test(r)) return { tela: 'sped', base: '#/sped', consulta: consulta(r) };
   if (r === '#/guias') return { tela: 'guias', base: '#/guias' };
+  if (r === '#/ia') return { tela: 'ia', base: '#/ia' };
   if (r === '#/escritorio') return pode('certificados') ? { tela: 'escritorio', base: '#/escritorio' } : { redirecionar: '#/visao-geral', semPermissao: 'Escritório' };
   if (r === '#/visao-geral') return { tela: 'visao', base: '#/visao-geral' };
   if (r === '#/usuarios') return pode('usuarios') ? { tela: 'usuarios', base: '#/usuarios' } : { redirecionar: '#/visao-geral', semPermissao: 'Usuários' };

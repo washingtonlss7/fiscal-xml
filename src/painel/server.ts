@@ -21,6 +21,8 @@ import { ErroSped, ServicoSped } from './sped';
 import { ServicoGuias } from './guias';
 import { configIntegra, ErroIntegra, IntegraContador, transporteHttps } from '../integra/cliente';
 import { ErroAcessorias, ServicoAcessorias } from '../integra/acessorias';
+import { ErroOAuth, ServicoOAuth } from '../mcp/oauth';
+import { rotaMcp, OpcoesMcpHttp } from '../mcp/http';
 import { authDoSupabase, ErroUsuario, GestaoUsuarios, PERFIS_INFO, PERMISSOES, permissaoDaRota } from './usuarios';
 
 function exigir(nome: string): string {
@@ -57,6 +59,7 @@ const ARQUIVOS: Record<string, [string, string]> = {
   '/empresa-360.js': ['empresa-360.js', 'text/javascript; charset=utf-8'],
   '/sped.js': ['sped.js', 'text/javascript; charset=utf-8'],
   '/guias.js': ['guias.js', 'text/javascript; charset=utf-8'],
+  '/ia.js': ['ia.js', 'text/javascript; charset=utf-8'],
   '/nucleo.js': ['nucleo.js', 'text/javascript; charset=utf-8'],
   '/app.css': ['app.css', 'text/css; charset=utf-8'],
   '/manifest.webmanifest': ['manifest.webmanifest', 'application/manifest+json; charset=utf-8'],
@@ -489,6 +492,23 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
   }
 
   // Empresa 360°: cadastro, certificado, captação, números da competência e histórico numa chamada só
+  // Conexões de IA (MCP): cada usuário vê, cria e revoga só as próprias
+  if (rota === '/api/mcp/conexoes' && metodo === 'GET') {
+    return responder(res, 200, { url: `${urlPublica(req)}/mcp`, ...(await servicoOAuth.conexoes(email)) });
+  }
+  if (rota === '/api/mcp/tokens' && metodo === 'POST') {
+    const c = await lerCorpo(req, 10_000);
+    const r = await servicoOAuth.criarPessoal(email, String(c.nome ?? ''), Number(c.dias), `${urlPublica(req)}/mcp`);
+    log.info('MCP: token pessoal criado', { email, nome: r.nome });
+    return responder(res, 200, r);
+  }
+  const conexao = rota.match(/^\/api\/mcp\/conexoes\/([ct]_[0-9a-f]{16})$/);
+  if (conexao && metodo === 'DELETE') {
+    const r = await servicoOAuth.revogarConexao(email, conexao[1]);
+    log.info('MCP: conexão revogada', { email, id: conexao[1] });
+    return responder(res, 200, r);
+  }
+
   // Integração com o Sistema Acessórias (token cifrado; só administrador altera)
   if (rota === '/api/acessorias' || rota === '/api/acessorias/testar') {
     if (metodo === 'GET' && rota === '/api/acessorias') return responder(res, 200, await servicoAcessorias.situacao());
@@ -703,6 +723,37 @@ if (cfgIntegra) log.info('Integra Contador com chaves do servidor', { ambiente: 
 const servicoAcessorias = new ServicoAcessorias(db, arm, cfg.masterKey);
 servicoGuias.acessorias = servicoAcessorias;
 
+/* ---------- MCP do Appura (IA): OAuth 2.1 próprio + ferramentas de leitura ---------- */
+const servicoOAuth = new ServicoOAuth(db);
+/** URL pública: PUBLIC_URL, ou o host da requisição (https atrás do proxy do Easypanel). */
+function urlPublica(req: http.IncomingMessage): string {
+  const fixa = process.env.PUBLIC_URL?.trim();
+  if (fixa) return fixa.replace(/\/+$/, '');
+  const host = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? 'localhost').split(',')[0].trim();
+  const proto = String(req.headers['x-forwarded-proto'] ?? '').split(',')[0].trim() || (/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host) ? 'http' : 'https');
+  return `${proto}://${host}`;
+}
+const opcoesMcp: OpcoesMcpHttp = {
+  oauth: servicoOAuth,
+  deps: { db, sped: servicoSped, guias: servicoGuias },
+  base: urlPublica,
+  entrar: async (email, senha, ip) => {
+    limitarTentativas(ip);
+    const e = email.trim().toLowerCase();
+    if (!(await autorizado(e))) throw new Error('Este e-mail não tem acesso ao Appura.');
+    const { error } = await clienteAuth().auth.signInWithPassword({ email: e, password: senha });
+    if (error) throw new Error('E-mail ou senha incorretos.');
+    return e;
+  },
+  perfilDe: (email) => usuarios.perfilDe(email),
+  registrar: async (r) => {
+    const { error } = await db.from('mcp_chamadas').insert({ email: r.email, client_id: r.clientId, ferramenta: r.ferramenta, argumentos: r.argumentos ?? null, sucesso: r.sucesso, duracao_ms: r.duracaoMs });
+    if (error) log.warn('não registrou chamada do MCP', { erro: error.message });
+  },
+  lerTexto: async (req, limite) => (await lerBruto(req, limite)).toString('utf8'),
+  ip: ipDe,
+};
+
 async function baixarXml(res: http.ServerResponse, id: string, chave: string) {
   if (!/^\d{44}$/.test(chave)) throw new ErroHttp(400, 'Chave inválida.');
   const doc = ok(
@@ -853,6 +904,7 @@ const servidor = http.createServer(async (req, res) => {
   try {
     if (url.pathname === '/saude') return responder(res, 200, { ok: true });
     if (url.pathname.startsWith('/api/')) return await rotaApi(req, res, url);
+    if (await rotaMcp(req, res, url, opcoesMcp)) return;
     if (req.method === 'GET' && arquivoEstatico(res, url)) return;
     responder(res, 404, { erro: 'Página não encontrada.' });
   } catch (e) {
@@ -863,6 +915,7 @@ const servidor = http.createServer(async (req, res) => {
     }
     if (e instanceof ErroIntegra) return responder(res, e.status, { erro: e.message, ...(e.codigo ? { codigo: e.codigo } : {}) });
     if (e instanceof ErroAcessorias) return responder(res, e.status, { erro: e.message });
+    if (e instanceof ErroOAuth) return responder(res, e.status, { erro: e.message });
     if (e instanceof ErroHttp || e instanceof ErroUsuario || e instanceof ErroSped) return responder(res, e.status, { erro: e.message });
     log.error('erro no painel', { rota: url.pathname, erro: (e as Error).message });
     responder(res, 500, { erro: 'Erro inesperado no servidor. Tente de novo.' });

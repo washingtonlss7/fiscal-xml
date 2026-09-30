@@ -457,6 +457,7 @@ const NAV = [
   { id: 'administracao', rotulo: 'Administração', icone: 'settings', filhos: [
     { id: 'usuarios', rotulo: 'Usuários', rota: '#/usuarios', permissao: 'usuarios' },
     { id: 'escritorio', rotulo: 'Escritório', rota: '#/escritorio', permissao: 'certificados' },
+    { id: 'ia', rotulo: 'Conexões de IA', rota: '#/ia' },
     { rotulo: 'Certificados' }, { rotulo: 'Configurações' },
   ] },
 ];
@@ -648,7 +649,7 @@ async function aplicarRota() {
     return;
   }
   const esconderTudo = (menos) => {
-    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias', 'tela-escritorio']) if (id !== menos) $(id).hidden = true;
+    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias', 'tela-escritorio', 'tela-ia']) if (id !== menos) $(id).hidden = true;
   };
   if (rota.tela !== 'empresa') { empresaNotas = null; fecharGavetaUsuario(); }
   if (rota.tela === 'fechamento') {
@@ -663,6 +664,9 @@ async function aplicarRota() {
   } else if (rota.tela === 'escritorio') {
     esconderTudo('tela-escritorio');
     window.esMostrar();
+  } else if (rota.tela === 'ia') {
+    esconderTudo('tela-ia');
+    window.iaMostrar();
   } else if (rota.tela === 'visao') {
     esconderTudo('tela-visao');
     window.vgMostrar();

@@ -1392,3 +1392,15 @@ body.com-dialogo { overflow: hidden; }
 .gu-envio { margin-top: var(--esp-1); font-size: var(--t-xs); }
 .gu-envio-caixa { display: flex; flex-direction: column; gap: var(--esp-1); padding: var(--esp-2) var(--esp-3); border: var(--borda); border-radius: var(--raio-m); background: var(--superficie-2); }
 .gu-envio-erro { color: var(--pendente); overflow-wrap: anywhere; }
+.mcp-consentimento { max-width: 480px; display: flex; flex-direction: column; gap: var(--esp-3); }
+.mcp-consentimento h1 { font-size: var(--t-xl); margin: 0; }
+.mcp-form { display: flex; flex-direction: column; gap: var(--esp-3); }
+.ia-url { display: flex; align-items: center; gap: var(--esp-3); flex-wrap: wrap; padding: var(--esp-3); border: var(--borda); border-radius: var(--raio-m); background: var(--superficie-2); }
+.ia-url code { flex: 1 1 260px; font-size: var(--t-m); overflow-wrap: anywhere; color: var(--tinta); }
+.ia-token { font-weight: 600; }
+.ia-json { margin: var(--esp-2) 0; padding: var(--esp-3); border-radius: var(--raio-m); background: var(--superficie-2); border: var(--borda); font-size: var(--t-s); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ia-conexao { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.ia-lista li { align-items: center; }
+.ia-novo { border-color: var(--pendente-vivo); }
+/* Enter confirma "Permitir" (primeiro botão do formulário); visualmente fica à direita */
+.mcp-acoes { flex-direction: row-reverse; justify-content: flex-start; }

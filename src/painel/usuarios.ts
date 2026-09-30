@@ -27,6 +27,8 @@ export const PERMISSOES: Record<Perfil, Permissao[]> = {
 export function permissaoDaRota(metodo: string, rota: string): Permissao | null {
   if (rota === '/api/usuarios' || rota.startsWith('/api/usuarios/')) return 'usuarios';
   if (metodo === 'GET' || metodo === 'HEAD') return null;
+  // Conexões de IA: cada usuário gerencia só as próprias (o MCP é de leitura e respeita o perfil)
+  if (rota === '/api/mcp/tokens' || rota.startsWith('/api/mcp/conexoes/')) return null;
   if (rota === '/api/empresas' || /^\/api\/empresas\/[^/]+\/ativo$/.test(rota)) return 'certificados';
   if (rota === '/api/st-es/tabela') return 'configuracoes';
   // Teste de conexão com o SERPRO: configuração do escritório

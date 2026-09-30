@@ -153,7 +153,7 @@ if (typeof window !== 'undefined') {
 
   /* ----- tela #/guias ----- */
   function guMostrar() {
-    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-escritorio']) $(id).hidden = true;
+    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-escritorio', 'tela-ia']) $(id).hidden = true;
     $('tela-guias').hidden = false;
     window.scrollTo(0, 0);
     gu.selecionados.clear(); gu.confirmar = null;
@@ -423,7 +423,7 @@ if (typeof window !== 'undefined') {
   /* ----- Administração › Escritório (#/escritorio) ----- */
   var es = { dados: null, acessorias: null, erro: null, editandoChaves: false, confirmarRemover: false, editandoAcessorias: false, confirmarRemoverAc: false };
   function esMostrar() {
-    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias']) $(id).hidden = true;
+    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias', 'tela-ia']) $(id).hidden = true;
     $('tela-escritorio').hidden = false;
     window.scrollTo(0, 0);
     esCarregar();

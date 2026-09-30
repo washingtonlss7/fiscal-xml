@@ -19,6 +19,8 @@ export class Consulta {
   eq(c: string, v: any) { this.filtros.push((l) => l[c] === v); return this; }
   in(c: string, v: any[]) { this.filtros.push((l) => v.includes(l[c])); return this; }
   is(c: string, v: any) { this.filtros.push((l) => (l[c] ?? null) === v); return this; }
+  ilike(c: string, v: string) { const r = new RegExp(`^${String(v).split('%').map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`, 'i'); this.filtros.push((l) => r.test(String(l[c] ?? ''))); return this; }
+  like(c: string, v: string) { const r = new RegExp(`^${String(v).split('%').map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`); this.filtros.push((l) => r.test(String(l[c] ?? ''))); return this; }
   gte(c: string, v: any) { this.filtros.push((l) => l[c] >= v); return this; }
   lte(c: string, v: any) { this.filtros.push((l) => l[c] <= v); return this; }
   order(c: string, o: { ascending?: boolean } = {}) { this.ordem.push([c, o.ascending !== false]); return this; }
@@ -43,9 +45,8 @@ export class Consulta {
       return { data: null, error: null };
     }
     if (this.op === 'insert') {
-      const l = { id: this.seq(), status: 'pendente', criado_em: new Date(Date.now() + this.seq()).toISOString(), ...JSON.parse(JSON.stringify(this.dados)) };
-      this.tabela.push(l);
-      linhas = [l];
+      linhas = ([] as any[]).concat(this.dados).map((d) => ({ id: this.seq(), status: 'pendente', criado_em: new Date(Date.now() + this.seq()).toISOString(), ...JSON.parse(JSON.stringify(d)) }));
+      this.tabela.push(...linhas);
     } else {
       linhas = this.tabela.filter((l) => this.filtros.every((f) => f(l)));
       if (this.op === 'update') for (const l of linhas) Object.assign(l, JSON.parse(JSON.stringify(this.dados)));

@@ -28,6 +28,7 @@ const consulta = (p: string) => p !== 'usuarios' && p !== 'configuracoes' && p !
   assert.equal(n.enderecoEmpresa(ID, 'visao'), `#/empresas/${ID}`);
   assert.deepEqual(r('#/sped?cadastro=12'), { tela: 'sped', base: '#/sped', consulta: 'cadastro=12' });
   assert.deepEqual(r('#/guias'), { tela: 'guias', base: '#/guias' });
+  assert.deepEqual(r('#/ia'), { tela: 'ia', base: '#/ia' });
   assert.deepEqual(r('#/escritorio', (p: string) => p === 'certificados'), { tela: 'escritorio', base: '#/escritorio' });
   assert.equal(r('#/escritorio', () => false).semPermissao, 'Escritório');
   assert.deepEqual(r('#/empresas/0f7c2a1e-1111-2222-3333-444455556666/guias').aba, 'guias');
