@@ -27,6 +27,7 @@ const base = (x: Record<string, any> = {}) => ({
   ],
   historico: x.historico ?? [],
   sped: x.sped ?? null,
+  sintegra: x.sintegra ?? null,
   sugestao: x.sugestao ?? null,
   contrib: x.contrib ?? null,
 });
@@ -52,8 +53,14 @@ const base = (x: Record<string, any> = {}) => ({
 // 3) Etapas e status igual ao da Central
 {
   const et = Object.fromEntries(e3.e360Etapas(base()).map((x: any) => [x.id, x.estado]));
-  assert.deepEqual(et, { xml: 'andamento', auditoria: 'pendencia', st: 'nao_iniciado', sped: 'indisponivel', validacao: 'indisponivel', guias: 'indisponivel' });
+  assert.deepEqual(et, { xml: 'andamento', auditoria: 'pendencia', st: 'nao_iniciado', sped: 'nao_iniciado', validacao: 'nao_iniciado', guias: 'indisponivel' });
   assert.equal(e3.e360Etapas(base())[3].nome, 'SINTEGRA', 'Simples sem SPED: a etapa é o SINTEGRA');
+  assert.equal(e3.e360Etapas(base())[3].texto, 'Nenhum SINTEGRA enviado');
+  const si = Object.fromEntries(e3.e360Etapas(base({ auditoria: [], sintegra: { id: 5, erros: 1, alertas: 0, divergencias: 2 } })).map((x: any) => [x.id, x]));
+  assert.equal(si.sped.texto, 'SINTEGRA · 1 erro no arquivo'); assert.equal(si.validacao.texto, '2 divergências com os XMLs');
+  assert.deepEqual(e3.e360Atencao(base({ auditoria: [], documentos: [], sintegra: { erros: 1, alertas: 0, divergencias: 2 } }), null, hoje).map((x: any) => x.id), ['sintegra-erros', 'sintegra']);
+  assert.equal(vg.vgGeral(e3.e360LinhaCentral(base({ auditoria: [], sintegra: { erros: 0, alertas: 0, divergencias: 2 } }))).chave, 'pendencias', 'divergência do SINTEGRA conta na Central');
+  assert.equal(e3.e360Etapas(base({ sintegra: { erros: 0, alertas: 0, divergencias: 0 } }))[4].texto, 'XML e SINTEGRA conferem');
   assert.equal(e3.e360Etapas(base({ empresa: { regime: 'presumido' } }))[3].estado, 'nao_iniciado');
   const bloq = e3.e360Etapas(base({ empresa: { status: 'certificado_vencido' } }));
   assert.equal(bloq[0].estado, 'bloqueado');
@@ -103,17 +110,23 @@ const base = (x: Record<string, any> = {}) => ({
     { tipo: 'certificado', em: '2026-09-28T12:12:00Z', dados: { titular: 'FARMA', valido_ate: '2027-05-10', ativo: true } },
     { tipo: 'sped', em: '2026-09-27T12:00:00Z', por: 'fiscal03@contabilfarma.com.br', dados: { nome: 'sped.txt', competencia: '2026-07-01', erros: 0, divergencias: 18 } },
     { tipo: 'cadastro', em: '2026-09-27T13:00:00Z', por: 'gustavo@contabilfarma.com.br', dados: { status: 'aprovado', campos: ['ie', 'cep'] } },
+    { tipo: 'justificativa', em: '2026-09-27T14:00:00Z', por: 'fiscal03@contabilfarma.com.br', dados: { n: 3, tipo_arquivo: 'sintegra', competencia: '2026-08-01', observacao: 'Notas lançadas em setembro' } },
+    { tipo: 'sped', em: '2026-09-27T15:00:00Z', por: 'fiscal03@contabilfarma.com.br', dados: { nome: 'NFS.TXT', tipo: 'sintegra', competencia: '2026-08-01', erros: 1, divergencias: 0 } },
   ] }));
+  assert.equal(h[6].titulo, '3 divergências justificadas');
+  assert.equal(h[6].detalhe, 'SINTEGRA · Competência 08/2026 · "Notas lançadas em setembro"');
+  assert.equal(h[6].por, 'fiscal03@contabilfarma.com.br');
+  assert.equal(h[7].titulo, 'SINTEGRA enviado: NFS.TXT');
   assert.equal(h[4].titulo, 'SPED Fiscal enviado: sped.txt');
   assert.equal(h[4].detalhe, 'Competência 07/2026 · sem erros · 18 divergências');
-  assert.equal(h[5].titulo, 'Cadastro atualizado pelo SPED (2 campos)');
+  assert.equal(h[5].titulo, 'Cadastro atualizado pelo arquivo fiscal (2 campos)');
   assert.equal(h[0].titulo, 'Consulta SEFAZ (NF-e): 12 documentos recebidos');
   assert.equal(h[1].titulo, '3 apontamentos da auditoria tratados');
   assert.equal(h[1].por, 'fiscal03@contabilfarma.com.br');
   assert.equal(h[2].titulo, '124 documentos importados (XML/ZIP)');
   assert.equal(h[2].por, null, 'importação não registra usuário: não inventa');
   assert.match(h[3].titulo, /Certificado A1 cadastrado/);
-  console.log('ok  histórico traduz consultas SEFAZ, auditoria (com quem fez), importações e certificados');
+  console.log('ok  histórico traduz consultas SEFAZ, auditoria (com quem fez), importações, certificados, SINTEGRA e justificativas');
 }
 
 console.log('\nTestes da Empresa 360° passaram.');

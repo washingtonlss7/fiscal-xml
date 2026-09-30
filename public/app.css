@@ -1157,12 +1157,32 @@ button.e360-etapa-botao:hover { border-color: var(--linha-forte); background: va
 .sped-div-topo .selo { font-size: var(--t-xs); }
 .sped-div-valores { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 600; }
 .sped-chave { font-family: var(--mono); font-size: 11.5px; color: var(--tinta-3); overflow-wrap: anywhere; }
+.sped-div-barra { display: flex; align-items: center; justify-content: space-between; gap: var(--esp-2) var(--esp-3); flex-wrap: wrap; }
+.sped-situacao { align-self: flex-start; }
+.sped-div li.justificada .sped-div-topo strong { color: var(--tinta-2); }
+.sped-div-acoes { display: flex; justify-content: flex-end; }
+.sped-importar { align-self: flex-start; }
+.sped-just { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--esp-3); margin-top: var(--esp-1); padding: var(--esp-2) var(--esp-3); border-left: 3px solid var(--ok-vivo); border-radius: var(--raio-p); background: var(--ok-fundo); }
+.sped-just p { margin: 0; font-size: var(--t-m); color: var(--tinta); overflow-wrap: anywhere; }
+.sped-just .botao { flex: none; }
+.gj-itens { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--esp-2); max-height: 220px; overflow-y: auto; }
+.gj-itens li { display: flex; flex-direction: column; gap: 2px; padding: var(--esp-2) var(--esp-3); border: var(--borda); border-radius: var(--raio-m); background: var(--superficie-2); font-size: var(--t-m); }
+.campo textarea {
+  min-height: 112px; padding: var(--esp-2) var(--esp-3); border-radius: var(--raio-m); resize: vertical;
+  border: 1px solid var(--linha); background: var(--superficie); color: var(--tinta); font: inherit; font-size: var(--t-base); font-weight: 400;
+}
+.campo textarea:focus-visible { outline: none; border-color: var(--primaria); box-shadow: var(--anel-foco); }
+.campo textarea[aria-invalid="true"] { border-color: var(--problema); box-shadow: 0 0 0 3px var(--problema-fundo); }
 @media (max-width: 1023px) { .sped-cards { grid-template-columns: minmax(0, 1fr); } .sped-totais { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 760px) {
   .sped-botoes, .sped-botoes .botao { width: 100%; }
   .sped-botoes .botao { min-height: 44px; }
   .sped-div-valores { margin-left: 0; flex-basis: 100%; }
   .sped-cards .e360-lista-num { display: flex; }
+  .sped-segmentos, .sped-situacao { display: flex; flex-wrap: wrap; width: 100%; }
+  .sped-situacao .segmento { flex: 1 1 auto; min-height: 44px; }
+  .sped-lote { width: 100%; }
+  .sped-just { flex-direction: column; }
 }
 
 /* SPED guardado: envio, envios da competência e pré-cadastro */

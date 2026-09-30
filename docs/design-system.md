@@ -166,6 +166,14 @@ Regras comuns:
 - ESC, clique fora e botão ✕ fecham.
 - `abrirDialogo()` / `fecharDialogo()`: o foco fica preso dentro do diálogo, a rolagem da página trava (`body.com-dialogo`) e, ao fechar, o foco volta ao botão que abriu.
 
+### Lista de divergências com justificativa (`spedListaDiv()` em `empresa-360.js`)
+Padrão único para SPED Fiscal, SPED Contribuições e SINTEGRA (e para as próximas validações):
+- situação em `.segmentos` (**Abertas · Justificadas · Todas**, só aparece quando há justificadas) e tipo em chips `.vg-chip-f`;
+- cada item: selo do tipo (tom pelo nível), selo "✓ Justificada", documento, data, valores e chave;
+- **Justificar** abre a gaveta `#gj` (observação obrigatória, mín. 5 caracteres, erro com `aria-invalid`); **"Justificar todas as N"** aplica ao filtro atual;
+- justificada mostra a observação, quem e quando (`.sped-just`) e **Reabrir**;
+- ações só com a permissão `operar`; o backend grava quem/quando, e a justificativa sobrevive a um arquivo retificador.
+
 ### Tooltip / ajuda (`vgAjuda()` → `.ajuda` + `.ajuda-texto`)
 - O "?" abre ao passar o mouse, ao focar pelo teclado ou ao tocar.
 - Tem `aria-describedby` e fecha com ESC ou clique fora.

@@ -47,7 +47,7 @@ const dados = {
   assert.deepEqual([et.xml.feito, et.xml.total], [2, 4]);
   assert.deepEqual([et.auditoria.feito, et.auditoria.total], [1, 3], 'Gama auditada; Alfa com pendência; Delta ainda auditando');
   for (const id of ['st', 'guias']) assert.ok(et[id].indisponivel, id);
-  assert.deepEqual([et.sped.feito, et.sped.total, et.validacao.feito], [0, 2, 0], 'sem SPED enviado: 0 de 2 (Alfa e Gama são do Simples: SINTEGRA)');
+  assert.deepEqual([et.sped.feito, et.sped.total, et.validacao.feito], [0, 4, 0], 'nenhum SPED/SINTEGRA enviado: 0 de 4 ativas (Alfa e Gama entregam SINTEGRA, as outras SPED)');
   console.log('ok  etapas: captação, auditoria e SPED calculados; ICMS-ST e guias sem número inventado');
 }
 
@@ -63,8 +63,8 @@ const dados = {
   };
   const c = vg.vgCalcular(comSped, '', '2026-09-30');
   const et = Object.fromEntries(c.etapas.map((e: any) => [e.id, e]));
-  assert.deepEqual([et.sped.feito, et.sped.total], [2, 3], 'Beta e Gama sem erro no arquivo; Delta com 2 erros; Alfa (Simples, sem SPED) fica de fora');
-  assert.deepEqual([et.validacao.feito, et.validacao.total], [2, 3], 'Beta e Delta sem divergência; Gama com 18');
+  assert.deepEqual([et.sped.feito, et.sped.total], [2, 4], 'Beta e Gama sem erro no arquivo; Delta com 2 erros; Alfa (Simples) sem SINTEGRA');
+  assert.deepEqual([et.validacao.feito, et.validacao.total], [2, 4], 'Beta e Delta sem divergência; Gama com 18; Alfa aguardando o SINTEGRA');
   const at = Object.fromEntries(c.atencao.map((a: any) => [a.id, a]));
   assert.equal(at.sped.n, 1); assert.equal(at.sped.breve, undefined);
   assert.equal(at['sped-erros'].n, 1);
@@ -81,14 +81,24 @@ const dados = {
   assert.equal(vg.vgValidacao(emp({ contrib: { erros: 0, alertas: 0, divergencias: null } })).texto, 'Sem comparação', 'Contribuições sem SPED Fiscal para cruzar');
   assert.equal(vg.vgValidacao(gama).texto, '18 divergências');
   assert.equal(vg.vgSped(emp({ regime: 'presumido' })).texto, 'Não enviado');
-  assert.equal(vg.vgSped(emp({})).texto, 'SINTEGRA · em breve', 'Simples sem SPED: SINTEGRA');
+  assert.equal(vg.vgSped(emp({})).texto, 'SINTEGRA não enviado', 'Simples sem SPED: SINTEGRA');
+  assert.equal(vg.vgValidacao(emp({})).texto, 'Aguardando SINTEGRA');
+  const si = emp({ sintegra: { erros: 1, alertas: 0, divergencias: 3 } });
+  assert.equal(vg.vgSped(si).texto, 'SINTEGRA: 1 erro');
+  assert.equal(vg.vgValidacao(si).texto, '3 divergências');
+  assert.deepEqual(vg.vgPendencias(si).map((p: any) => [p.etapa, p.n]), [['sped', 1], ['validacao', 3]]);
+  assert.equal(vg.vgSped(emp({ sintegra: { erros: 0, alertas: 2, divergencias: 0 } })).texto, 'SINTEGRA · 2 alertas');
+  assert.equal(vg.vgValidacao(emp({ sintegra: { erros: 0, alertas: 0, divergencias: 0 } })).texto, 'XML e SINTEGRA conferem');
+  assert.equal(vg.vgValidacao(emp({ sintegra: { erros: 0, alertas: 0, divergencias: null } })).texto, 'Sem comparação', 'SINTEGRA de cliente sem XMLs');
+  assert.equal(vg.vgUsaSintegra(emp({ regime: 'presumido', sintegra: { erros: 0, alertas: 0, divergencias: 0 } })), true, 'quem enviou SINTEGRA entrega SINTEGRA');
+  assert.equal(vg.vgUsaSintegra(emp({ sintegra: { erros: 0, alertas: 0, divergencias: 0 }, sped: { erros: 0, alertas: 0, divergencias: 0 } })), false, 'SPED enviado prevalece');
   assert.equal(vg.vgUsaSintegra(emp({ regime: 'mei' })), true);
   assert.equal(vg.vgUsaSintegra(emp({ regime: null })), false, 'regime não informado segue no SPED');
   assert.equal(vg.vgValidacao(emp({ sped: { erros: 0, alertas: 0, divergencias: 0 } })).tom, 'ok');
   assert.equal(vg.vgValidacao(emp({ sped: { erros: 0, alertas: 0, divergencias: null } })).texto, 'Sem comparação');
   assert.deepEqual(vg.fcFiltrar(c.lista, { etapa: 'validacao' }).map((e: any) => e.id), ['c']);
   assert.deepEqual(vg.fcFiltrar(c.lista, { etapa: 'sped' }).map((e: any) => e.id), ['d']);
-  console.log('ok  SPED guardado: etapas, divergências na Central, pendências e cadastros para conferir');
+  console.log('ok  SPED e SINTEGRA guardados: etapas, divergências na Central, pendências e cadastros para conferir');
 }
 
 // 3) Evolução acumulada até hoje; pausada não entra

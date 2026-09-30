@@ -456,7 +456,7 @@ export class ServicoSped {
   /** Sugestões pendentes (com o cadastro atual para mostrar a diferença) e as últimas decididas. */
   async listarSugestoes() {
     const pendentes = ok(
-      await this.db.from('cadastro_sugestoes').select('id,empresa_id,cnpj,competencia,dados,criado_por,criado_em,sped_arquivo_id')
+      await this.db.from('cadastro_sugestoes').select('id,empresa_id,cnpj,origem,competencia,dados,criado_por,criado_em,sped_arquivo_id')
         .eq('status', 'pendente').order('criado_em', { ascending: false }).limit(200),
       'listar sugestões',
     ) as { id: number; empresa_id: string | null; cnpj: string; competencia: string; dados: DadosCadastro; criado_por: string; criado_em: string }[];

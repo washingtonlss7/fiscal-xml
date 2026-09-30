@@ -1,7 +1,7 @@
 'use strict';
 /*
- * Tela SPED (#/sped): envio de SPED Fiscal de qualquer cliente (identifica pelo CNPJ)
- * e pré-cadastro: o escritório confere e aprova os dados que o SPED trouxe.
+ * Tela SPED (#/sped): envio de SPED Fiscal, Contribuições ou SINTEGRA de qualquer cliente (identifica pelo CNPJ)
+ * e pré-cadastro: o escritório confere e aprova os dados que o arquivo trouxe.
  * Usa os utilitários globais do app.js (h, $, chamar, icone, enviarArquivo...).
  */
 
@@ -12,21 +12,28 @@ function spPadraoMarcados(diferencas, clienteNovo) {
   return diferencas.filter((d) => clienteNovo || !d.atual).map((d) => d.campo);
 }
 
-/** Texto curto do resultado de um envio. */
+/** Texto curto do resultado de um envio (SPED Fiscal, SPED Contribuições ou SINTEGRA). */
 function spResumoEnvio(r) {
   if (!r.valido) {
     const erro = (r.ocorrencias || []).find((o) => o.nivel === 'erro');
-    return { tom: 'problema', texto: erro ? erro.mensagem : 'Não é um SPED Fiscal' };
+    return { tom: 'problema', texto: erro ? erro.mensagem : 'Não é um SPED nem um SINTEGRA' };
   }
   const partes = [];
   const erros = (r.ocorrencias || []).filter((o) => o.nivel === 'erro').length;
   partes.push(erros ? `${erros} erro${erros === 1 ? '' : 's'} no arquivo` : 'arquivo sem erros');
   const contrib = r.tipo === 'efd_contribuicoes';
+  const sintegra = r.tipo === 'sintegra';
   if (contrib) partes.unshift('SPED Contribuições');
-  if (r.comparacao) {
-    const n = r.comparacao.divergencias.filter((d) => d.nivel !== 'info').length;
-    partes.push(n ? `${n} divergência${n === 1 ? '' : 's'} com ${contrib ? 'o SPED Fiscal' : 'os XMLs'}` : contrib ? 'vendas conferem com o SPED Fiscal' : 'XML e SPED conferem');
-  } else if (contrib && !r.clienteNovo) partes.push('sem SPED Fiscal do mês para cruzar');
+  if (sintegra) partes.unshift('SINTEGRA');
+  const c = r.comparacao;
+  const abertas = c ? c.divergencias.filter((d) => d.nivel !== 'info' && !d.justificativa).length : 0;
+  if (c && !(contrib && c.fiscal === false)) {
+    partes.push(abertas ? `${abertas} divergência${abertas === 1 ? '' : 's'} com ${contrib ? 'o SPED Fiscal' : 'os XMLs'}`
+      : contrib ? 'vendas conferem com o SPED Fiscal' : sintegra ? 'XML e SINTEGRA conferem' : 'XML e SPED conferem');
+  } else if (contrib && !r.clienteNovo) {
+    partes.push('sem SPED Fiscal do mês para cruzar');
+    if (abertas) partes.push(`${abertas} nota${abertas === 1 ? '' : 's'} monofásico × tributado a revisar`);
+  }
   if (r.clienteNovo) partes.push('cliente novo: aguardando aprovação do cadastro');
   else if (r.sugestao) partes.push('dados de cadastro para conferir');
   return { tom: erros ? 'pendente' : r.clienteNovo || r.sugestao ? 'info' : 'ok', texto: partes.join(' · ') };
@@ -109,7 +116,7 @@ if (typeof window !== 'undefined') {
       h('div', { class: 'sp-cartao-topo' },
         h('div', {},
           h('div', { class: 'sp-cartao-nome' }, h('strong', { text: nome }), s.clienteNovo ? h('span', { class: 'selo info', text: 'Cliente novo' }) : null),
-          h('span', { class: 'meta' }, h('span', { class: 'mono', text: formatarCnpj(s.cnpj) }), ` · ${s.dados.uf || ''} · SPED de ${comp} · enviado por ${s.criado_por || '—'} ${quandoRelativo(s.criado_em)}`)),
+          h('span', { class: 'meta' }, h('span', { class: 'mono', text: formatarCnpj(s.cnpj) }), ` · ${s.dados.uf || ''} · ${s.origem === 'sintegra' ? 'SINTEGRA' : 'SPED'} de ${comp} · enviado por ${s.criado_por || '—'} ${quandoRelativo(s.criado_em)}`)),
         s.empresa ? h('a', { class: 'botao pequeno', href: `#/empresas/${s.empresa.id}` }, 'Abrir empresa') : null),
       s.clienteNovo ? h('p', { class: 'meta', text: 'Este CNPJ ainda não é cliente. Ao aprovar, a empresa é criada e fica aguardando o certificado A1 para começar a captar os XMLs.' }) : null,
       h('div', { class: 'vg-tabela-caixa' }, h('table', { class: 'vg-tabela sp-tabela' },
@@ -201,7 +208,7 @@ if (typeof window !== 'undefined') {
       const r = await enviarArquivo(`/api/sped?nome=${encodeURIComponent(f.name)}`, f);
       if (!r.valido) {
         const erro = (r.ocorrencias || []).find((o) => o.nivel === 'erro');
-        avisar(erro ? erro.mensagem : 'O arquivo não parece ser um SPED Fiscal nem um SPED Contribuições.');
+        avisar(erro ? erro.mensagem : 'O arquivo não parece ser um SPED Fiscal, um SPED Contribuições nem um SINTEGRA.');
       } else if (r.empresaId) {
         window.spedAbrir(r);
       } else {
@@ -212,7 +219,7 @@ if (typeof window !== 'undefined') {
       avisar(e.message);
     } finally {
       botao.disabled = false;
-      rotulo.textContent = 'Enviar SPED';
+      rotulo.textContent = 'Enviar SPED ou SINTEGRA';
       $('vg-sped-arquivos').value = '';
     }
   }

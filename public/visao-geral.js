@@ -30,13 +30,18 @@ function vgAuditoria(e) {
 
 const vgPlural = (n, s, p) => `${n} ${n === 1 ? s : p}`;
 
-/** Simples Nacional e MEI entregam SINTEGRA, não SPED (a não ser que um SPED já tenha sido enviado). */
-function vgUsaSintegra(e) { return ['simples', 'mei'].includes(e.regime) && !e.sped && !e.contrib; }
+/** Simples Nacional e MEI (ou quem já enviou SINTEGRA) entregam SINTEGRA, não SPED (a não ser que um SPED já tenha sido enviado). */
+function vgUsaSintegra(e) { return (['simples', 'mei'].includes(e.regime) || !!e.sintegra) && !e.sped && !e.contrib; }
 
 /** Arquivos SPED da competência (Fiscal e Contribuições): não enviado, com erros ou recebido. */
 function vgSped(e) {
   const f = e.sped; const c = e.contrib;
-  if (vgUsaSintegra(e)) return { tom: 'neutro', simbolo: '–', texto: 'SINTEGRA · em breve' };
+  if (vgUsaSintegra(e)) {
+    const s = e.sintegra;
+    if (!s) return { tom: 'neutro', simbolo: '–', texto: 'SINTEGRA não enviado' };
+    if (s.erros > 0) return { tom: 'pendente', simbolo: '!', texto: `SINTEGRA: ${vgPlural(s.erros, 'erro', 'erros')}` };
+    return { tom: 'ok', simbolo: '✓', texto: s.alertas ? `SINTEGRA · ${vgPlural(s.alertas, 'alerta', 'alertas')}` : 'SINTEGRA recebido' };
+  }
   if (!f && !c) return { tom: 'neutro', simbolo: '–', texto: 'Não enviado' };
   const erros = (f ? f.erros : 0) + (c ? c.erros : 0);
   if (erros > 0) return { tom: 'pendente', simbolo: '!', texto: vgPlural(erros, 'erro no arquivo', 'erros no arquivo') };
@@ -48,7 +53,13 @@ function vgSped(e) {
 /** Validação: XML × SPED Fiscal e SPED Fiscal × Contribuições (nota a nota). */
 function vgValidacao(e) {
   const f = e.sped; const c = e.contrib;
-  if (vgUsaSintegra(e)) return { tom: 'neutro', simbolo: '–', texto: 'Não disponível' };
+  if (vgUsaSintegra(e)) {
+    const s = e.sintegra;
+    if (!s) return { tom: 'neutro', simbolo: '–', texto: 'Aguardando SINTEGRA' };
+    if (s.divergencias === null || s.divergencias === undefined) return { tom: 'neutro', simbolo: '–', texto: 'Sem comparação' };
+    if (s.divergencias > 0) return { tom: 'pendente', simbolo: '!', texto: vgPlural(s.divergencias, 'divergência', 'divergências') };
+    return { tom: 'ok', simbolo: '✓', texto: 'XML e SINTEGRA conferem' };
+  }
   if (!f && !c) return { tom: 'neutro', simbolo: '–', texto: 'Aguardando SPED' };
   const n = [f && f.divergencias, c && c.divergencias].filter((x) => x !== null && x !== undefined && x !== false);
   if (!n.length) return { tom: 'neutro', simbolo: '–', texto: 'Sem comparação' };
@@ -84,9 +95,9 @@ function vgCalcular(dados, regime, hojeISO) {
   const auditadas = comNotas.filter((e) => vgAuditoria(e).tom === 'ok').length;
   const comPendencias = conta((e) => vgGeral(e).chave === 'bloqueado' || vgGeral(e).chave === 'pendencias');
   const certVencidos = conta((e) => e.status === 'certificado_vencido');
-  const comSped = ativas.filter((e) => e.sped || e.contrib);
-  // Simples e MEI entregam SINTEGRA (em breve): não entram na conta das etapas do SPED
-  const baseSped = ativas.filter((e) => !vgUsaSintegra(e)).length;
+  // Cada empresa entrega SPED ou SINTEGRA (Simples e MEI): as duas etapas contam o arquivo que a empresa entrega
+  const comSped = ativas.filter((e) => e.sped || e.contrib || e.sintegra);
+  const baseSped = base;
 
   const kpis = {
     empresas: base,
@@ -101,8 +112,8 @@ function vgCalcular(dados, regime, hojeISO) {
     { id: 'xml', nome: 'Captação de XML', icone: 'cloud-download', tom: 'info', feito: xmlEmDia, total: base },
     { id: 'auditoria', nome: 'Auditoria das notas', icone: 'shield-check', tom: 'ok', feito: auditadas, total: comNotas.length, semTotal: 'Nenhuma empresa com notas na competência' },
     { id: 'st', nome: 'ICMS-ST (entradas)', icone: 'calculator', indisponivel: 'Sob demanda' },
-    { id: 'sped', nome: 'SPED recebido sem erros', icone: 'file-spreadsheet', tom: 'progresso', feito: comSped.filter((e) => vgSped(e).tom === 'ok').length, total: baseSped, semTotal: 'Nenhuma empresa que entregue SPED' },
-    { id: 'validacao', nome: 'Validação XML × SPED', icone: 'file-check', tom: 'ok', feito: comSped.filter((e) => vgValidacao(e).tom === 'ok').length, total: baseSped, semTotal: 'Nenhuma empresa que entregue SPED' },
+    { id: 'sped', nome: 'SPED/SINTEGRA sem erros', icone: 'file-spreadsheet', tom: 'progresso', feito: comSped.filter((e) => vgSped(e).tom === 'ok').length, total: baseSped, semTotal: 'Nenhuma empresa ativa' },
+    { id: 'validacao', nome: 'Validação XML × SPED/SINTEGRA', icone: 'file-check', tom: 'ok', feito: comSped.filter((e) => vgValidacao(e).tom === 'ok').length, total: baseSped, semTotal: 'Nenhuma empresa ativa' },
     { id: 'guias', nome: 'Guias (DUA, DAS etc.)', icone: 'receipt', indisponivel: 'Não disponível' },
   ];
 
@@ -138,9 +149,9 @@ function vgCalcular(dados, regime, hojeISO) {
     { id: 'auditoria', texto: 'Auditorias pendentes', tom: 'pendente', icone: 'shield-alert', n: conta((e) => e.apont_abertos > 0), destino: { central: 'auditoria' } },
     { id: 'cert-vencendo', texto: 'Certificados vencendo em 30 dias', tom: 'pendente', icone: 'triangle-alert', n: kpis.certVencendo, destino: { empresasStatus: ['certificado_vencendo'] } },
     { id: 'lacunas', texto: 'Empresas com notas faltantes (NSU)', icone: 'file-warning', breve: true },
-    { id: 'sped', texto: 'Divergências SPED × XML', tom: 'pendente', icone: 'file-spreadsheet', n: conta((e) => vgPendencias(e).some((p) => p.etapa === 'validacao')), destino: { central: 'validacao' } },
-    { id: 'sped-erros', texto: 'SPED com erros no arquivo', tom: 'pendente', icone: 'file-warning', n: conta((e) => vgPendencias(e).some((p) => p.etapa === 'sped')), destino: { central: 'sped' } },
-    { id: 'cadastros', texto: 'Cadastros do SPED para conferir', tom: 'info', icone: 'building-2', n: Number(dados.cadastrosPendentes || 0), destino: { rota: '#/sped' } },
+    { id: 'sped', texto: 'Divergências SPED/SINTEGRA', tom: 'pendente', icone: 'file-spreadsheet', n: conta((e) => vgPendencias(e).some((p) => p.etapa === 'validacao')), destino: { central: 'validacao' } },
+    { id: 'sped-erros', texto: 'SPED/SINTEGRA com erros no arquivo', tom: 'pendente', icone: 'file-warning', n: conta((e) => vgPendencias(e).some((p) => p.etapa === 'sped')), destino: { central: 'sped' } },
+    { id: 'cadastros', texto: 'Cadastros dos arquivos fiscais para conferir', tom: 'info', icone: 'building-2', n: Number(dados.cadastrosPendentes || 0), destino: { rota: '#/sped' } },
     { id: 'st', texto: 'Empresas sem ST calculado', icone: 'calculator', breve: true },
     { id: 'guias', texto: 'Guias não geradas', icone: 'receipt', breve: true },
   ];
@@ -172,6 +183,8 @@ function vgPendencias(e) {
   if (e.sped && e.sped.divergencias > 0) lista.push({ etapa: 'validacao', tom: 'pendente', texto: vgPlural(e.sped.divergencias, 'divergência SPED × XML', 'divergências SPED × XML'), n: e.sped.divergencias });
   if (e.contrib && e.contrib.erros > 0) lista.push({ etapa: 'sped', tom: 'pendente', texto: `SPED Contribuições: ${vgPlural(e.contrib.erros, 'erro', 'erros')}`, n: e.contrib.erros });
   if (e.contrib && e.contrib.divergencias > 0) lista.push({ etapa: 'validacao', tom: 'pendente', texto: vgPlural(e.contrib.divergencias, 'divergência Fiscal × Contribuições', 'divergências Fiscal × Contribuições'), n: e.contrib.divergencias });
+  if (e.sintegra && e.sintegra.erros > 0) lista.push({ etapa: 'sped', tom: 'pendente', texto: `SINTEGRA: ${vgPlural(e.sintegra.erros, 'erro', 'erros')} no arquivo`, n: e.sintegra.erros });
+  if (e.sintegra && e.sintegra.divergencias > 0) lista.push({ etapa: 'validacao', tom: 'pendente', texto: vgPlural(e.sintegra.divergencias, 'divergência SINTEGRA × XML', 'divergências SINTEGRA × XML'), n: e.sintegra.divergencias });
   return lista;
 }
 function vgQtdPendencias(e) { return vgPendencias(e).reduce((t, p) => t + p.n, 0); }
@@ -339,7 +352,7 @@ if (typeof window !== 'undefined') {
       vgKpi('cloud-download', 'ok', vgNum(k.xmlEmDia), 'Captação regular', `${vgPctTexto(vgPct(k.xmlEmDia, b))} da base · situação atual`, null,
         'Empresas ativas com certificado válido cuja consulta à SEFAZ está funcionando: sem erro, sem atraso e já com a primeira captação feita. Mostra a situação de agora, não se todas as notas da competência já chegaram.'),
       vgKpi('triangle-alert', k.comPendencias ? 'atencao' : 'ok', vgNum(k.comPendencias), 'Com pendências', `${vgPctTexto(vgPct(k.comPendencias, b))} da base`, null,
-        'Empresas ativas com pelo menos uma destas situações: sem certificado ou certificado vencido; erro, atraso ou conflito na consulta à SEFAZ; apontamentos abertos na auditoria; ou SPED da competência com erro no arquivo ou divergência com os XMLs.'),
+        'Empresas ativas com pelo menos uma destas situações: sem certificado ou certificado vencido; erro, atraso ou conflito na consulta à SEFAZ; apontamentos abertos na auditoria; ou SPED/SINTEGRA da competência com erro no arquivo ou divergência em aberto (sem justificativa) com os XMLs.'),
       vgKpi('shield-x', k.certVencidos ? 'problema' : 'ok', vgNum(k.certVencidos), 'Certificados vencidos', k.certVencendo ? `${k.certVencendo} vence${k.certVencendo === 1 ? '' : 'm'} em 30 dias` : 'Nenhum vencendo em 30 dias'),
       h('div', { class: 'vg-kpi vg-kpi-fechamento secundario', 'aria-disabled': 'true' },
         h('span', { class: 'vg-kpi-icone neutro' }, icone('gauge')),
@@ -457,7 +470,7 @@ if (typeof window !== 'undefined') {
       aud: () => vgCelula(vgAuditoria(e), e.notas_mes ? `${base}/auditoria` : null, 'Auditoria'),
       st: () => vgCelula(st, e.uf === 'ES' ? `${base}/icms-st` : null, 'ICMS-ST'),
       stTabela: () => vgCelula(stTabela, e.uf === 'ES' ? `${base}/icms-st` : null, 'ICMS-ST'),
-      sped: () => vgCelula({ ...vgSped(e), compacto: true }, `${base}/sped`, 'SPED'), val: () => vgCelula({ ...vgValidacao(e), compacto: true }, e.sped || e.contrib ? `${base}/sped` : null, 'Validação'),
+      sped: () => vgCelula({ ...vgSped(e), compacto: true }, `${base}/sped`, vgUsaSintegra(e) ? 'SINTEGRA' : 'SPED'), val: () => vgCelula({ ...vgValidacao(e), compacto: true }, e.sped || e.contrib || e.sintegra ? `${base}/sped` : null, 'Validação'),
       guias: () => vgCelula(na, null, 'Guias'),
     };
     return { e, g, ult, cel };

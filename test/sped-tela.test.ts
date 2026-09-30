@@ -23,6 +23,11 @@ const t = require('../public/sped.js');
   assert.equal(t.spResumoEnvio({ valido: false }).tom, 'problema');
   assert.equal(r({ tipo: 'efd_contribuicoes', ocorrencias: [{ nivel: 'erro' }], comparacao: null }).texto, 'SPED Contribuições · 1 erro no arquivo · sem SPED Fiscal do mês para cruzar');
   assert.equal(r({ tipo: 'efd_contribuicoes', comparacao: { divergencias: [] } }).texto, 'SPED Contribuições · arquivo sem erros · vendas conferem com o SPED Fiscal');
-  console.log('ok  resumo do envio (erros, divergências, cliente novo, cadastro a conferir)');
+  assert.equal(r({ tipo: 'sintegra' }).texto, 'SINTEGRA · arquivo sem erros · XML e SINTEGRA conferem');
+  const dv = (j: boolean) => ({ tipo: 'valor', nivel: 'alerta', chave: 'x', ...(j ? { justificativa: { observacao: 'ok', por: 'a', em: 'b' } } : {}) });
+  assert.equal(r({ comparacao: { divergencias: [dv(true), dv(false)] } }).texto, 'arquivo sem erros · 1 divergência com os XMLs', 'justificada não conta');
+  assert.equal(r({ tipo: 'efd_contribuicoes', comparacao: { fiscal: false, divergencias: [dv(false)] } }).texto,
+    'SPED Contribuições · arquivo sem erros · sem SPED Fiscal do mês para cruzar · 1 nota monofásico × tributado a revisar');
+  console.log('ok  resumo do envio (erros, divergências, justificadas, SINTEGRA, cliente novo, cadastro a conferir)');
 }
 console.log('\nTestes da tela SPED passaram.');
