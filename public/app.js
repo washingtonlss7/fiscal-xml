@@ -371,7 +371,7 @@ const NAV = [
     { rotulo: 'Arquivos' }, { rotulo: 'Comparar' }, { rotulo: 'Escrituração' }, { rotulo: 'Validação' },
   ] },
   { id: 'guias', rotulo: 'Guias', icone: 'receipt' },
-  { id: 'fechamento', rotulo: 'Fechamento', icone: 'clipboard-check' },
+  { id: 'fechamento', rotulo: 'Fechamento', icone: 'clipboard-check', rota: '#/fechamento' },
   { id: 'atendimento', rotulo: 'Atendimento', icone: 'message-circle' },
   { id: 'relatorios', rotulo: 'Relatórios', icone: 'chart-column' },
   { id: 'administracao', rotulo: 'Administração', icone: 'settings', permissao: 'usuarios', filhos: [
@@ -428,6 +428,7 @@ function rotaBase() {
   const h = location.hash;
   if (h.startsWith('#/usuarios')) return '#/usuarios';
   if (h.startsWith('#/empresas')) return '#/empresas';
+  if (h.startsWith('#/fechamento')) return '#/fechamento';
   return '#/visao-geral';
 }
 function marcarNav() {
@@ -568,9 +569,15 @@ async function aplicarRota() {
   const r = location.hash || '#/visao-geral';
   const emp = r.match(/^#\/empresas\/([0-9a-f-]{36})(\/auditoria)?$/);
   const esconderTudo = (menos) => {
-    for (const id of ['tela-visao', 'tela-empresas', 'tela-notas', 'tela-usuarios']) if (id !== menos) $(id).hidden = true;
+    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios']) if (id !== menos) $(id).hidden = true;
   };
-  if (r === '#/visao-geral') {
+  const fech = r.match(/^#\/fechamento(?:\?(.*))?$/);
+  if (fech) {
+    esconderTudo('tela-fechamento');
+    empresaNotas = null;
+    fecharGavetaUsuario();
+    window.fcMostrar(fech[1] || '');
+  } else if (r === '#/visao-geral') {
     esconderTudo('tela-visao');
     empresaNotas = null;
     fecharGavetaUsuario();
@@ -623,10 +630,6 @@ function ligarShell() {
   $('filtro-status-limpar').addEventListener('click', () => { filtro = 'todas'; renderResumo(); renderLista(); });
   $('nav-inf-notificacoes').addEventListener('click', abrirSino);
   $('nav-inf-mais').addEventListener('click', () => { $('tela-app').classList.add('menu-aberto'); atualizarBotaoLateral(); });
-  $('nav-inf-pendencias').addEventListener('click', () => {
-    if (location.hash !== '#/visao-geral') irPara('#/visao-geral');
-    window.vgFocarPendencias();
-  });
 
   $('usuario-botao').addEventListener('click', (e) => { e.stopPropagation(); alternarMenuUsuario(); });
   document.addEventListener('click', (e) => { if (!e.target.closest('.usuario-menu')) alternarMenuUsuario(false); });
@@ -772,7 +775,7 @@ function recarregarPorEvento() {
   recargaPendente = setTimeout(() => {
     if (document.hidden) return;
     if (!$('tela-empresas').hidden) carregarEmpresas();
-    else if (!$('tela-visao').hidden) { carregarEmpresas(); window.vgCarregar(); }
+    else if (!$('tela-visao').hidden || !$('tela-fechamento').hidden) { carregarEmpresas(); window.vgCarregar(); }
     else if (empresaNotas && abaAtual === 'auditoria') carregarAuditoria();
   }, 400);
 }

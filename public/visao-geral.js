@@ -124,11 +124,71 @@ function vgFiltrarCentral(lista, { termo = '', status = '', foco = '' } = {}) {
     (foco !== 'auditoria' || e.apont_abertos > 0));
 }
 
-if (typeof module !== 'undefined') module.exports = { vgXml, vgAuditoria, vgGeral, vgCalcular, vgFiltrarCentral };
+/* ---------- Central de Fechamento: prioridade, pendências, filtros e ordenação ---------- */
+const FC_ORDEM_STATUS = { bloqueado: 0, pendencias: 1, andamento: 2, concluido: 3, pausada: 4 };
+
+/** Pendências que pedem ação na empresa (texto curto + tom), da mais grave para a mais leve. */
+function vgPendencias(e) {
+  const lista = [];
+  if (!e.ativo) return lista;
+  const x = vgXml(e);
+  if (x.tom === 'problema' || x.tom === 'atencao') lista.push({ etapa: 'xml', tom: x.tom, texto: x.texto, n: 1 });
+  if (e.apont_abertos > 0) lista.push({ etapa: 'auditoria', tom: 'pendente', texto: `${e.apont_abertos} na auditoria`, n: e.apont_abertos });
+  return lista;
+}
+function vgQtdPendencias(e) { return vgPendencias(e).reduce((t, p) => t + p.n, 0); }
+
+/** Precisa de atenção = bloqueada ou com pendências (o que o analista precisa tratar). */
+function vgPrecisaAtencao(e) { const k = vgGeral(e).chave; return k === 'bloqueado' || k === 'pendencias'; }
+
+function fcContadores(lista) {
+  const ativas = lista.filter((e) => e.ativo);
+  const c = { total: ativas.length, bloqueado: 0, pendencias: 0, andamento: 0, concluido: 0, pausada: lista.length - ativas.length };
+  for (const e of ativas) c[vgGeral(e).chave]++;
+  return c;
+}
+
+/**
+ * Filtros da Central. status: bloqueado | pendencias | andamento | concluido | pausada ('' = todas as ativas).
+ * etapa: xml | auditoria (só empresas com pendência nessa etapa).
+ */
+function fcFiltrar(lista, f = {}) {
+  const t = (f.termo || '').trim().toLowerCase();
+  const td = t.replace(/\D/g, '');
+  const regime = f.regime || '';
+  return lista.filter((e) => {
+    const g = vgGeral(e).chave;
+    if (f.status ? g !== f.status : g === 'pausada') return false;
+    if (regime && (regime === 'nao_informado' ? e.regime : e.regime !== regime)) return false;
+    if (f.responsavel && e.responsavel !== f.responsavel) return false;
+    if (f.soBloqueados && g !== 'bloqueado') return false;
+    if (f.atencao && !vgPrecisaAtencao(e)) return false;
+    if (f.etapa && !vgPendencias(e).some((p) => p.etapa === f.etapa)) return false;
+    if (t && !(e.razao_social.toLowerCase().includes(t) || (td && e.cnpj.includes(td)))) return false;
+    return true;
+  });
+}
+
+const vgUltimaAtualizacao = (e) => [e.ultima_sync_ok_em, e.ultima_nota_em].filter(Boolean).sort().pop() || '';
+
+/** Ordenação: criticidade (padrão), empresa, atualização (mais antiga primeiro) ou pendências. */
+function fcOrdenar(lista, ordem = 'criticidade') {
+  const nome = (a, b) => a.razao_social.localeCompare(b.razao_social, 'pt-BR');
+  const crit = (a, b) => (FC_ORDEM_STATUS[vgGeral(a).chave] - FC_ORDEM_STATUS[vgGeral(b).chave]) || (vgQtdPendencias(b) - vgQtdPendencias(a)) || nome(a, b);
+  const cmp = {
+    criticidade: crit,
+    empresa: nome,
+    atualizacao: (a, b) => (vgUltimaAtualizacao(a) || '0').localeCompare(vgUltimaAtualizacao(b) || '0') || nome(a, b),
+    pendencias: (a, b) => (vgQtdPendencias(b) - vgQtdPendencias(a)) || crit(a, b),
+  }[ordem] || crit;
+  return [...lista].sort(cmp);
+}
+
+if (typeof module !== 'undefined') module.exports = { vgXml, vgAuditoria, vgGeral, vgCalcular, vgFiltrarCentral, vgPendencias, vgQtdPendencias, vgPrecisaAtencao, fcContadores, fcFiltrar, fcOrdenar };
 
 /* ---------- tela ---------- */
 if (typeof window !== 'undefined') {
-  var vg = { dados: null, carregando: false, erro: null, regime: '', termo: '', status: '', foco: '', pagina: 1, pedido: 0 };
+  var vg = { dados: null, carregando: false, erro: null, regime: '', pedido: 0 };
 
   var vgTitulo = (texto, extra) => h('div', { class: 'vg-card-topo' }, h('h2', { class: 'vg-card-titulo', text: texto }), extra || null);
   var vgPct = (feito, total) => (total ? Math.round((feito / total) * 1000) / 10 : 0);
@@ -148,12 +208,13 @@ if (typeof window !== 'undefined') {
     vgCarregar();
   }
 
+  /** Carrega /api/visao-geral (mesma resposta para a Visão Geral e a Central) e redesenha a tela aberta. */
   async function vgCarregar() {
     const pedido = ++vg.pedido;
     const primeira = !vg.dados || vg.dados.competencia.slice(0, 7) !== competencia;
     vg.carregando = true;
     vg.erro = null;
-    if (primeira) { vg.dados = null; vgRender(); }
+    if (primeira) { vg.dados = null; vgRenderTudo(); }
     try {
       const d = await chamar(`/api/visao-geral?mes=${competencia}`);
       if (pedido !== vg.pedido) return;
@@ -162,8 +223,13 @@ if (typeof window !== 'undefined') {
       if (pedido !== vg.pedido) return;
       vg.erro = e.message;
     } finally {
-      if (pedido === vg.pedido) { vg.carregando = false; vgRender(); }
+      if (pedido === vg.pedido) { vg.carregando = false; vgRenderTudo(); }
     }
+  }
+
+  function vgRenderTudo() {
+    if (!$('tela-visao').hidden) vgRender();
+    if (!$('tela-fechamento').hidden) fcRender();
   }
 
   function vgRender() {
@@ -191,27 +257,30 @@ if (typeof window !== 'undefined') {
     vgRenderEtapas(c);
     vgRenderAtencao(c);
     vgRenderCentral(c);
-    if (vg.rolarCentral) { vg.rolarCentral = false; vgRolarCentral(); }
-  }
-
-  function vgRolarCentral() {
-    $('vg-central-secao').scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
   }
 
   /** Atalho "Pendências" da navegação do celular: Central filtrada por empresas com pendências. */
-  function vgFocarPendencias() {
-    vg.status = 'pendencias'; vg.foco = ''; vg.pagina = 1;
-    $('vg-central-status').value = 'pendencias';
-    vg.rolarCentral = true;
-    if (vg.dados && !$('tela-visao').hidden) vgRender();
-  }
+  function vgFocarPendencias() { irPara('#/fechamento?atencao=1'); }
 
-  function vgKpi(icone_, tom, valor, rotulo, meta, extra) {
+  /** Ícone "?" com explicação curta: aparece ao passar o mouse, ao focar com o teclado ou ao tocar. */
+  var vgAjudaSeq = 0;
+  function vgAjuda(texto) {
+    const id = `ajuda-${++vgAjudaSeq}`;
+    const caixa = h('span', { class: 'ajuda-texto', role: 'tooltip', id, text: texto });
+    const botao = h('button', {
+      type: 'button', class: 'ajuda', 'aria-label': 'O que significa?', 'aria-describedby': id, 'aria-expanded': 'false',
+      onclick: (ev) => { ev.stopPropagation(); const ab = botao.getAttribute('aria-expanded') !== 'true'; fecharAjudas(); botao.setAttribute('aria-expanded', String(ab)); },
+    }, '?');
+    return h('span', { class: 'ajuda-caixa' }, botao, caixa);
+  }
+  function fecharAjudas() { for (const b of document.querySelectorAll('.ajuda[aria-expanded="true"]')) b.setAttribute('aria-expanded', 'false'); }
+
+  function vgKpi(icone_, tom, valor, rotulo, meta, extra, ajuda) {
     return h('div', { class: 'vg-kpi' },
       h('span', { class: `vg-kpi-icone ${tom}` }, icone(icone_)),
       h('div', { class: 'vg-kpi-corpo' },
         h('span', { class: `vg-kpi-valor${tom === 'problema' || tom === 'atencao' ? ` ${tom}` : ''}`, text: valor }),
-        h('span', { class: 'vg-kpi-rotulo', text: rotulo }),
+        h('span', { class: 'vg-kpi-rotulo' }, rotulo, ajuda ? vgAjuda(ajuda) : null),
         meta ? h('span', { class: 'vg-kpi-meta', text: meta }) : null,
         extra || null));
   }
@@ -228,11 +297,13 @@ if (typeof window !== 'undefined') {
     }
     $('vg-kpis').replaceChildren(
       vgKpi('building-2', 'info', vgNum(b), 'Empresas ativas', k.novas ? `+${k.novas} cadastrada${k.novas === 1 ? '' : 's'} na competência` : 'Nenhuma nova na competência'),
-      vgKpi('cloud-download', 'ok', vgNum(k.xmlEmDia), 'Captação em dia', `${vgPctTexto(vgPct(k.xmlEmDia, b))} da base · situação atual`),
-      vgKpi('triangle-alert', k.comPendencias ? 'atencao' : 'ok', vgNum(k.comPendencias), 'Com pendências', `${vgPctTexto(vgPct(k.comPendencias, b))} da base`),
+      vgKpi('cloud-download', 'ok', vgNum(k.xmlEmDia), 'Captação regular', `${vgPctTexto(vgPct(k.xmlEmDia, b))} da base · situação atual`, null,
+        'Empresas ativas com certificado válido cuja consulta à SEFAZ está funcionando: sem erro, sem atraso e já com a primeira captação feita. Mostra a situação de agora, não se todas as notas da competência já chegaram.'),
+      vgKpi('triangle-alert', k.comPendencias ? 'atencao' : 'ok', vgNum(k.comPendencias), 'Com pendências', `${vgPctTexto(vgPct(k.comPendencias, b))} da base`, null,
+        'Empresas ativas com pelo menos uma destas situações: sem certificado ou certificado vencido; erro, atraso ou conflito na consulta à SEFAZ; ou apontamentos abertos na auditoria da competência.'),
       vgKpi('shield-x', k.certVencidos ? 'problema' : 'ok', vgNum(k.certVencidos), 'Certificados vencidos', k.certVencendo ? `${k.certVencendo} vence${k.certVencendo === 1 ? '' : 'm'} em 30 dias` : 'Nenhum vencendo em 30 dias'),
-      h('div', { class: 'vg-kpi vg-kpi-fechamento' },
-        h('span', { class: 'vg-kpi-icone progresso' }, icone('gauge')),
+      h('div', { class: 'vg-kpi vg-kpi-fechamento secundario', 'aria-disabled': 'true' },
+        h('span', { class: 'vg-kpi-icone neutro' }, icone('gauge')),
         h('div', { class: 'vg-kpi-corpo' },
           h('span', { class: 'vg-kpi-valor indisponivel', text: 'Em breve' }),
           h('span', { class: 'vg-kpi-rotulo', text: 'Fechamento do mês' }),
@@ -307,13 +378,7 @@ if (typeof window !== 'undefined') {
   }
 
   function vgIrDestino(destino) {
-    if (destino.central) {
-      vg.foco = destino.central; vg.status = ''; vg.pagina = 1;
-      $('vg-central-status').value = '';
-      vgRender();
-      vgRolarCentral();
-      return;
-    }
+    if (destino.central) { irPara(`#/fechamento?etapa=${destino.central}`); return; }
     if (destino.empresasStatus) {
       filtro = `status:${destino.empresasStatus.join(',')}`;
       irPara('#/empresas');
@@ -357,70 +422,217 @@ if (typeof window !== 'undefined') {
     return { e, g, ult, cel };
   }
 
+  var regimeTexto = (r) => (r ? REGIMES[r] || r : 'Não informado');
+  var regimeCurto = (r) => ({ simples: 'Simples', presumido: 'Presumido', real: 'Real', mei: 'MEI' }[r] || (r ? r : 'Não inf.'));
+  var ehCelularVg = () => window.matchMedia('(max-width: 760px)').matches;
+
+  /** Tabela da Central (usada na prévia da Visão Geral e na página completa). */
+  function fcTabela(linhas, { completa = false, comResponsavel = false } = {}) {
+    const cols = ['Empresa', 'CNPJ', ...(comResponsavel ? ['Responsável'] : []), 'Regime', 'XML', 'Auditoria', 'ICMS-ST', 'SPED', 'Validação', 'Guias',
+      ...(completa ? ['Pendências'] : []), 'Status', 'Atualização', 'Ações'];
+    return h('div', { class: 'vg-tabela-caixa' }, h('table', { class: `vg-tabela${completa ? ' completa' : ''}` },
+      h('thead', {}, h('tr', {}, ...cols.map((t) => h('th', { scope: 'col', class: { CNPJ: 'vg-col-cnpj', Regime: 'vg-col-regime', 'Pendências': 'num' }[t] || null, text: t })))),
+      h('tbody', {}, ...linhas.map((l) => {
+        const pend = vgQtdPendencias(l.e);
+        return h('tr', { class: `linha-${l.g.chave}` },
+          h('td', { class: 'vg-emp' }, h('a', { href: `#/empresas/${l.e.id}`, text: l.e.razao_social }),
+            h('span', { class: 'vg-cnpj-sub' }, h('span', { class: 'mono', text: formatarCnpj(l.e.cnpj) }), h('span', { class: 'vg-regime-sub', text: ` · ${regimeCurto(l.e.regime)}` }))),
+          h('td', { class: 'mono vg-col-cnpj', text: formatarCnpj(l.e.cnpj) }),
+          comResponsavel ? h('td', { text: l.e.responsavel || '—' }) : null,
+          h('td', { class: 'vg-col-regime' }, h('span', { class: `vg-regime ${l.e.regime || 'nao-informado'}`, title: regimeTexto(l.e.regime), text: regimeCurto(l.e.regime) })),
+          h('td', {}, l.cel.xml()), h('td', {}, l.cel.aud()), h('td', {}, l.cel.stTabela()), h('td', {}, l.cel.sped()), h('td', {}, l.cel.val()), h('td', {}, l.cel.guias()),
+          completa ? h('td', { class: 'num' }, pend ? h('span', { class: `fc-pend ${l.g.chave === 'bloqueado' ? 'problema' : 'pendente'}`, title: vgPendencias(l.e).map((p) => p.texto).join(' · '), text: vgNum(pend) }) : h('span', { class: 'fc-pend zero', text: '—' })) : null,
+          h('td', {}, h('span', { class: `selo ${l.g.tom}`, text: l.g.texto })),
+          h('td', { class: 'vg-data', text: l.ult ? quandoRelativo(l.ult) : '—' }),
+          h('td', { class: 'vg-acoes' }, h('a', { class: 'botao-icone', href: `#/empresas/${l.e.id}`, 'aria-label': `Abrir ${l.e.razao_social}`, title: 'Abrir empresa' }, icone('arrow-right'))),
+        );
+      }))));
+  }
+
+  /** Cartões compactos do celular: status geral, principais pendências e "Abrir empresa". */
+  function fcCartoes(linhas) {
+    return h('ul', { class: 'fc-cartoes' }, ...linhas.map((l) => {
+      const pend = vgPendencias(l.e);
+      return h('li', { class: `fc-cartao linha-${l.g.chave}` },
+        h('div', { class: 'fc-cartao-topo' },
+          h('div', { class: 'fc-cartao-id' }, h('strong', { text: l.e.razao_social }),
+            h('span', { class: 'fc-cartao-sub' }, h('span', { class: 'mono', text: formatarCnpj(l.e.cnpj) }), ' · ', regimeCurto(l.e.regime))),
+          h('span', { class: `selo ${l.g.tom}`, text: l.g.texto })),
+        pend.length
+          ? h('ul', { class: 'fc-cartao-pend', 'aria-label': 'Pendências' }, ...pend.map((p) => h('li', { class: p.tom },
+            h('span', { class: `vg-simbolo ${p.tom}`, 'aria-hidden': 'true', text: p.tom === 'problema' ? '✕' : '!' }), p.texto)))
+          : h('p', { class: 'fc-cartao-ok' }, h('span', { class: 'vg-simbolo ok', 'aria-hidden': 'true', text: '✓' }),
+            l.e.ativo ? `Sem pendências · ${vgXml(l.e).texto}` : 'Pausada'),
+        h('div', { class: 'fc-cartao-rodape' },
+          h('span', { class: 'meta', text: l.ult ? `Atualizado ${quandoRelativo(l.ult)}` : 'Sem atualização' }),
+          h('a', { class: 'botao primario', href: `#/empresas/${l.e.id}` }, 'Abrir empresa')));
+    }));
+  }
+
+  /** Prévia na Visão Geral: só as empresas mais críticas (5 no celular, 10 no computador). */
   function vgRenderCentral(c) {
-    const VG_POR_PAGINA = window.matchMedia('(max-width: 760px)').matches ? VG_POR_PAGINA_CELULAR : 20;
-    const filtradas = vgFiltrarCentral(c.lista, { termo: vg.termo, status: vg.status, foco: vg.foco });
-    const paginas = Math.max(1, Math.ceil(filtradas.length / VG_POR_PAGINA));
-    if (vg.pagina > paginas) vg.pagina = paginas;
-    const pag = filtradas.slice((vg.pagina - 1) * VG_POR_PAGINA, vg.pagina * VG_POR_PAGINA).map(vgLinhaCentral);
     const alvo = $('vg-central');
-    const chip = vg.foco === 'auditoria'
-      ? h('button', { type: 'button', class: 'vg-chip', onclick: () => { vg.foco = ''; vgRender(); } }, 'Só com auditoria pendente', icone('x'))
-      : null;
-    if (!filtradas.length) {
-      alvo.replaceChildren(chip || '', h('div', { class: 'vg-vazio pequeno' },
-        h('strong', { text: c.lista.length ? 'Nenhuma empresa com esses filtros.' : 'Nenhuma empresa para acompanhar.' }),
-        c.lista.length ? h('span', { text: 'Limpe a busca ou escolha outro status.' }) : null));
+    const cont = fcContadores(c.lista);
+    const priorizadas = fcOrdenar(fcFiltrar(c.lista, {}), 'criticidade');
+    if (!priorizadas.length) {
+      alvo.replaceChildren(h('div', { class: 'vg-vazio pequeno' }, h('strong', { text: 'Nenhuma empresa ativa para acompanhar.' })));
       return;
     }
-    const regimeTexto = (r) => (r ? REGIMES[r] || r : 'Não informado');
-    const regimeCurto = (r) => ({ simples: 'Simples', presumido: 'Presumido', real: 'Real', mei: 'MEI' }[r] || (r ? r : 'Não inf.'));
-    const tabela = h('div', { class: 'vg-tabela-caixa' }, h('table', { class: 'vg-tabela' },
-      h('thead', {}, h('tr', {}, ...['Empresa', 'CNPJ', 'Regime', 'XML', 'Auditoria', 'ICMS-ST', 'SPED', 'Validação', 'Guias', 'Status', 'Atualizado', 'Ações'].map((t) => h('th', { scope: 'col', class: t === 'CNPJ' ? 'vg-col-cnpj' : null, text: t })))),
-      h('tbody', {}, ...pag.map((l) => h('tr', {},
-        h('td', { class: 'vg-emp' }, h('a', { href: `#/empresas/${l.e.id}`, text: l.e.razao_social }), h('span', { class: 'mono vg-cnpj-sub', text: formatarCnpj(l.e.cnpj) })),
-        h('td', { class: 'mono vg-col-cnpj', text: formatarCnpj(l.e.cnpj) }),
-        h('td', {}, h('span', { class: `vg-regime ${l.e.regime || 'nao-informado'}`, title: regimeTexto(l.e.regime), text: regimeCurto(l.e.regime) })),
-        h('td', {}, l.cel.xml()), h('td', {}, l.cel.aud()), h('td', {}, l.cel.stTabela()), h('td', {}, l.cel.sped()), h('td', {}, l.cel.val()), h('td', {}, l.cel.guias()),
-        h('td', {}, h('span', { class: `selo ${l.g.tom}`, text: l.g.texto })),
-        h('td', { class: 'vg-data', text: l.ult ? quandoRelativo(l.ult) : '—' }),
-        h('td', { class: 'vg-acoes' }, h('a', { class: 'botao-icone', href: `#/empresas/${l.e.id}`, 'aria-label': `Abrir ${l.e.razao_social}`, title: 'Abrir empresa' }, icone('arrow-right'))),
-      )))));
-    const cartoes = h('ul', { class: 'vg-cartoes' }, ...pag.map((l) => h('li', { class: 'vg-cartao' },
-      h('div', { class: 'vg-cartao-topo' },
-        h('div', {}, h('strong', { text: l.e.razao_social }), h('span', { class: 'mono', text: formatarCnpj(l.e.cnpj) }),
-          h('span', { class: `vg-regime ${l.e.regime || 'nao-informado'}`, text: regimeTexto(l.e.regime) })),
-        h('span', { class: `selo ${l.g.tom}`, text: l.g.texto })),
-      h('dl', { class: 'vg-cartao-itens' },
-        ...[['XML', l.cel.xml], ['Auditoria', l.cel.aud], ['ICMS-ST', l.cel.st]]
-          .flatMap(([k, f]) => [h('dt', { text: k }), h('dd', {}, f())]),
-        h('dt', { text: 'SPED, validação e guias' }),
-        h('dd', {}, h('span', { class: 'vg-celula' }, h('span', { class: 'vg-simbolo neutro', 'aria-hidden': 'true', text: '–' }), h('span', { text: 'Em breve' })))),
-      h('div', { class: 'vg-cartao-rodape' },
-        h('span', { class: 'meta', text: l.ult ? `Atualizado ${quandoRelativo(l.ult)}` : 'Sem atualização' }),
-        h('a', { class: 'botao primario', href: `#/empresas/${l.e.id}` }, 'Abrir empresa')))));
-    const paginacao = paginas > 1 ? h('nav', { class: 'vg-paginacao', 'aria-label': 'Páginas' },
-      h('span', { class: 'meta', text: `Mostrando ${(vg.pagina - 1) * VG_POR_PAGINA + 1} a ${Math.min(vg.pagina * VG_POR_PAGINA, filtradas.length)} de ${vgNum(filtradas.length)} empresas` }),
-      h('div', { class: 'vg-paginas' },
-        h('button', { type: 'button', class: 'botao-icone', 'aria-label': 'Página anterior', disabled: vg.pagina === 1, onclick: () => { vg.pagina--; vgRender(); } }, icone('chevron-left')),
-        h('span', { text: `${vg.pagina} / ${paginas}` }),
-        h('button', { type: 'button', class: 'botao-icone', 'aria-label': 'Próxima página', disabled: vg.pagina === paginas, onclick: () => { vg.pagina++; vgRender(); } }, icone('chevron-right'))))
-      : h('p', { class: 'meta vg-total', text: `${vgNum(filtradas.length)} empresa${filtradas.length === 1 ? '' : 's'}` });
-    alvo.replaceChildren(...[chip, tabela, cartoes, paginacao].filter(Boolean));
+    const celular = ehCelularVg();
+    const linhas = priorizadas.slice(0, celular ? 5 : 10).map(vgLinhaCentral);
+    $('vg-central-resumo').textContent = `${vgNum(cont.bloqueado)} bloqueada${cont.bloqueado === 1 ? '' : 's'} · ${vgNum(cont.pendencias)} com pendências · ${vgNum(cont.andamento)} em andamento`;
+    alvo.replaceChildren(
+      celular ? fcCartoes(linhas) : fcTabela(linhas),
+      h('div', { class: 'vg-central-rodape' },
+        h('span', { class: 'meta', text: `Mostrando as ${linhas.length} mais críticas de ${vgNum(priorizadas.length)} empresas` }),
+        h('a', { class: 'botao', href: '#/fechamento' }, 'Ver Central completa', icone('arrow-right'))));
+  }
+
+  /* ---------- página da Central de Fechamento (#/fechamento) ---------- */
+  var fc = { termo: '', status: '', regime: '', responsavel: '', etapa: '', soBloqueados: false, atencao: false, ordem: 'criticidade', pagina: 1, maisCelular: 1 };
+  var FC_POR_PAGINA = 50;
+  var FC_POR_LOTE_CELULAR = 20;
+
+  /** Abre a Central; aceita filtros no endereço: #/fechamento?status=bloqueado&etapa=auditoria&atencao=1 */
+  function fcMostrar(consulta) {
+    const q = new URLSearchParams(consulta || '');
+    Object.assign(fc, {
+      termo: '', status: q.get('status') || '', regime: q.get('regime') || '', responsavel: '', etapa: q.get('etapa') || '',
+      soBloqueados: q.get('bloqueados') === '1', atencao: q.get('atencao') === '1', ordem: q.get('ordem') || 'criticidade', pagina: 1, maisCelular: 1,
+    });
+    $('fc-busca').value = '';
+    $('fc-status').value = fc.status; $('fc-regime').value = fc.regime; $('fc-etapa').value = fc.etapa; $('fc-ordem').value = fc.ordem;
+    $('fc-atencao').checked = fc.atencao; $('fc-bloqueados').checked = fc.soBloqueados;
+    for (const id of ['tela-visao', 'tela-empresas', 'tela-notas', 'tela-usuarios']) $(id).hidden = true;
+    $('tela-fechamento').hidden = false;
+    window.scrollTo(0, 0);
+    iniciarAtualizacao();
+    if (vg.dados && vg.dados.competencia.slice(0, 7) === competencia) fcRender();
+    vgCarregar();
+  }
+
+  function fcContador(chave, rotulo, n, tom, desabilitado, ajuda) {
+    const ativo = chave === 'total' ? !fc.status : fc.status === chave;
+    return h('div', { class: `fc-contador ${tom}${ativo ? ' ativo' : ''}${desabilitado ? ' desabilitado' : ''}` },
+      h('button', {
+        type: 'button', 'aria-pressed': String(ativo), disabled: desabilitado,
+        onclick: () => { fc.status = chave === 'total' ? '' : chave; $('fc-status').value = fc.status; fc.pagina = 1; fc.maisCelular = 1; fcRender(); },
+      }, h('span', { class: 'fc-contador-rotulo' }, tom !== 'total' ? h('span', { class: `ponto ${tom}`, 'aria-hidden': 'true' }) : null, rotulo),
+      h('span', { class: 'fc-contador-n', text: desabilitado ? '—' : vgNum(n) })),
+      ajuda ? vgAjuda(ajuda) : null);
+  }
+
+  function fcRender() {
+    if ($('tela-fechamento').hidden) return;
+    $('fc-sub').textContent = `Competência ${vgMesCurto(competencia)} · empresas priorizadas pelo que precisa de ação.`;
+    const alvo = $('fc-resultado');
+    if (vg.erro && !vg.dados) {
+      $('fc-contadores').replaceChildren();
+      alvo.replaceChildren(h('div', { class: 'vg-erro', role: 'alert' }, h('strong', { text: 'Não foi possível carregar a Central.' }), h('span', { text: vg.erro }),
+        h('button', { type: 'button', class: 'botao pequeno', onclick: vgCarregar }, icone('refresh-cw'), 'Tentar de novo')));
+      return;
+    }
+    if (!vg.dados) {
+      $('fc-contadores').replaceChildren(...Array.from({ length: 5 }, () => h('div', { class: 'fc-contador carregando' }, vgSkeleton())));
+      alvo.replaceChildren(vgSkeleton(), vgSkeleton(), vgSkeleton(), vgSkeleton());
+      $('fc-atualizado').textContent = 'Carregando…';
+      return;
+    }
+    const gerado = new Date(vg.dados.geradoEm);
+    $('fc-atualizado').textContent = `Última atualização: ${gerado.toLocaleDateString('pt-BR')} ${gerado.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+    const todas = vg.dados.empresas;
+    // Carteira/responsável: só aparece quando a relação existir no banco
+    const comResponsavel = todas.some((e) => e.responsavel);
+    $('fc-responsavel-campo').hidden = !comResponsavel;
+    const baseRegime = fcFiltrar(todas, { regime: fc.regime, status: '' }).concat(fcFiltrar(todas, { regime: fc.regime, status: 'pausada' }));
+    const cont = fcContadores(baseRegime);
+    $('fc-contadores').replaceChildren(
+      fcContador('total', 'Total', cont.total, 'total'),
+      fcContador('bloqueado', 'Bloqueadas', cont.bloqueado, 'problema'),
+      fcContador('pendencias', 'Com pendências', cont.pendencias, 'pendente'),
+      fcContador('andamento', 'Em andamento', cont.andamento, 'info'),
+      fcContador('concluido', 'Concluídas', 0, 'ok', true, 'Uma empresa só fica concluída quando SPED, validação e guias da competência estiverem prontos. Esses módulos ainda não existem, então ninguém aparece como concluído.'),
+    );
+    const filtradas = fcOrdenar(fcFiltrar(todas, fc), fc.ordem);
+    const celular = ehCelularVg();
+    const filtrosAtivos = [fc.termo, fc.status, fc.regime, fc.etapa, fc.responsavel].filter(Boolean).length + (fc.atencao ? 1 : 0) + (fc.soBloqueados ? 1 : 0);
+    const nCampos = [fc.status, fc.regime, fc.etapa, fc.responsavel].filter(Boolean).length + (fc.ordem !== 'criticidade' ? 1 : 0) + (fc.soBloqueados ? 1 : 0);
+    $('fc-filtros-botao-n').textContent = nCampos ? String(nCampos) : '';
+    $('fc-filtros-botao-n').hidden = !nCampos;
+    const limpar = filtrosAtivos ? h('button', { type: 'button', class: 'botao fantasma pequeno', onclick: fcLimpar }, icone('x'), 'Limpar filtros') : null;
+    if (!filtradas.length) {
+      alvo.replaceChildren(h('div', { class: 'fc-barra-resultado' }, h('span', { class: 'meta', text: '0 empresas' }), limpar),
+        h('div', { class: 'vg-vazio pequeno' },
+          h('strong', { text: todas.length ? 'Nenhuma empresa com esses filtros.' : 'Nenhuma empresa cadastrada ainda.' }),
+          h('span', { text: fc.atencao || fc.soBloqueados ? 'Ótimo sinal: nada precisa de ação com esses critérios.' : 'Ajuste a busca ou limpe os filtros.' })));
+      return;
+    }
+    const ORDENS = { criticidade: 'criticidade', empresa: 'empresa (A–Z)', atualizacao: 'atualização mais antiga', pendencias: 'mais pendências' };
+    const resumo = h('div', { class: 'fc-barra-resultado' },
+      h('span', { class: 'meta', text: `${vgNum(filtradas.length)} empresa${filtradas.length === 1 ? '' : 's'} · ordenadas por ${ORDENS[fc.ordem]}` }), limpar);
+    if (celular) {
+      const qtd = fc.maisCelular * FC_POR_LOTE_CELULAR;
+      const linhas = filtradas.slice(0, qtd).map(vgLinhaCentral);
+      alvo.replaceChildren(...[resumo, fcCartoes(linhas),
+        filtradas.length > qtd
+          ? h('button', { type: 'button', class: 'botao largo fc-mais', onclick: () => { fc.maisCelular++; fcRender(); } }, `Mostrar mais ${Math.min(FC_POR_LOTE_CELULAR, filtradas.length - qtd)} de ${vgNum(filtradas.length - qtd)} restantes`)
+          : null].filter(Boolean));
+      return;
+    }
+    const paginas = Math.max(1, Math.ceil(filtradas.length / FC_POR_PAGINA));
+    if (fc.pagina > paginas) fc.pagina = paginas;
+    const linhas = filtradas.slice((fc.pagina - 1) * FC_POR_PAGINA, fc.pagina * FC_POR_PAGINA).map(vgLinhaCentral);
+    alvo.replaceChildren(...[resumo, fcTabela(linhas, { completa: true, comResponsavel }),
+      paginas > 1 ? h('nav', { class: 'vg-paginacao', 'aria-label': 'Páginas' },
+        h('span', { class: 'meta', text: `Mostrando ${(fc.pagina - 1) * FC_POR_PAGINA + 1} a ${Math.min(fc.pagina * FC_POR_PAGINA, filtradas.length)} de ${vgNum(filtradas.length)}` }),
+        h('div', { class: 'vg-paginas' },
+          h('button', { type: 'button', class: 'botao-icone', 'aria-label': 'Página anterior', disabled: fc.pagina === 1, onclick: () => { fc.pagina--; fcRender(); } }, icone('chevron-left')),
+          h('span', { text: `${fc.pagina} / ${paginas}` }),
+          h('button', { type: 'button', class: 'botao-icone', 'aria-label': 'Próxima página', disabled: fc.pagina === paginas, onclick: () => { fc.pagina++; fcRender(); } }, icone('chevron-right')))) : null].filter(Boolean));
+  }
+
+  function fcLimpar() {
+    Object.assign(fc, { termo: '', status: '', regime: '', responsavel: '', etapa: '', soBloqueados: false, atencao: false, pagina: 1, maisCelular: 1 });
+    $('fc-busca').value = ''; $('fc-status').value = ''; $('fc-regime').value = ''; $('fc-etapa').value = '';
+    $('fc-atencao').checked = false; $('fc-bloqueados').checked = false;
+    fcRender();
   }
 
   function vgLigar() {
-    $('vg-regime').addEventListener('change', (e) => { vg.regime = e.target.value; $('vg-central-regime').value = vg.regime; vg.pagina = 1; vgRender(); });
-    $('vg-central-regime').addEventListener('change', (e) => { vg.regime = e.target.value; $('vg-regime').value = vg.regime; vg.pagina = 1; vgRender(); });
-    $('vg-central-status').addEventListener('change', (e) => { vg.status = e.target.value; vg.pagina = 1; vgRender(); });
+    $('vg-regime').addEventListener('change', (e) => { vg.regime = e.target.value; vgRender(); });
+    const mudar = (campo, valor) => { fc[campo] = valor; fc.pagina = 1; fc.maisCelular = 1; fcRender(); };
     let t;
-    $('vg-central-busca').addEventListener('input', (e) => { clearTimeout(t); t = setTimeout(() => { vg.termo = e.target.value; vg.pagina = 1; vgRender(); }, 200); });
-    window.addEventListener('appura:competencia', () => { if (!$('tela-visao').hidden) vgCarregar(); });
+    $('fc-busca').addEventListener('input', (e) => { clearTimeout(t); t = setTimeout(() => mudar('termo', e.target.value), 200); });
+    $('fc-status').addEventListener('change', (e) => mudar('status', e.target.value));
+    $('fc-regime').addEventListener('change', (e) => mudar('regime', e.target.value));
+    $('fc-responsavel').addEventListener('change', (e) => mudar('responsavel', e.target.value));
+    $('fc-etapa').addEventListener('change', (e) => mudar('etapa', e.target.value));
+    $('fc-ordem').addEventListener('change', (e) => mudar('ordem', e.target.value));
+    $('fc-atencao').addEventListener('change', (e) => mudar('atencao', e.target.checked));
+    $('fc-filtros-botao').addEventListener('click', () => {
+      const card = document.querySelector('.fc-card');
+      const aberto = card.classList.toggle('filtros-abertos');
+      $('fc-filtros-botao').setAttribute('aria-expanded', String(aberto));
+    });
+    $('fc-bloqueados').addEventListener('change', (e) => mudar('soBloqueados', e.target.checked));
+    document.addEventListener('click', (e) => { if (!e.target.closest('.ajuda-caixa')) fecharAjudas(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') fecharAjudas(); });
+    window.addEventListener('appura:competencia', () => { if (!$('tela-visao').hidden || !$('tela-fechamento').hidden) vgCarregar(); });
     let tr;
-    window.addEventListener('resize', () => { clearTimeout(tr); tr = setTimeout(() => { if (!$('tela-visao').hidden && vg.dados) vgRender(); }, 200); });
+    let eraCelular = ehCelularVg();
+    window.addEventListener('resize', () => {
+      clearTimeout(tr);
+      tr = setTimeout(() => {
+        if (!vg.dados) return;
+        if (!$('tela-visao').hidden) vgRender();
+        if (!$('tela-fechamento').hidden && ehCelularVg() !== eraCelular) fcRender();
+        eraCelular = ehCelularVg();
+      }, 200);
+    });
   }
   vgLigar();
   window.vgMostrar = vgMostrar;
   window.vgCarregar = vgCarregar;
   window.vgFocarPendencias = vgFocarPendencias;
+  window.fcMostrar = fcMostrar;
 }

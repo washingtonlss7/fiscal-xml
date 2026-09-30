@@ -148,34 +148,82 @@
         <div class="vg-card-topo vg-central-topo">
           <div>
             <h2 id="vg-central-titulo" class="vg-card-titulo grande">Central de Fechamento</h2>
-            <p class="meta">Situação de cada empresa na competência selecionada.</p>
+            <p id="vg-central-resumo" class="meta">Empresas que mais precisam de ação na competência.</p>
           </div>
         </div>
-        <div class="vg-filtros">
+        <div id="vg-central" class="vg-central-corpo" aria-live="polite"></div>
+      </section>
+     </section>
+
+     <section id="tela-fechamento" class="pilha fc" hidden>
+      <div class="cabecalho-pagina vg-cabecalho">
+        <div>
+          <h1>Central de Fechamento</h1>
+          <p id="fc-sub" class="subtitulo"></p>
+        </div>
+        <div class="vg-cabecalho-direita">
+          <span id="fc-atualizado" class="meta"></span>
+          <span class="vg-ao-vivo"><span class="vg-ao-vivo-ponto" aria-hidden="true"></span>Em tempo real</span>
+        </div>
+      </div>
+
+      <div id="fc-contadores" class="fc-contadores" role="group" aria-label="Filtrar por status"></div>
+
+      <section class="vg-card fc-card" aria-label="Empresas da competência">
+        <div class="fc-filtros">
           <label class="vg-busca">
             <span class="visualmente-oculto">Buscar empresa ou CNPJ</span>
             <svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-search"></use></svg>
-            <input id="vg-central-busca" type="search" placeholder="Buscar empresa ou CNPJ" autocomplete="off">
+            <input id="fc-busca" type="search" placeholder="Buscar empresa ou CNPJ" autocomplete="off">
           </label>
-          <label class="visualmente-oculto" for="vg-central-status">Status</label>
-          <select id="vg-central-status" class="vg-select">
-            <option value="">Todos os status</option>
-            <option value="bloqueado">Bloqueado</option>
-            <option value="pendencias">Com pendências</option>
-            <option value="andamento">Em andamento</option>
-            <option value="pausada">Pausada</option>
-          </select>
-          <label class="visualmente-oculto" for="vg-central-regime">Regime</label>
-          <select id="vg-central-regime" class="vg-select">
+          <button id="fc-filtros-botao" type="button" class="botao fc-filtros-botao" aria-expanded="false" aria-controls="fc-campos">
+            <svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-list-checks"></use></svg> Filtros e ordem <span id="fc-filtros-botao-n" class="fc-filtros-n" hidden></span>
+          </button>
+          <div id="fc-campos" class="fc-campos">
+          <label class="fc-campo"><span>Status</span>
+            <select id="fc-status" class="vg-select">
+              <option value="">Todas as ativas</option>
+              <option value="bloqueado">Bloqueadas</option>
+              <option value="pendencias">Com pendências</option>
+              <option value="andamento">Em andamento</option>
+              <option value="pausada">Pausadas</option>
+            </select>
+          </label>
+          <label class="fc-campo"><span>Regime</span>
+            <select id="fc-regime" class="vg-select">
             <option value="">Todos os regimes</option>
             <option value="simples">Simples Nacional</option>
             <option value="presumido">Lucro Presumido</option>
             <option value="real">Lucro Real</option>
             <option value="mei">MEI</option>
             <option value="nao_informado">Regime não informado</option>
-          </select>
+            </select>
+          </label>
+          <label id="fc-responsavel-campo" class="fc-campo" hidden><span>Responsável</span>
+            <select id="fc-responsavel" class="vg-select"><option value="">Todas as carteiras</option></select>
+          </label>
+          <label class="fc-campo"><span>Etapa pendente</span>
+            <select id="fc-etapa" class="vg-select">
+              <option value="">Qualquer etapa</option>
+              <option value="xml">XML (captação)</option>
+              <option value="auditoria">Auditoria</option>
+            </select>
+          </label>
+          <label class="fc-campo"><span>Ordenar por</span>
+            <select id="fc-ordem" class="vg-select">
+              <option value="criticidade">Criticidade</option>
+              <option value="pendencias">Mais pendências</option>
+              <option value="atualizacao">Atualização mais antiga</option>
+              <option value="empresa">Empresa (A–Z)</option>
+            </select>
+          </label>
+          </div>
         </div>
-        <div id="vg-central" class="vg-central-corpo" aria-live="polite"></div>
+        <div class="fc-opcoes">
+          <label class="fc-interruptor"><input id="fc-atencao" type="checkbox" role="switch"><span>Somente o que precisa de atenção</span></label>
+          <label class="fc-interruptor fc-so-bloqueadas"><input id="fc-bloqueados" type="checkbox" role="switch"><span>Somente bloqueadas</span></label>
+        </div>
+        <div id="fc-resultado" class="vg-central-corpo" aria-live="polite"></div>
       </section>
      </section>
 
@@ -294,7 +342,7 @@
     <nav id="nav-inferior" class="nav-inferior" aria-label="Navegação rápida">
       <a href="#/visao-geral" data-rota="#/visao-geral"><svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-house"></use></svg><span>Início</span></a>
       <a href="#/empresas" data-rota="#/empresas"><svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-building-2"></use></svg><span>Empresas</span></a>
-      <button id="nav-inf-pendencias" type="button"><svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-list-checks"></use></svg><span>Pendências</span></button>
+      <a id="nav-inf-pendencias" href="#/fechamento?atencao=1" data-rota="#/fechamento"><svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-list-checks"></use></svg><span>Pendências</span></a>
       <button id="nav-inf-notificacoes" type="button"><svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-bell"></use></svg><span>Avisos</span></button>
       <button id="nav-inf-mais" type="button" aria-controls="sidebar"><svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-menu"></use></svg><span>Mais</span></button>
     </nav>

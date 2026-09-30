@@ -92,4 +92,25 @@ const dados = {
   console.log('ok  situação de cada coluna e status geral');
 }
 
+// 6) Central de Fechamento: prioridade, contadores, filtros e ordenação
+{
+  const l = dados.empresas;
+  const ordem = vg.fcOrdenar(vg.fcFiltrar(l, {}), 'criticidade').map((e: any) => e.id);
+  assert.deepEqual(ordem, ['b', 'a', 'c', 'd'], 'Bloqueado → pendências (mais pendências primeiro) → andamento; pausada fora');
+  assert.deepEqual(vg.fcContadores(l), { total: 4, bloqueado: 1, pendencias: 2, andamento: 1, concluido: 0, pausada: 1 });
+  assert.deepEqual(vg.fcFiltrar(l, { status: 'pausada' }).map((e: any) => e.id), ['p']);
+  assert.deepEqual(vg.fcFiltrar(l, { atencao: true }).map((e: any) => e.id).sort(), ['a', 'b', 'c']);
+  assert.deepEqual(vg.fcFiltrar(l, { soBloqueados: true }).map((e: any) => e.id), ['b']);
+  assert.deepEqual(vg.fcFiltrar(l, { etapa: 'auditoria' }).map((e: any) => e.id), ['a']);
+  assert.deepEqual(vg.fcFiltrar(l, { etapa: 'xml' }).map((e: any) => e.id).sort(), ['b', 'c']);
+  assert.deepEqual(vg.fcFiltrar(l, { regime: 'nao_informado' }).map((e: any) => e.id), ['d']);
+  assert.equal(vg.fcFiltrar(l, { status: 'concluido' }).length, 0, 'nada "Concluído" sem SPED e guias');
+  assert.deepEqual(vg.fcOrdenar(vg.fcFiltrar(l, {}), 'empresa').map((e: any) => e.razao_social), ['Alfa', 'Beta', 'Delta', 'Gama']);
+  assert.deepEqual(vg.fcOrdenar(vg.fcFiltrar(l, {}), 'pendencias')[0].id, 'a', 'Alfa tem 3 apontamentos abertos');
+  assert.equal(vg.vgQtdPendencias(l[0]), 3);
+  assert.deepEqual(vg.vgPendencias(l[1]).map((p: any) => p.etapa), ['xml']);
+  assert.equal(vg.vgQtdPendencias(l[4]), 0, 'pausada sem pendências');
+  console.log('ok  Central: ordem por criticidade, contadores, filtros (atenção, bloqueadas, etapa, regime) e ordenações');
+}
+
 console.log('\nTestes da Visão Geral passaram.');
