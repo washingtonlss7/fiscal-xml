@@ -1,5 +1,7 @@
 import type { Efd } from './efd';
 import type { EfdContrib } from './contribuicoes';
+import type { Sintegra } from '../sintegra/sintegra';
+import { codigoMunicipio } from '../sintegra/sintegra';
 import municipios from './municipios.json';
 
 /**
@@ -100,6 +102,32 @@ export function dadosDoContribuicoes(efd: EfdContrib): DadosCadastro | null {
     por('contador_cnpj', digitos(k.cnpj).length === 14 ? digitos(k.cnpj) : '');
     por('contador_email', espacos(k.email).toLowerCase());
     por('contador_fone', digitos(k.fone));
+  }
+  return d;
+}
+
+/** Dados de cadastro do SINTEGRA: registro 10 (nome, IE, município) e 11 (endereço e telefone). */
+export function dadosDoSintegra(s: Sintegra): DadosCadastro | null {
+  const cab = s.cabecalho;
+  if (!cab) return null;
+  const d: DadosCadastro = { cnpj: cab.cnpj, uf: cab.uf };
+  const por = (campo: CampoCadastro, v: string) => { if (v) d[campo] = v; };
+  por('razao_social', espacos(cab.nome));
+  por('ie', espacos(cab.ie).toUpperCase());
+  const cod = codigoMunicipio(cab.municipio, cab.uf);
+  if (cod) {
+    d.cod_municipio = cod;
+    const nome = nomeMunicipio(cod);
+    if (nome) d.municipio = nome;
+  }
+  const c = s.complemento;
+  if (c) {
+    por('logradouro', espacos(c.logradouro));
+    por('numero', /^0+$/.test(c.numero) ? '' : espacos(c.numero).replace(/^0+(?=\d)/, ''));
+    por('complemento', espacos(c.complemento));
+    por('bairro', espacos(c.bairro));
+    por('cep', digitos(c.cep).length === 8 ? digitos(c.cep) : '');
+    por('fone', digitos(c.fone).replace(/^0+/, ''));
   }
   return d;
 }

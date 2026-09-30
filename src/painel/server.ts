@@ -375,10 +375,11 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
   if (sped && metodo === 'GET') {
     const f = filtroNotas(url);
     const comp = `${f.mes}-01`;
-    const [a, c] = await Promise.all([servicoSped.vigente(sped[1], comp), servicoSped.vigente(sped[1], comp, 'efd_contribuicoes')]);
+    const [a, c, si] = await Promise.all([servicoSped.vigente(sped[1], comp), servicoSped.vigente(sped[1], comp, 'efd_contribuicoes'), servicoSped.vigente(sped[1], comp, 'sintegra')]);
     return responder(res, 200, {
       vigente: a ? servicoSped.resposta(a) : null, arquivos: await servicoSped.historico(sped[1], comp),
       contribuicoes: { vigente: c ? servicoSped.resposta(c) : null, arquivos: await servicoSped.historico(sped[1], comp, 'efd_contribuicoes') },
+      sintegra: { vigente: si ? servicoSped.resposta(si) : null, arquivos: await servicoSped.historico(sped[1], comp, 'sintegra') },
       sugestao: await servicoSped.sugestaoPendente(sped[1]),
     });
   }
@@ -394,7 +395,7 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
     if (corpo[0] === 0x50 && corpo[1] === 0x4b) throw new ErroHttp(422, 'Envie o arquivo .txt do SPED (não compactado).');
     return responder(res, 200, await servicoSped.receber(nome, corpo, email, esperada));
   }
-  const spedArq = rota.match(/^\/api\/sped\/(\d+)\/(arquivo|refazer)$/);
+  const spedArq = rota.match(/^\/api\/sped\/(\d+)\/(arquivo|refazer|justificar|reabrir)$/);
   if (spedArq) {
     const a = await servicoSped.porId(Number(spedArq[1]));
     if (!a) throw new ErroHttp(404, 'Arquivo SPED não encontrado.');
@@ -408,6 +409,12 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
       });
       log.info('SPED baixado', { id: a.id, cnpj: a.cnpj, por: email });
       return void res.end(conteudo);
+    }
+    if (metodo === 'POST' && (spedArq[2] === 'justificar' || spedArq[2] === 'reabrir')) {
+      const c = await lerCorpo(req, 2_000_000);
+      const itens = Array.isArray(c.itens) ? c.itens.map((i: any) => ({ tipo: String(i?.tipo ?? ''), chave: String(i?.chave ?? '') })) : [];
+      const novo = await servicoSped.justificar(a, itens, spedArq[2] === 'justificar' ? String(c.observacao ?? '') : null, email);
+      return responder(res, 200, servicoSped.resposta(novo));
     }
     if (metodo === 'POST' && spedArq[2] === 'refazer') {
       const novo = await servicoSped.recomparar(a);

@@ -5,8 +5,11 @@ import { log } from '../log';
 import { codigoUf } from '../uf';
 import { analisarEfd, Efd, ResultadoEfd } from '../sped/efd';
 import { Comparacao, compararXmlSped, XmlDoc } from '../sped/comparar';
-import { analisarContribuicoes, Cruzamento, cruzarFiscalContribuicoes, EfdContrib, ehContribuicoes } from '../sped/contribuicoes';
-import { dadosDoContribuicoes, alteracaoAprovada, CAMPOS_CADASTRO, campoValido, chaveComparacao, DadosCadastro, dadosDoSped, diferencasCadastro } from '../sped/cadastro';
+import { analisarContribuicoes, analisarMonofasico, Cruzamento, cruzamentoSemFiscal, cruzarFiscalContribuicoes, EfdContrib, ehContribuicoes, ItemXmlSaida } from '../sped/contribuicoes';
+import { monofasico } from '../auditoria/tabelas';
+import { analisarSintegra, ehSintegra, Sintegra } from '../sintegra/sintegra';
+import { compararXmlSintegra } from '../sintegra/comparar';
+import { dadosDoSintegra, dadosDoContribuicoes, alteracaoAprovada, CAMPOS_CADASTRO, campoValido, chaveComparacao, DadosCadastro, dadosDoSped, diferencasCadastro } from '../sped/cadastro';
 
 /**
  * SPED Fiscal guardado: o arquivo vai criptografado para o armazenamento (R2) e o resultado
@@ -29,6 +32,12 @@ const mesVizinho = (comp: string, n: number) => {
   const d = new Date(Date.UTC(a, m - 1 + n, 1));
   return d.toISOString().slice(0, 10);
 };
+
+const COLUNAS_XML = 'chave,modelo,numero,emitida_em,valor,situacao,emit_cnpj,dest_doc,toma_doc,emit_nome';
+const paraXmlDoc = (d: any): XmlDoc => ({
+  chave: d.chave, modelo: d.modelo, data: dataSP(d.emitida_em), valor: Number(d.valor ?? 0), situacao: d.situacao ?? 'autorizada',
+  emit: d.emit_cnpj ?? '', dest: d.dest_doc ?? '', toma: d.toma_doc ?? '', nomeEmit: d.emit_nome ?? '', numero: d.numero ?? '',
+});
 
 interface EmpresaSped { id: string; cnpj: string; razao_social: string; uf: string; [k: string]: unknown }
 
@@ -58,17 +67,22 @@ function chavesEntrada(efd: Efd): string[] {
   return [...efd.c100.filter((d) => d.indOper === '0' && d.chave).map((d) => d.chave), ...efd.d100.filter((d) => d.chave).map((d) => d.chave)];
 }
 
+const TIPO_FISCAL = 'efd_icms_ipi';
 const TIPO_CONTRIB = 'efd_contribuicoes';
-function contarCruzamento(c: Cruzamento | null): { divergencias: number | null; divergencias_info: number | null } {
-  if (!c) return { divergencias: null, divergencias_info: null };
-  const graves = c.divergencias.filter((d) => d.nivel !== 'info').length;
-  return { divergencias: graves, divergencias_info: c.divergencias.length - graves };
-}
+const TIPO_SINTEGRA = 'sintegra';
+export const TIPOS_ARQUIVO = [TIPO_FISCAL, TIPO_CONTRIB, TIPO_SINTEGRA];
 
-function contarDivergencias(c: Comparacao | null): { divergencias: number | null; divergencias_info: number | null } {
+/** Divergência (de qualquer comparação) com a justificativa do escritório, quando houver. */
+interface DivergenciaBase { tipo: string; chave: string; nivel: string; justificativa?: Justificativa }
+export interface Justificativa { observacao: string; por: string; em: string }
+const chaveJust = (d: { tipo: string; chave: string }) => `${d.tipo}|${d.chave}`;
+
+/** Divergências em aberto (erro/alerta sem justificativa) e informativas. */
+function contar(c: { divergencias: DivergenciaBase[] } | null): { divergencias: number | null; divergencias_info: number | null } {
   if (!c) return { divergencias: null, divergencias_info: null };
-  const graves = c.divergencias.filter((d) => d.nivel !== 'info').length;
-  return { divergencias: graves, divergencias_info: c.divergencias.length - graves };
+  const abertas = c.divergencias.filter((d) => !d.justificativa);
+  const graves = abertas.filter((d) => d.nivel !== 'info').length;
+  return { divergencias: graves, divergencias_info: abertas.length - graves };
 }
 
 export class ServicoSped {
@@ -78,16 +92,49 @@ export class ServicoSped {
     return ok(await this.db.from('empresas').select(`id,cnpj,${COLUNAS_CADASTRO.join(',')}`).eq('cnpj', cnpj).maybeSingle(), 'ler empresa') as EmpresaSped | null;
   }
 
-  /** Compara o SPED com os XMLs do período (e com as entradas escrituradas no SPED do mês seguinte, se houver). */
-  async comparar(empresaId: string, efd: Efd): Promise<Comparacao> {
-    const cab = efd.cabecalho!;
-    const colunas = 'chave,modelo,numero,emitida_em,valor,situacao,emit_cnpj,dest_doc,toma_doc,emit_nome';
+  /** Justificativas gravadas para a empresa, competência e tipo de arquivo. */
+  async justificativas(empresaId: string, competencia: string, tipoArquivo: string): Promise<Map<string, Justificativa>> {
+    const l = await buscarTodos<{ tipo_divergencia: string; chave: string; observacao: string; justificado_por: string; justificado_em: string }>(
+      (de, ate) => this.db.from('divergencias_justificadas').select('tipo_divergencia,chave,observacao,justificado_por,justificado_em')
+        .eq('empresa_id', empresaId).eq('competencia', competencia).eq('tipo_arquivo', tipoArquivo).range(de, ate),
+      'ler justificativas',
+    );
+    return new Map(l.map((j) => [`${j.tipo_divergencia}|${j.chave}`, { observacao: j.observacao, por: j.justificado_por, em: j.justificado_em }]));
+  }
+
+  /** Marca as divergências justificadas, conta as abertas e limita a lista guardada. */
+  private async preparar<T extends { divergencias: DivergenciaBase[] }>(empresaId: string | null, competencia: string, tipoArquivo: string, c: T | null) {
+    if (!c) return { comparacao: null, ...contar(null) };
+    if (empresaId) {
+      const j = await this.justificativas(empresaId, competencia, tipoArquivo);
+      for (const d of c.divergencias) { const x = j.get(chaveJust(d)); if (x) d.justificativa = x; else delete d.justificativa; }
+    }
+    const contagem = contar(c);
+    return { comparacao: { ...c, divergencias: c.divergencias.slice(0, MAX_DIVERGENCIAS) } as T, ...contagem };
+  }
+
+  /** XMLs do período (e a data do primeiro XML da empresa, que marca o início da captação). */
+  private async xmlsDoPeriodo(empresaId: string, dtIni: string, dtFin: string) {
     const docs = await buscarTodos<any>(
-      (de, ate) => this.db.from('documentos').select(colunas).eq('empresa_id', empresaId)
-        .gte('emitida_em', `${cab.dtIni}T00:00:00-03:00`).lte('emitida_em', `${cab.dtFin}T23:59:59-03:00`).range(de, ate),
+      (de, ate) => this.db.from('documentos').select(COLUNAS_XML).eq('empresa_id', empresaId)
+        .gte('emitida_em', `${dtIni}T00:00:00-03:00`).lte('emitida_em', `${dtFin}T23:59:59-03:00`).range(de, ate),
       'ler XMLs do período',
     );
     const primeiro = ok(await this.db.from('documentos').select('emitida_em').eq('empresa_id', empresaId).order('emitida_em').limit(1), 'primeiro XML') as { emitida_em: string }[];
+    return { docs, desde: primeiro[0] ? dataSP(primeiro[0].emitida_em) : null };
+  }
+
+  /** SINTEGRA × XMLs do período. */
+  async compararSintegra(empresaId: string, s: Sintegra) {
+    const cab = s.cabecalho!;
+    const { docs, desde } = await this.xmlsDoPeriodo(empresaId, cab.dtIni, cab.dtFin);
+    return compararXmlSintegra(s, docs.map(paraXmlDoc), desde);
+  }
+
+  /** Compara o SPED com os XMLs do período (e com as entradas escrituradas no SPED do mês seguinte, se houver). */
+  async comparar(empresaId: string, efd: Efd): Promise<Comparacao> {
+    const cab = efd.cabecalho!;
+    const { docs, desde } = await this.xmlsDoPeriodo(empresaId, cab.dtIni, cab.dtFin);
     const seguinte = ok(
       await this.db.from('sped_arquivos').select('chaves_entrada').eq('empresa_id', empresaId).eq('tipo', 'efd_icms_ipi')
         .eq('competencia', mesVizinho(cab.dtIni, 1)).order('enviado_em', { ascending: false }).order('id', { ascending: false }).limit(1),
@@ -98,13 +145,9 @@ export class ServicoSped {
     const faltam = [...new Set([...efd.c100.filter((d) => d.indOper === '0' && d.chave).map((d) => d.chave), ...efd.d100.map((d) => d.chave)])]
       .filter((c) => c && !noPeriodo.has(c));
     for (let i = 0; i < faltam.length; i += 200) {
-      docs.push(...ok(await this.db.from('documentos').select(colunas).eq('empresa_id', empresaId).in('chave', faltam.slice(i, i + 200)), 'XMLs de outros meses') as any[]);
+      docs.push(...ok(await this.db.from('documentos').select(COLUNAS_XML).eq('empresa_id', empresaId).in('chave', faltam.slice(i, i + 200)), 'XMLs de outros meses') as any[]);
     }
-    const xmls: XmlDoc[] = docs.map((d) => ({
-      chave: d.chave, modelo: d.modelo, data: dataSP(d.emitida_em), valor: Number(d.valor ?? 0), situacao: d.situacao ?? 'autorizada',
-      emit: d.emit_cnpj ?? '', dest: d.dest_doc ?? '', toma: d.toma_doc ?? '', nomeEmit: d.emit_nome ?? '', numero: d.numero ?? '',
-    }));
-    return compararXmlSped(efd, xmls, new Set(seguinte[0]?.chaves_entrada ?? []), primeiro[0] ? dataSP(primeiro[0].emitida_em) : null);
+    return compararXmlSped(efd, docs.map(paraXmlDoc), new Set(seguinte[0]?.chaves_entrada ?? []), desde);
   }
 
   /**
@@ -113,6 +156,7 @@ export class ServicoSped {
    */
   async receber(nome: string, corpo: Buffer, email: string, empresaEsperada?: { id: string; cnpj: string }) {
     if (ehContribuicoes(corpo)) return this.receberContribuicoes(nome, corpo, email, empresaEsperada);
+    if (ehSintegra(corpo)) return this.receberSintegra(nome, corpo, email, empresaEsperada);
     const r = analisarEfd(corpo);
     const cab = r.efd.cabecalho;
     if (!cab) return { valido: false as const, arquivo: { nome, tamanho: corpo.length }, resumo: r.resumo, ocorrencias: r.ocorrencias };
@@ -143,13 +187,12 @@ export class ServicoSped {
       'procurar SPED igual',
     ) as { id: number; caminho: string }[];
     const caminho = igual[0]?.caminho ?? await this.arm.salvar(`sped/${cnpj}/${r.resumo.periodo}/${sha256}.txt`, corpo);
-    const comparacao = empresa ? await this.comparar(empresa.id, r.efd) : null;
+    const prep = await this.preparar(empresa?.id ?? null, competencia, TIPO_FISCAL, empresa ? await this.comparar(empresa.id, r.efd) : null);
     const linha = {
       empresa_id: empresa?.id ?? null, cnpj, tipo: 'efd_icms_ipi', competencia, nome: nome.slice(0, 200), tamanho: corpo.length, sha256, caminho,
       finalidade: r.resumo.finalidade, cod_ver: r.resumo.codVer, enviado_por: email, enviado_em: new Date().toISOString(), processado_em: new Date().toISOString(),
-      erros: nErros, alertas: nAlertas, ...contarDivergencias(comparacao),
-      resumo: r.resumo, ocorrencias: r.ocorrencias,
-      comparacao: comparacao ? { ...comparacao, divergencias: comparacao.divergencias.slice(0, MAX_DIVERGENCIAS) } : null,
+      erros: nErros, alertas: nAlertas, divergencias: prep.divergencias, divergencias_info: prep.divergencias_info,
+      resumo: r.resumo, ocorrencias: r.ocorrencias, comparacao: prep.comparacao,
       chaves_entrada: chavesEntrada(r.efd),
     };
     const salvo = (igual[0]
@@ -187,12 +230,12 @@ export class ServicoSped {
       'procurar SPED Contribuições igual',
     ) as { id: number; caminho: string }[];
     const caminho = igual[0]?.caminho ?? await this.arm.salvar(`sped-contribuicoes/${cnpj}/${r.resumo.periodo}/${sha256}.txt`, corpo);
-    const cruz = empresa ? await this.cruzar(empresa.id, competencia, r.efd) : null;
+    const prep = await this.preparar(empresa?.id ?? null, competencia, TIPO_CONTRIB, empresa ? await this.cruzar(empresa.id, competencia, r.efd) : null);
     const linha = {
       empresa_id: empresa?.id ?? null, cnpj, tipo: TIPO_CONTRIB, competencia, nome: nome.slice(0, 200), tamanho: corpo.length, sha256, caminho,
       finalidade: r.resumo.finalidade, cod_ver: r.resumo.codVer, enviado_por: email, enviado_em: new Date().toISOString(), processado_em: new Date().toISOString(),
       erros: r.ocorrencias.filter((o) => o.nivel === 'erro').length, alertas: r.ocorrencias.filter((o) => o.nivel === 'alerta').length,
-      ...contarCruzamento(cruz), resumo: r.resumo, ocorrencias: r.ocorrencias, comparacao: cruz, chaves_entrada: [],
+      divergencias: prep.divergencias, divergencias_info: prep.divergencias_info, resumo: r.resumo, ocorrencias: r.ocorrencias, comparacao: prep.comparacao, chaves_entrada: [],
     };
     const salvo = (igual[0]
       ? ok(await this.db.from('sped_arquivos').update(linha).eq('id', igual[0].id).select('*').single(), 'atualizar SPED Contribuições')
@@ -202,16 +245,83 @@ export class ServicoSped {
     return { valido: true as const, ...this.resposta(salvo), empresaId: empresa?.id ?? null, clienteNovo: !empresa, sugestao };
   }
 
-  /** Cruza o Contribuições com o SPED Fiscal vigente do mesmo mês. Sem SPED Fiscal, devolve null. */
+  /** SINTEGRA (Simples Nacional): guarda, valida e compara com os XMLs do mês. */
+  async receberSintegra(nome: string, corpo: Buffer, email: string, empresaEsperada?: { id: string; cnpj: string }) {
+    const r = analisarSintegra(corpo);
+    const cab = r.sintegra.cabecalho;
+    if (!cab) return { valido: false as const, tipo: TIPO_SINTEGRA, arquivo: { nome, tamanho: corpo.length }, resumo: r.resumo, ocorrencias: r.ocorrencias };
+    const cnpj = cab.cnpj;
+    if (empresaEsperada && cnpj !== empresaEsperada.cnpj) {
+      throw new ErroSped(422, `Este SINTEGRA é de outro contribuinte (${cab.nome}, CNPJ ${cnpj}). Abra a empresa certa para enviar.`);
+    }
+    const empresa = await this.empresaPorCnpj(cnpj);
+    const competencia = `${r.resumo.periodo}-01`;
+    const sha256 = crypto.createHash('sha256').update(corpo).digest('hex');
+    const igual = ok(
+      await this.db.from('sped_arquivos').select('id,caminho').eq('cnpj', cnpj).eq('tipo', TIPO_SINTEGRA).eq('competencia', competencia).eq('sha256', sha256).limit(1),
+      'procurar SINTEGRA igual',
+    ) as { id: number; caminho: string }[];
+    const caminho = igual[0]?.caminho ?? await this.arm.salvar(`sintegra/${cnpj}/${r.resumo.periodo}/${sha256}.txt`, corpo);
+    const prep = await this.preparar(empresa?.id ?? null, competencia, TIPO_SINTEGRA, empresa ? await this.compararSintegra(empresa.id, r.sintegra) : null);
+    const linha = {
+      empresa_id: empresa?.id ?? null, cnpj, tipo: TIPO_SINTEGRA, competencia, nome: nome.slice(0, 200), tamanho: corpo.length, sha256, caminho,
+      finalidade: r.resumo.finalidade.texto, cod_ver: r.resumo.convenio, enviado_por: email, enviado_em: new Date().toISOString(), processado_em: new Date().toISOString(),
+      erros: r.ocorrencias.filter((o) => o.nivel === 'erro').length, alertas: r.ocorrencias.filter((o) => o.nivel === 'alerta').length,
+      divergencias: prep.divergencias, divergencias_info: prep.divergencias_info, resumo: r.resumo, ocorrencias: r.ocorrencias, comparacao: prep.comparacao, chaves_entrada: [],
+    };
+    const salvo = (igual[0]
+      ? ok(await this.db.from('sped_arquivos').update(linha).eq('id', igual[0].id).select('*').single(), 'atualizar SINTEGRA')
+      : ok(await this.db.from('sped_arquivos').insert(linha).select('*').single(), 'gravar SINTEGRA')) as ArquivoSped;
+    const sugestao = await this.sugerirCadastro(empresa, dadosDoSintegra(r.sintegra), salvo.id, competencia, email, 'sintegra');
+    log.info('SINTEGRA recebido', { cnpj, competencia, por: email, id: salvo.id, erros: linha.erros, divergencias: salvo.divergencias, clienteNovo: !empresa });
+    return { valido: true as const, ...this.resposta(salvo), empresaId: empresa?.id ?? null, clienteNovo: !empresa, sugestao };
+  }
+
+  /**
+   * Cruza o Contribuições com o SPED Fiscal vigente do mesmo mês (vendas nota a nota) e, havendo XMLs de saída,
+   * confere monofásico × tributado pelo NCM. Sem SPED Fiscal e sem XMLs de saída, devolve null.
+   */
   private async cruzar(empresaId: string, competencia: string, contrib: EfdContrib, fiscal?: Efd): Promise<Cruzamento | null> {
     let efdFiscal = fiscal;
     if (!efdFiscal) {
       const f = await this.vigente(empresaId, competencia);
-      if (!f) return null;
-      efdFiscal = analisarEfd(await this.arm.ler(f.caminho)).efd;
+      if (f) efdFiscal = analisarEfd(await this.arm.ler(f.caminho)).efd;
     }
-    const c = cruzarFiscalContribuicoes(efdFiscal, contrib);
-    return { ...c, divergencias: c.divergencias.slice(0, MAX_DIVERGENCIAS) };
+    const c = efdFiscal ? cruzarFiscalContribuicoes(efdFiscal, contrib) : cruzamentoSemFiscal(contrib);
+    const itens = await this.itensSaida(empresaId, contrib);
+    const saidas = contrib.c100.filter((d) => d.indOper === '1' && d.chave).length;
+    if (itens.size) {
+      const m = analisarMonofasico(contrib, itens);
+      c.monofasico = m.analise;
+      c.divergencias.push(...m.divergencias);
+      for (const d of m.divergencias) c.contagem[d.tipo]++;
+      if (m.analise.notasComXml < m.analise.notasSaida) {
+        c.observacoes.push(`Monofásico × tributado conferido em ${m.analise.notasComXml} de ${m.analise.notasSaida} notas de saída (as demais não têm XML no Appura).`);
+      }
+    } else if (saidas) {
+      c.observacoes.push('Importe os XMLs de saída (ou o ZIP das NFC-e do sistema da loja) para conferir, pelo NCM, o que é monofásico e o que deveria pagar PIS/COFINS.');
+    }
+    if (!efdFiscal) {
+      if (!itens.size) return null;
+      c.observacoes.unshift('Envie o SPED Fiscal do mês para cruzar as vendas nota a nota com o Contribuições.');
+    }
+    return c;
+  }
+
+  /** Itens dos XMLs de saída das notas do Contribuições (NCM e valor líquido), marcando os monofásicos. */
+  private async itensSaida(empresaId: string, contrib: EfdContrib): Promise<Map<string, ItemXmlSaida[]>> {
+    const chaves = [...new Set(contrib.c100.filter((d) => d.indOper === '1' && /^\d{44}$/.test(d.chave)).map((d) => d.chave))];
+    const mapa = new Map<string, ItemXmlSaida[]>();
+    for (let i = 0; i < chaves.length; i += 200) {
+      const l = ok(await this.db.from('documento_itens').select('chave,ncm,v_prod,v_desc').eq('empresa_id', empresaId).in('chave', chaves.slice(i, i + 200)), 'itens das saídas') as
+        { chave: string; ncm: string | null; v_prod: number | null; v_desc: number | null }[];
+      for (const it of l) {
+        const lista = mapa.get(it.chave) ?? [];
+        lista.push({ ncm: it.ncm, valor: Math.round((Number(it.v_prod ?? 0) - Number(it.v_desc ?? 0)) * 100) / 100, monofasico: !!monofasico(it.ncm) });
+        mapa.set(it.chave, lista);
+      }
+    }
+    return mapa;
   }
 
   async vigente(empresaId: string, competencia: string, tipo = 'efd_icms_ipi'): Promise<ArquivoSped | null> {
@@ -230,18 +340,51 @@ export class ServicoSped {
   /** Lê de novo o arquivo guardado e refaz a comparação: Fiscal × XMLs de agora; Contribuições × SPED Fiscal do mês. */
   async recomparar(a: ArquivoSped, fiscal?: Efd): Promise<ArquivoSped> {
     if (!a.empresa_id) throw new ErroSped(422, 'Este SPED ainda não está ligado a uma empresa cadastrada.');
+    const comp = String(a.competencia).slice(0, 10);
+    let prep;
     if (a.tipo === TIPO_CONTRIB) {
       const rc = analisarContribuicoes(await this.arm.ler(a.caminho));
-      const cruz = await this.cruzar(a.empresa_id, String(a.competencia).slice(0, 10), rc.efd, fiscal);
-      return ok(await this.db.from('sped_arquivos').update({ processado_em: new Date().toISOString(), ...contarCruzamento(cruz), comparacao: cruz })
-        .eq('id', a.id).select('*').single(), 'atualizar cruzamento') as ArquivoSped;
+      prep = await this.preparar(a.empresa_id, comp, TIPO_CONTRIB, await this.cruzar(a.empresa_id, comp, rc.efd, fiscal));
+    } else if (a.tipo === TIPO_SINTEGRA) {
+      const rs = analisarSintegra(await this.arm.ler(a.caminho));
+      prep = await this.preparar(a.empresa_id, comp, TIPO_SINTEGRA, await this.compararSintegra(a.empresa_id, rs.sintegra));
+    } else {
+      const r = analisarEfd(await this.arm.ler(a.caminho));
+      prep = await this.preparar(a.empresa_id, comp, TIPO_FISCAL, await this.comparar(a.empresa_id, r.efd));
     }
-    const r = analisarEfd(await this.arm.ler(a.caminho));
-    const comparacao = await this.comparar(a.empresa_id, r.efd);
     return ok(await this.db.from('sped_arquivos').update({
-      processado_em: new Date().toISOString(), ...contarDivergencias(comparacao),
-      comparacao: { ...comparacao, divergencias: comparacao.divergencias.slice(0, MAX_DIVERGENCIAS) },
+      processado_em: new Date().toISOString(), divergencias: prep.divergencias, divergencias_info: prep.divergencias_info, comparacao: prep.comparacao,
     }).eq('id', a.id).select('*').single(), 'atualizar comparação') as ArquivoSped;
+  }
+
+  /** Grava (ou desfaz) justificativas e reaplica no resultado guardado, sem reler o arquivo. */
+  async justificar(a: ArquivoSped, itens: { tipo: string; chave: string }[], observacao: string | null, email: string): Promise<ArquivoSped> {
+    if (!a.empresa_id) throw new ErroSped(422, 'Este arquivo ainda não está ligado a uma empresa cadastrada.');
+    if (!a.comparacao) throw new ErroSped(422, 'Este arquivo não tem comparação para justificar.');
+    const existentes = new Set((a.comparacao.divergencias as DivergenciaBase[]).map(chaveJust));
+    const validos = itens.filter((i) => i && typeof i.tipo === 'string' && typeof i.chave === 'string' && existentes.has(chaveJust(i))).slice(0, 5000);
+    if (!validos.length) throw new ErroSped(400, 'Nenhuma divergência válida para esta ação.');
+    const comp = String(a.competencia).slice(0, 10);
+    if (observacao !== null) {
+      const obs = observacao.trim();
+      if (obs.length < 5) throw new ErroSped(422, 'Escreva a justificativa (pelo menos 5 caracteres).');
+      const agora = new Date().toISOString();
+      for (let i = 0; i < validos.length; i += 500) {
+        ok(await this.db.from('divergencias_justificadas').upsert(validos.slice(i, i + 500).map((v) => ({
+          empresa_id: a.empresa_id, competencia: comp, tipo_arquivo: a.tipo, tipo_divergencia: v.tipo, chave: v.chave,
+          observacao: obs.slice(0, 1000), justificado_por: email, justificado_em: agora,
+        })), { onConflict: 'empresa_id,competencia,tipo_arquivo,tipo_divergencia,chave' }), 'gravar justificativas');
+      }
+    } else {
+      for (const v of validos) {
+        ok(await this.db.from('divergencias_justificadas').delete().eq('empresa_id', a.empresa_id).eq('competencia', comp).eq('tipo_arquivo', a.tipo)
+          .eq('tipo_divergencia', v.tipo).eq('chave', v.chave), 'reabrir divergência');
+      }
+    }
+    const prep = await this.preparar(a.empresa_id, comp, a.tipo, a.comparacao);
+    log.info(observacao !== null ? 'divergências justificadas' : 'divergências reabertas', { arquivo: a.id, cnpj: a.cnpj, quantidade: validos.length, por: email });
+    return ok(await this.db.from('sped_arquivos').update({ divergencias: prep.divergencias, divergencias_info: prep.divergencias_info, comparacao: prep.comparacao })
+      .eq('id', a.id).select('*').single(), 'atualizar justificativas') as ArquivoSped;
   }
 
   async baixar(a: ArquivoSped): Promise<Buffer> {

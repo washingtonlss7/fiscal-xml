@@ -5,6 +5,7 @@
  */
 import assert from 'assert';
 import { ServicoSped } from '../src/painel/sped';
+import { CNPJ as CNPJ_BABY, montar as montarSintegra, r50 as s50, r61 as s61 } from './sintegra-arquivo';
 
 /* ---------- banco em memória com o pedaço da API do supabase-js que o serviço usa ---------- */
 type Linha = Record<string, any>;
@@ -13,13 +14,16 @@ class Consulta {
   private ordem: [string, boolean][] = [];
   private lim = Infinity;
   private de = 0;
-  private op: 'select' | 'insert' | 'update' = 'select';
+  private op: 'select' | 'insert' | 'update' | 'upsert' | 'delete' = 'select';
+  private conflito: string[] = [];
   private dados: any;
   private unico: 'single' | 'maybe' | null = null;
   constructor(private tabela: Linha[], private seq: () => number) {}
   select() { return this; }
   insert(d: any) { this.op = 'insert'; this.dados = d; return this; }
   update(d: any) { this.op = 'update'; this.dados = d; return this; }
+  upsert(d: any, o: { onConflict?: string } = {}) { this.op = 'upsert'; this.dados = d; this.conflito = (o.onConflict ?? '').split(','); return this; }
+  delete() { this.op = 'delete'; return this; }
   eq(c: string, v: any) { this.filtros.push((l) => l[c] === v); return this; }
   in(c: string, v: any[]) { this.filtros.push((l) => v.includes(l[c])); return this; }
   is(c: string, v: any) { this.filtros.push((l) => (l[c] ?? null) === v); return this; }
@@ -32,6 +36,18 @@ class Consulta {
   maybeSingle() { this.unico = 'maybe'; return this; }
   private executar(): { data: any; error: null } {
     let linhas: Linha[];
+    if (this.op === 'upsert') {
+      for (const d of [].concat(this.dados)) {
+        const ex = this.tabela.find((l) => this.conflito.every((c) => l[c] === (d as any)[c]));
+        if (ex) Object.assign(ex, d); else this.tabela.push({ id: this.seq(), ...(d as any) });
+      }
+      return { data: null, error: null };
+    }
+    if (this.op === 'delete') {
+      const fica = this.tabela.filter((l) => !this.filtros.every((f) => f(l)));
+      this.tabela.splice(0, this.tabela.length, ...fica);
+      return { data: null, error: null };
+    }
     if (this.op === 'insert') {
       const l = { id: this.seq(), status: 'pendente', criado_em: new Date(Date.now() + this.seq()).toISOString(), ...JSON.parse(JSON.stringify(this.dados)) };
       this.tabela.push(l);
@@ -49,7 +65,7 @@ class Consulta {
   then(ok: (r: any) => any, erro?: (e: any) => any) { try { return Promise.resolve(this.executar()).then(ok, erro); } catch (e) { return Promise.reject(e).then(ok, erro); } }
 }
 function bancoFalso() {
-  const t: Record<string, Linha[]> = { empresas: [], documentos: [], sped_arquivos: [], cadastro_sugestoes: [] };
+  const t: Record<string, Linha[]> = { empresas: [], documentos: [], sped_arquivos: [], cadastro_sugestoes: [], divergencias_justificadas: [], documento_itens: [] };
   let n = 0;
   let relogio = Date.parse('2026-09-30T10:00:00Z');
   const seq = () => ++n;
@@ -221,6 +237,54 @@ function chave(num: number, mes: string) {
   assert.equal((await s.historico(emp.id, '2026-10-01', 'efd_contribuicoes')).length, 1);
   const refeito2 = await s.recomparar(depois!);
   assert.equal(refeito2.divergencias, 0);
+
+  // 7) Monofásico × tributado pelos XMLs de saída (itens das NFC-e)
+  t.documento_itens.push(
+    { empresa_id: emp.id, chave: v1, ncm: '30049099', v_prod: 20, v_desc: 0 }, // medicamento (monofásico)
+    { empresa_id: emp.id, chave: v1, ncm: '21069090', v_prod: 30, v_desc: 0 }, // suplemento (tributável) numa nota com CST 49
+    { empresa_id: emp.id, chave: v2, ncm: '33049910', v_prod: 50, v_desc: 0 }, // perfumaria (monofásica) numa nota com CST 01
+  );
+  const mono = await s.recomparar(depois!);
+  assert.equal(mono.comparacao.contagem.receita_tributavel_sem_pis, 1);
+  assert.equal(mono.comparacao.contagem.monofasico_tributado, 1);
+  assert.deepEqual([mono.comparacao.monofasico.receitaMonofasica, mono.comparacao.monofasico.receitaTributavel, mono.comparacao.monofasico.pisEstimado], [70, 30, 0.2]);
+  assert.equal(mono.divergencias, 2);
+
+  // 8) Justificar divergências: some da contagem, sobrevive ao arquivo retificador e pode ser reaberta
+  const alvo = mono.comparacao.divergencias.find((d: any) => d.tipo === 'monofasico_tributado');
+  await assert.rejects(s.justificar(mono, [{ tipo: alvo.tipo, chave: alvo.chave }], 'ok', 'analista@x.com'), /pelo menos 5/);
+  const just = await s.justificar(mono, [{ tipo: alvo.tipo, chave: alvo.chave }], 'Produto reclassificado no ERP em outubro', 'analista@x.com');
+  assert.equal(just.divergencias, 1);
+  assert.equal(just.comparacao.divergencias.find((d: any) => d.chave === alvo.chave && d.tipo === alvo.tipo).justificativa.por, 'analista@x.com');
+  const refeito3 = await s.recomparar(just);
+  assert.equal(refeito3.divergencias, 1, 'recomparar mantém a justificativa');
+  const reaberta = await s.justificar(refeito3, [{ tipo: alvo.tipo, chave: alvo.chave }], null, 'analista@x.com');
+  assert.equal(reaberta.divergencias, 2);
+  await assert.rejects(s.justificar(reaberta, [{ tipo: 'x', chave: 'y' }], 'qualquer coisa', 'a@x.com'), /Nenhuma divergência/);
+
+  // 9) SINTEGRA: cliente novo do Simples, guardado, comparado e com justificativa
+  const arq = montarSintegra([s50({ numero: 101, cfop: '1102', valor: 100 }), s61('20260801', 32104, 32110, 2142.6)]);
+  const rs = await s.receber('NFS_08-2026.TXT', arq, 'analista@x.com');
+  assert.ok(rs.valido && rs.tipo === 'sintegra' && rs.clienteNovo && rs.sugestao);
+  if (!rs.valido) return;
+  assert.equal(rs.comparacao, null);
+  const apS = await s.aprovar(rs.sugestao!.id, 'gustavo@x.com', ['ie', 'cod_municipio', 'logradouro', 'cep'], 'simples');
+  const baby = t.empresas.find((e) => e.id === apS.empresaId)!;
+  assert.deepEqual([baby.cnpj, baby.regime, baby.municipio, baby.cep], [CNPJ_BABY, 'simples', 'Januária', '39480000']);
+  const vig = await s.vigente(baby.id, '2026-08-01', 'sintegra');
+  assert.equal(vig!.divergencias, 0, 'sem XMLs no Appura: registro sem XML é só informação');
+  const chF = (n: number) => `312608${'11222333000181'}55001${String(n).padStart(9, '0')}1${String(n).padStart(8, '0')}`.slice(0, 43) + '0';
+  t.documentos.push(
+    { empresa_id: baby.id, chave: chF(101), modelo: '55', numero: '101', emitida_em: '2026-08-05T10:00:00-03:00', valor: 100, situacao: 'autorizada', emit_cnpj: '11222333000181', dest_doc: CNPJ_BABY, emit_nome: 'FORNECEDOR' },
+    { empresa_id: baby.id, chave: chF(555), modelo: '55', numero: '555', emitida_em: '2026-08-06T10:00:00-03:00', valor: 80, situacao: 'autorizada', emit_cnpj: '11222333000181', dest_doc: CNPJ_BABY, emit_nome: 'FORNECEDOR' },
+  );
+  const vig2 = await s.recomparar(vig!);
+  assert.equal(vig2.comparacao.totais.entradasConferidas, 1);
+  assert.equal(vig2.divergencias, 1, 'NF-e 555 com XML e sem registro 50');
+  const semReg = vig2.comparacao.divergencias.find((d: any) => d.tipo === 'xml_sem_registro');
+  const vig3 = await s.justificar(vig2, [{ tipo: semReg.tipo, chave: semReg.chave }], 'Nota devolvida, lançada em setembro', 'analista@x.com');
+  assert.equal(vig3.divergencias, 0);
+  console.log('ok  monofásico × tributado pelo NCM, justificativas (lote, recomparar, reabrir) e SINTEGRA de cliente novo');
   console.log('ok  SPED guardado, cliente novo aprovado, sugestões (recusa, mais nova, só diferenças) e comparação com o mês seguinte');
   console.log('\nTestes do serviço de SPED passaram.');
 })().catch((e) => { console.error(e); process.exit(1); });

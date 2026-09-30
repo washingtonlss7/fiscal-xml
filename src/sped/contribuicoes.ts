@@ -26,6 +26,8 @@ export interface DocContrib {
 /** Uma linha de receita (ou operação de saída) com a classificação de PIS/COFINS. */
 export interface LinhaReceita {
   reg: string;
+  /** Chave de acesso do documento (C170/C175), quando a receita é de um C100. */
+  doc?: string;
   linha: number;
   cfop: string;
   cstPis: string;
@@ -91,7 +93,7 @@ const TRIBUTADAS = new Set(['01', '02', '03', '05']);
 const M400_CST = new Set(['04', '06', '07', '08', '09']);
 /** CFOP de venda de mercadoria ou produção (5/6/7.1xx e as vendas com ST 5/6.401, 402, 403 e 405). Devoluções e remessas ficam de fora. */
 export const cfopVenda = (cfop: string) => /^[567]1\d\d$/.test(cfop) || /^[56]40[1235]$/.test(cfop);
-const r2 = (n: number) => Math.round(n * 100) / 100;
+const r2 = (n: number) => Math.round(Number((n * 100).toFixed(6))) / 100;
 const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 /** O arquivo é SPED Contribuições? (0110 e blocos A, F, M só existem nele.) */
@@ -123,7 +125,7 @@ export function lerContribuicoes(texto: string): { efd: EfdContrib; malformadas:
     const f = l.slice(1, -1).split('|');
     const reg = f[0];
     efd.contagem.set(reg, (efd.contagem.get(reg) ?? 0) + 1);
-    const receita = (x: Omit<LinhaReceita, 'reg' | 'linha'>) => efd.receitas.push({ reg, linha: n, ...x });
+    const receita = (x: Omit<LinhaReceita, 'reg' | 'linha'>) => efd.receitas.push({ reg, linha: n, ...(doc && (reg === 'C170' || reg === 'C175') && doc.chave ? { doc: doc.chave } : {}), ...x });
     const saidaValida = () => doc && doc.indOper === '1' && !CANCELADOS.has(doc.codSit);
     switch (reg) {
       case '0000':
@@ -371,7 +373,8 @@ function montarResumo(efd: EfdContrib): ResumoContrib {
 
 /* ---------- cruzamento com o SPED Fiscal do mesmo mês ---------- */
 
-export type TipoCruzamento = 'fiscal_sem_contribuicoes' | 'contribuicoes_sem_fiscal' | 'valor' | 'situacao';
+export type TipoCruzamento = 'fiscal_sem_contribuicoes' | 'contribuicoes_sem_fiscal' | 'valor' | 'situacao'
+  | 'receita_tributavel_sem_pis' | 'monofasico_tributado';
 
 export interface DivergenciaCruzamento {
   tipo: TipoCruzamento;
@@ -385,8 +388,24 @@ export interface DivergenciaCruzamento {
   detalhe: string;
 }
 
+export interface AnaliseMonofasico {
+  notasSaida: number;
+  notasComXml: number;
+  receitaMonofasica: number;
+  receitaTributavel: number;
+  aliquotas: { pis: number; cofins: number; regime: string };
+  pisEstimado: number;
+  cofinsEstimado: number;
+  pisDeclarado: number | null;
+  cofinsDeclarado: number | null;
+  semNcm: number;
+}
+
 export interface Cruzamento {
   periodo: string;
+  /** Houve SPED Fiscal do mês para cruzar as vendas? */
+  fiscal: boolean;
+  monofasico: AnaliseMonofasico | null;
   totais: { vendasFiscal: number; valorFiscal: number; saidasContrib: number; valorContrib: number; conferidas: number; ignoradasFiscal: number };
   contagem: Record<TipoCruzamento, number>;
   divergencias: DivergenciaCruzamento[];
@@ -446,15 +465,81 @@ export function cruzarFiscalContribuicoes(fiscal: Efd, contrib: EfdContrib): Cru
   if (ignoradas) obs.push(`${ignoradas} saída(s) do SPED Fiscal sem CFOP de venda (ex.: 5929 sobre cupom, 5927 baixa de estoque, remessas) não precisam estar no Contribuições.`);
   const canceladasFiscal = fiscalSaidas.filter((d) => CANCELADOS.has(d.codSit)).length;
   if (canceladasFiscal) obs.push(`${canceladasFiscal} documento(s) cancelado(s) no SPED Fiscal: não entram na receita.`);
-  const contagem = { fiscal_sem_contribuicoes: 0, contribuicoes_sem_fiscal: 0, valor: 0, situacao: 0 } as Record<TipoCruzamento, number>;
+  const contagem = { fiscal_sem_contribuicoes: 0, contribuicoes_sem_fiscal: 0, valor: 0, situacao: 0, receita_tributavel_sem_pis: 0, monofasico_tributado: 0 } as Record<TipoCruzamento, number>;
   for (const d of div) contagem[d.tipo]++;
   const ordem: Record<Nivel, number> = { erro: 0, alerta: 1, info: 2 };
   div.sort((a, b) => ordem[a.nivel] - ordem[b.nivel] || a.data.localeCompare(b.data));
   return {
     periodo: contrib.cabecalho?.dtIni.slice(0, 7) ?? '',
+    fiscal: true,
+    monofasico: null,
     totais: { vendasFiscal: vendas, valorFiscal: r2(valorFiscal), saidasContrib: qtdContrib, valorContrib: r2(valorContrib), conferidas, ignoradasFiscal: ignoradas },
     contagem,
     divergencias: div,
     observacoes: obs,
+  };
+}
+
+/* ---------- monofásico × tributado pelos XMLs de saída ---------- */
+
+export interface ItemXmlSaida { ncm: string | null; valor: number; monofasico: boolean }
+
+const CST_NAO_TRIBUTADO = new Set(['04', '05', '06', '07', '08', '09', '49', '99']);
+
+/**
+ * Confere, nota a nota, a classificação de PIS/COFINS do Contribuições com o NCM dos itens do XML de saída:
+ * - itens fora da lista monofásica numa nota escriturada toda sem tributação → receita tributável sem PIS/COFINS;
+ * - itens monofásicos numa nota escriturada só como tributada (CST 01/02) → PIS/COFINS pago a mais.
+ * A estimativa usa as alíquotas do regime do 0110 (cumulativo 0,65% e 3%; não cumulativo 1,65% e 7,6%, sem créditos).
+ */
+export function analisarMonofasico(contrib: EfdContrib, itens: Map<string, ItemXmlSaida[]>): { analise: AnaliseMonofasico; divergencias: DivergenciaCruzamento[] } {
+  const cumulativo = contrib.regime?.codIncTrib === '2';
+  const aliq = cumulativo ? { pis: 0.0065, cofins: 0.03, regime: 'cumulativo' } : { pis: 0.0165, cofins: 0.076, regime: 'não cumulativo (sem créditos)' };
+  const cstPorDoc = new Map<string, Set<string>>();
+  for (const x of contrib.receitas) if (x.doc) cstPorDoc.set(x.doc, new Set([...(cstPorDoc.get(x.doc) ?? []), x.cstPis]));
+  const saidas = contrib.c100.filter((d) => d.indOper === '1' && d.chave && !CANCELADOS.has(d.codSit));
+  const div: DivergenciaCruzamento[] = [];
+  let comXml = 0; let mono = 0; let trib = 0; let semNcm = 0;
+  for (const d of saidas) {
+    const lista = itens.get(d.chave);
+    if (!lista || !lista.length) continue;
+    comXml++;
+    const vMono = r2(lista.filter((i) => i.monofasico).reduce((t, i) => t + i.valor, 0));
+    const vTrib = r2(lista.filter((i) => !i.monofasico).reduce((t, i) => t + i.valor, 0));
+    semNcm += lista.filter((i) => !i.ncm).length;
+    mono += vMono; trib += vTrib;
+    const csts = cstPorDoc.get(d.chave) ?? new Set<string>();
+    if (!csts.size) continue;
+    const todosSemTributo = [...csts].every((c) => CST_NAO_TRIBUTADO.has(c));
+    const soTributado = [...csts].every((c) => c === '01' || c === '02');
+    if (vTrib > 0.05 && todosSemTributo) {
+      div.push({ tipo: 'receita_tributavel_sem_pis', nivel: 'alerta', chave: d.chave, modelo: d.codMod, numero: d.numero, data: d.dtDoc, valorFiscal: vTrib, valorContrib: null,
+        detalhe: `${brl(vTrib)} em itens fora da lista monofásica (pelo NCM do XML), mas a nota está escriturada com CST ${[...csts].join('/')}: sem PIS/COFINS.` });
+    } else if (vMono > 0.05 && soTributado) {
+      div.push({ tipo: 'monofasico_tributado', nivel: 'alerta', chave: d.chave, modelo: d.codMod, numero: d.numero, data: d.dtDoc, valorFiscal: vMono, valorContrib: null,
+        detalhe: `${brl(vMono)} em itens monofásicos (pelo NCM do XML) escriturados como tributados (CST ${[...csts].join('/')}): PIS/COFINS pago a mais.` });
+    }
+  }
+  const declarado = (m: number[] | null) => (m ? r2((m[0] ?? 0) + (m[7] ?? 0)) : null);
+  return {
+    analise: {
+      notasSaida: saidas.length, notasComXml: comXml, receitaMonofasica: r2(mono), receitaTributavel: r2(trib), aliquotas: aliq,
+      pisEstimado: r2(trib * aliq.pis), cofinsEstimado: r2(trib * aliq.cofins),
+      pisDeclarado: declarado(contrib.m200), cofinsDeclarado: declarado(contrib.m600), semNcm,
+    },
+    divergencias: div,
+  };
+}
+
+/** Resultado quando não há SPED Fiscal do mês: só a conferência pelos XMLs de saída. */
+export function cruzamentoSemFiscal(contrib: EfdContrib): Cruzamento {
+  return {
+    periodo: contrib.cabecalho?.dtIni.slice(0, 7) ?? '',
+    fiscal: false,
+    monofasico: null,
+    totais: { vendasFiscal: 0, valorFiscal: 0, saidasContrib: 0, valorContrib: 0, conferidas: 0, ignoradasFiscal: 0 },
+    contagem: { fiscal_sem_contribuicoes: 0, contribuicoes_sem_fiscal: 0, valor: 0, situacao: 0, receita_tributavel_sem_pis: 0, monofasico_tributado: 0 },
+    divergencias: [],
+    observacoes: [],
   };
 }
