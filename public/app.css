@@ -4,6 +4,20 @@
  * Tokens novos (--primaria, --status-*) + nomes antigos apontando para eles, para as telas existentes seguirem funcionando.
  */
 @font-face {
+  font-family: "Poppins";
+  src: url("/fonts/poppins-500.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Poppins";
+  src: url("/fonts/poppins-600.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
   font-family: "Inter";
   src: url("/fonts/inter.woff2") format("woff2");
   font-weight: 100 900;
@@ -57,6 +71,7 @@
 
   /* Tipografia */
   --fonte: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --fonte-marca: "Poppins", "Inter", system-ui, sans-serif;
   --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
   --t-xs: 12px; --t-s: 13px; --t-m: 14px; --t-base: 15px; --t-l: 18px; --t-xl: 22px; --t-num: 26px;
 
@@ -534,3 +549,14 @@ table.usuarios tr.desativado td:not(.acoes-u) { opacity: 0.6; }
   .sidebar, .nav-seta { transition: none; }
 }
 .botao-icone:disabled { opacity: 0.35; cursor: default; background: transparent; }
+
+/* Marca: "appura" em Poppins SemiBold + "PLATAFORMA FISCAL" em Poppins Medium espaçado */
+.marca-texto { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.marca-nome { font-family: var(--fonte-marca); font-weight: 600; font-size: 22px; line-height: 1; letter-spacing: -0.01em; }
+.marca-tag { font-family: var(--fonte-marca); font-weight: 500; font-size: 9px; line-height: 1; letter-spacing: 0.24em; text-transform: uppercase; color: var(--tinta-2); white-space: nowrap; }
+.sidebar-marca .marca-tag { color: var(--lateral-texto-2); }
+.sidebar-marca { font-weight: 600; font-size: inherit; }
+.cabecalho .marca-movel .marca-nome { font-size: 20px; }
+.login .marca { gap: 12px; }
+.login .marca-nome { font-size: 26px; }
+.login .marca-tag { font-size: 10px; }

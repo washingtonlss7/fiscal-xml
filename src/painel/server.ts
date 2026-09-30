@@ -59,6 +59,8 @@ const ARQUIVOS: Record<string, [string, string]> = {
   '/logo.png': ['logo.png', 'image/png'],
   '/favicon.png': ['favicon.png', 'image/png'],
   '/fonts/inter.woff2': ['fonts/inter.woff2', 'font/woff2'],
+  '/fonts/poppins-500.woff2': ['fonts/poppins-500.woff2', 'font/woff2'],
+  '/fonts/poppins-600.woff2': ['fonts/poppins-600.woff2', 'font/woff2'],
 };
 
 const CABECALHOS_SEGURANCA = {
