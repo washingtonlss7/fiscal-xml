@@ -1280,6 +1280,7 @@ function recarregarAba() {
   if (abaAtual === 'notas') carregarNotas();
   carregarAuditoria();
   if (abaAtual === 'st') carregarST();
+  if (abaAtual === 'sped') window.spedRender();
   // Dados da Empresa 360° (cabeçalho, visão geral, arquivos e histórico): uma chamada por empresa/competência
   const chave = `${empresaNotas.id}|${mesSelecionado()}`;
   if (window.e360Chave !== chave || ['visao', 'arquivos', 'historico'].includes(abaAtual)) { window.e360Chave = chave; window.e360Carregar(); }

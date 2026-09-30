@@ -16,6 +16,8 @@ import { Armazenamento, configArmazenamento } from '../armazenamento';
 import { auditarMes } from '../auditoria/motor';
 import { REGRAS } from '../auditoria/regras';
 import { dentroDaJanela, lerJanela } from '../util';
+import { analisarEfd } from '../sped/efd';
+import { compararXmlSped, XmlDoc } from '../sped/comparar';
 import { authDoSupabase, ErroUsuario, GestaoUsuarios, PERFIS_INFO, PERMISSOES, permissaoDaRota } from './usuarios';
 
 function exigir(nome: string): string {
@@ -364,6 +366,44 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
     log.info('importação de XML', { empresa: empresa.cnpj, arquivo: nome, por: email, importadas: r.importadas, completou: r.completouResumo, repetidas: r.jaExistiam, rejeitadas: r.rejeitadas });
     // Devolve só as rejeitadas em detalhe (o resto vai resumido)
     return responder(res, 200, { ...r, resultados: r.resultados.filter((x) => x.situacao === 'rejeitada').slice(0, 200) });
+  }
+
+  // SPED Fiscal (EFD ICMS/IPI): lê, valida e compara com os XMLs. O arquivo não é guardado.
+  const sped = rota.match(/^\/api\/empresas\/([0-9a-f-]{36})\/sped$/);
+  if (metodo === 'POST' && sped) {
+    const empresa = ok(await db.from('empresas').select('id,cnpj,razao_social').eq('id', sped[1]).maybeSingle(), 'ler empresa') as
+      { id: string; cnpj: string; razao_social: string } | null;
+    if (!empresa) throw new ErroHttp(404, 'Empresa não encontrada.');
+    const nome = (url.searchParams.get('nome') || 'sped.txt').slice(0, 200);
+    const corpo = await lerBruto(req, 150 * 1024 * 1024);
+    if (!corpo.length) throw new ErroHttp(400, 'Arquivo vazio.');
+    if (corpo[0] === 0x50 && corpo[1] === 0x4b) throw new ErroHttp(422, 'Envie o arquivo .txt do SPED (não compactado).');
+    const r = analisarEfd(corpo);
+    const cab = r.efd.cabecalho;
+    if (!cab) return responder(res, 200, { arquivo: { nome, tamanho: corpo.length }, resumo: r.resumo, ocorrencias: r.ocorrencias, comparacao: null });
+    if ((cab.cnpj || cab.cpf) !== empresa.cnpj) {
+      throw new ErroHttp(422, `Este SPED é de outro contribuinte (${cab.nome}, CNPJ ${cab.cnpj}). Abra a empresa certa para enviar.`);
+    }
+    const colunas = 'chave,modelo,numero,emitida_em,valor,situacao,emit_cnpj,dest_doc,toma_doc,emit_nome';
+    const docs = await buscarTodos<any>(
+      (de, ate) => db.from('documentos').select(colunas).eq('empresa_id', empresa.id)
+        .gte('emitida_em', `${cab.dtIni}T00:00:00-03:00`).lte('emitida_em', `${cab.dtFin}T23:59:59-03:00`).range(de, ate),
+      'ler XMLs do período',
+    );
+    const primeiro = ok(await db.from('documentos').select('emitida_em').eq('empresa_id', empresa.id).order('emitida_em').limit(1), 'primeiro XML') as { emitida_em: string }[];
+    const dataSP = (iso: string) => new Date(iso).toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+    const xmls: XmlDoc[] = docs.map((d) => ({
+      chave: d.chave, modelo: d.modelo, data: dataSP(d.emitida_em), valor: Number(d.valor ?? 0), situacao: d.situacao ?? 'autorizada',
+      emit: d.emit_cnpj ?? '', dest: d.dest_doc ?? '', toma: d.toma_doc ?? '', nomeEmit: d.emit_nome ?? '', numero: d.numero ?? '',
+    }));
+    const comparacao = compararXmlSped(r.efd, xmls, new Set(), primeiro[0] ? dataSP(primeiro[0].emitida_em) : null);
+    log.info('SPED Fiscal analisado', { empresa: empresa.cnpj, periodo: r.resumo.periodo, por: email, linhas: r.resumo.linhas, ocorrencias: r.ocorrencias.length, divergencias: comparacao.divergencias.length });
+    return responder(res, 200, {
+      arquivo: { nome, tamanho: corpo.length },
+      resumo: r.resumo,
+      ocorrencias: r.ocorrencias,
+      comparacao: { ...comparacao, divergencias: comparacao.divergencias.slice(0, 2000) },
+    });
   }
 
   // ICMS-ST nas entradas de outros estados (planilha ou resumo)

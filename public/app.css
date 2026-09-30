@@ -1098,3 +1098,41 @@ button.e360-etapa-botao:hover { border-color: var(--linha-forte); background: va
   .segmento { min-height: 40px; }
   .barra-auditoria .botao { width: 100%; min-height: 44px; }
 }
+
+/* ============ SPED na Empresa 360° ============ */
+#painel-sped.arrastando .sped-envio { border-color: var(--primaria); box-shadow: 0 0 0 3px var(--primaria-suave); }
+.sped-botoes { display: flex; gap: 8px; flex-wrap: wrap; }
+.sped-botoes .icone-svg { width: 16px; height: 16px; }
+.sped-aviso { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; border-radius: var(--raio); background: var(--info-fundo); color: var(--info); font-size: var(--t-m); font-weight: 550; }
+.sped-aviso > span { flex: 1; min-width: 200px; }
+.sped-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.sped-cards .e360-card-topo h3 { margin: 0; font-size: var(--t-m); }
+.sped-cards .e360-card-valor span { overflow-wrap: anywhere; }
+.sped-cards .vg-card { gap: 10px; }
+.sped-cards .e360-lista-num li > strong { text-align: right; }
+.sped-ocorrencias, .sped-div, .sped-obs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.sped-ocorrencias li { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; }
+.sped-ocorrencias li + li { border-top: 1px solid var(--linha); }
+.sped-ocorrencias li .selo { flex: none; font-size: var(--t-xs); margin-top: 1px; }
+.sped-ocorrencias p { margin: 0; font-size: var(--t-m); }
+.sped-totais { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.sped-totais > div { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--linha); border-radius: 8px; background: var(--superficie-2); }
+.sped-totais strong { font-size: 18px; font-variant-numeric: tabular-nums; }
+.sped-obs { gap: 4px; font-size: var(--t-s); color: var(--tinta-2); }
+.sped-obs li::before { content: "• "; }
+.sped-filtros { display: flex; gap: 6px; flex-wrap: wrap; }
+.vg-chip-f { min-height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--linha); background: var(--superficie); font-size: var(--t-s); font-weight: 600; cursor: pointer; }
+.vg-chip-f.ativo { border-color: var(--primaria); background: var(--primaria-suave); color: var(--primaria); }
+.sped-div li { display: flex; flex-direction: column; gap: 3px; padding: 10px 0; }
+.sped-div li + li { border-top: 1px solid var(--linha); }
+.sped-div-topo { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; font-size: var(--t-m); }
+.sped-div-topo .selo { font-size: var(--t-xs); }
+.sped-div-valores { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 600; }
+.sped-chave { font-family: var(--mono); font-size: 11.5px; color: var(--tinta-3); overflow-wrap: anywhere; }
+@media (max-width: 1023px) { .sped-cards { grid-template-columns: minmax(0, 1fr); } .sped-totais { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) {
+  .sped-botoes, .sped-botoes .botao { width: 100%; }
+  .sped-botoes .botao { min-height: 44px; }
+  .sped-div-valores { margin-left: 0; flex-basis: 100%; }
+  .sped-cards .e360-lista-num { display: flex; }
+}
