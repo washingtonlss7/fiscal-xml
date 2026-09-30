@@ -50,7 +50,9 @@ export interface ConfigArmazenamento {
 }
 
 export function configArmazenamento(masterKey: string, bucketSupabase: string): ConfigArmazenamento {
-  const id = process.env.R2_ACCOUNT_ID?.trim();
+  // Aceita só o ID (32 caracteres) ou o endereço inteiro colado da Cloudflare (https://<id>.r2.cloudflarestorage.com).
+  const idBruto = process.env.R2_ACCOUNT_ID?.trim();
+  const id = idBruto?.match(/[0-9a-f]{32}/i)?.[0] ?? idBruto;
   const ak = process.env.R2_ACCESS_KEY_ID?.trim();
   const sk = process.env.R2_SECRET_ACCESS_KEY?.trim();
   return {
@@ -71,6 +73,7 @@ export class Armazenamento {
         region: 'auto',
         endpoint: `https://${cfg.r2.accountId}.r2.cloudflarestorage.com`,
         credentials: { accessKeyId: cfg.r2.accessKeyId, secretAccessKey: cfg.r2.secretAccessKey },
+        forcePathStyle: true,
         // O R2 não aceita todos os checksums que as versões recentes do SDK enviam por padrão.
         requestChecksumCalculation: 'WHEN_REQUIRED',
         responseChecksumValidation: 'WHEN_REQUIRED',

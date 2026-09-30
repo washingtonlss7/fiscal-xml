@@ -32,3 +32,12 @@ assert.ok(!chave.equals(Buffer.from(master, 'base64')), 'chave dos XMLs é deriv
 assert.ok(chaveXml(master).equals(chave), 'derivação é determinística');
 console.log('ok  chave derivada da MASTER_KEY (HKDF)');
 console.log('\nTestes do armazenamento passaram.');
+
+// ID da conta do R2 colado como endereço completo
+import { configArmazenamento } from '../src/armazenamento';
+process.env.R2_ACCESS_KEY_ID = 'a'; process.env.R2_SECRET_ACCESS_KEY = 'b';
+for (const v of ['0123456789abcdef0123456789abcdef', 'https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com', ' 0123456789ABCDEF0123456789ABCDEF.r2.cloudflarestorage.com/ ']) {
+  process.env.R2_ACCOUNT_ID = v;
+  assert.equal(configArmazenamento(master, 'xmls').r2?.accountId.toLowerCase(), '0123456789abcdef0123456789abcdef');
+}
+console.log('ok  aceita o ID da conta do R2 puro ou com o endereço completo');
