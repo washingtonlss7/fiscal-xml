@@ -10,8 +10,9 @@ import { canonico, Confirmacoes, VALIDADE_CONFIRMACAO_MS } from '../src/mcp/acoe
 import { criarServidorMcp } from '../src/mcp/ferramentas';
 import { ErroIntegra } from '../src/integra/cliente';
 import { bancoFalso } from './banco-falso';
+import { ehExecucao, resumoArgumentos, usoMcp } from '../src/mcp/uso';
 
-const ACOES = ['appura_enviar_guias_acessorias', 'appura_justificar_divergencias', 'appura_reabrir_divergencias', 'appura_verificar_procuracao'];
+const ACOES = ['appura_enviar_guias_acessorias', 'appura_gerar_das', 'appura_justificar_divergencias', 'appura_reabrir_divergencias', 'appura_tratar_apontamentos', 'appura_verificar_procuracao'];
 const ler = (r: any) => { const t = r.content[0].text; return JSON.parse(t.slice(t.indexOf('{'))); };
 
 // 1) Código de confirmação
@@ -48,7 +49,7 @@ async function conectar(deps: any, ctx: any) {
 }
 
 async function testeFerramentas() {
-  const { db, t } = bancoFalso(['empresas', 'integra_procuracoes']);
+  const { db, t } = bancoFalso(['empresas', 'integra_procuracoes', 'pgdas_declaracoes', 'guias', 'apontamentos', 'documento_itens', 'mcp_chamadas', 'mcp_clientes']);
   const FARMA = { id: '11111111-1111-1111-1111-111111111111', cnpj: '55885998000140', razao_social: 'FARMA DIGITAL LTDA', regime: 'simples', uf: 'ES' };
   const DROGA = { id: '22222222-2222-2222-2222-222222222222', cnpj: '98765432000111', razao_social: 'DROGARIA CENTRAL LTDA', regime: 'mei', uf: 'ES' };
   t.empresas.push(FARMA, DROGA);
@@ -70,7 +71,12 @@ async function testeFerramentas() {
     },
   };
   const verificadas: string[] = [];
+  const gerados: string[] = [];
   const guias = {
+    gerarDas: async (id: string, comp: string, email: string, forcar: boolean) => {
+      gerados.push(`${id}|${comp}|${email}|${forcar}`);
+      return { guias: [{ id: 70, total: 412.55, vencimento: '2026-10-20', caminho: 'guias/x.pdf', envio: { status: 'enviado' } }], avisos: [] };
+    },
     verificarProcuracao: async (id: string, email: string) => {
       verificadas.push(`${id}|${email}`);
       if (id === DROGA.id) throw new ErroIntegra(422, 'O SERPRO não respondeu para este contribuinte.');
@@ -156,11 +162,90 @@ async function testeFerramentas() {
   assert.deepEqual(enviadas, [[51, 52]]);
   assert.deepEqual([eg.enviadas, eg.com_erro], [1, 1]);
 
+  // Gerar DAS: competência obrigatória, bloqueios explicados na prévia, só as liberadas entram no código
+  t.empresas.push({ id: '33333333-3333-3333-3333-333333333333', cnpj: '11222333000181', razao_social: 'MERCADO REAL LTDA', regime: 'real', uf: 'ES' });
+  t.guias.push({ empresa_id: DROGA.id, competencia: '2026-08-01', total: 75.9, vencimento: '2099-01-20', gerado_em: '2026-09-02T10:00:00Z' });
+  t.integra_procuracoes[0].situacao = 'ativa';
+  const semComp: any = await c.callTool({ name: 'appura_gerar_das', arguments: { empresas: ['farma'] } });
+  assert.equal(semComp.isError, true, 'competência é obrigatória para gerar DAS');
+  const futuro: any = await c.callTool({ name: 'appura_gerar_das', arguments: { empresas: ['farma'], competencia: '2099-01' } });
+  assert.match(futuro.content[0].text, /competência futura/);
+  const pd = ler(await c.callTool({ name: 'appura_gerar_das', arguments: { empresas: ['farma', 'drogaria', 'mercado real'], competencia: '2026-08' } }));
+  assert.match(pd.acao, /para 1 empresa/); assert.match(pd.custo, /1 emissão cobrada/);
+  assert.deepEqual(pd.empresas.map((e: any) => [e.razao_social, e.vai_gerar]), [['FARMA DIGITAL LTDA', true], ['DROGARIA CENTRAL LTDA', false], ['MERCADO REAL LTDA', false]]);
+  assert.match(pd.empresas[1].motivo, /Já tem DAS/); assert.match(pd.empresas[2].motivo, /Regime sem DAS/);
+  assert.match(pd.atencao, /PGDAS-D/, 'Simples sem declaração confirmada: avisa');
+  assert.equal(gerados.length, 0);
+  const ed = ler(await c.callTool({ name: 'appura_gerar_das', arguments: { empresas: ['farma', 'drogaria', 'mercado real'], competencia: '2026-08', confirmacao: pd.confirmacao } }));
+  assert.deepEqual(gerados, [`${FARMA.id}|2026-08|ana@x.com|false`], 'gera só a liberada e nunca força');
+  assert.deepEqual([ed.geradas, ed.resultados[0].total, ed.resultados[0].acessorias], [1, 412.55, 'enviado']);
+  const todasBloq: any = await c.callTool({ name: 'appura_gerar_das', arguments: { empresas: ['drogaria'], competencia: '2026-08' } });
+  assert.equal(todasBloq.isError, true); assert.match(todasBloq.content[0].text, /Nenhuma das empresas/);
+
+  // Tratar apontamentos: aplica só onde há sugestão, ignorar exige observação, reabrir
+  t.apontamentos.push(
+    { id: 1, empresa_id: FARMA.id, competencia: '2026-09-01', regra: 'CST_PIS_MONOFASICO', severidade: 'erro', mensagem: 'Monofásico com CST 01', chave: '6'.repeat(44), n_item: 1, sugestao: { campo: 'cst_pis_cofins_escrit', valor: '04' }, status: 'aberto' },
+    { id: 2, empresa_id: FARMA.id, competencia: '2026-09-01', regra: 'CFOP_ENTRADA_INDEFINIDO', severidade: 'alerta', mensagem: 'CFOP sem regra', chave: '7'.repeat(44), n_item: 2, sugestao: null, status: 'aberto' },
+    { id: 3, empresa_id: FARMA.id, competencia: '2026-09-01', regra: 'CST_PIS_MONOFASICO', severidade: 'erro', mensagem: 'Monofásico com CST 01', chave: '8'.repeat(44), n_item: 1, sugestao: { campo: 'cst_pis_cofins_escrit', valor: '04' }, status: 'aberto' },
+  );
+  t.documento_itens.push({ empresa_id: FARMA.id, chave: '6'.repeat(44), n_item: 1, cst_pis_escrit: '01', cst_cofins_escrit: '01' }, { empresa_id: FARMA.id, chave: '8'.repeat(44), n_item: 1, cst_pis_escrit: '01', cst_cofins_escrit: '01' });
+  const ap = { empresa: 'farma', competencia: '2026-09' };
+  const semAlvo: any = await c.callTool({ name: 'appura_tratar_apontamentos', arguments: { ...ap, acao: 'ignorar', observacao: 'teste de observação' } });
+  assert.match(semAlvo.content[0].text, /informe regras ou ids/);
+  const semObs: any = await c.callTool({ name: 'appura_tratar_apontamentos', arguments: { ...ap, acao: 'ignorar', ids: [2] } });
+  assert.match(semObs.content[0].text, /escreva a observação/);
+  const soCfop: any = await c.callTool({ name: 'appura_tratar_apontamentos', arguments: { ...ap, acao: 'aplicar_sugestao', ids: [2] } });
+  assert.match(soCfop.content[0].text, /não tem|Nenhum desses/, 'sem sugestão: não aplica nada');
+  const pa = ler(await c.callTool({ name: 'appura_tratar_apontamentos', arguments: { ...ap, acao: 'aplicar_sugestao', ids: [1, 2, 3] } }));
+  assert.equal(pa.apontamentos.length, 2); assert.equal(pa.sem_sugestao_fora_da_acao, 1); assert.equal(pa.apontamentos[0].correcao, 'cst_pis_cofins_escrit → 04');
+  assert.equal(t.apontamentos[0].status, 'aberto', 'prévia não altera');
+  const ea = ler(await c.callTool({ name: 'appura_tratar_apontamentos', arguments: { ...ap, acao: 'aplicar_sugestao', ids: [1, 2, 3], confirmacao: pa.confirmacao } }));
+  assert.equal(ea.tratados, 2);
+  assert.deepEqual([t.apontamentos[0].status, t.apontamentos[0].resolvido_por, t.apontamentos[1].status], ['ajustado', 'ana@x.com', 'aberto']);
+  assert.deepEqual([t.documento_itens[0].cst_pis_escrit, t.documento_itens[0].cst_cofins_escrit, t.documento_itens[0].ajustado_por], ['04', '04', 'ana@x.com'], 'grava a correção no item, como o painel');
+  const pi = ler(await c.callTool({ name: 'appura_tratar_apontamentos', arguments: { ...ap, acao: 'ignorar', regras: ['CFOP_ENTRADA_INDEFINIDO'], observacao: 'Compra para uso e consumo, sem crédito.' } }));
+  ler(await c.callTool({ name: 'appura_tratar_apontamentos', arguments: { ...ap, acao: 'ignorar', regras: ['CFOP_ENTRADA_INDEFINIDO'], observacao: 'Compra para uso e consumo, sem crédito.', confirmacao: pi.confirmacao } }));
+  assert.deepEqual([t.apontamentos[1].status, t.apontamentos[1].observacao], ['ignorado', 'Compra para uso e consumo, sem crédito.']);
+  const pr2 = ler(await c.callTool({ name: 'appura_tratar_apontamentos', arguments: { ...ap, acao: 'reabrir', ids: [2] } }));
+  ler(await c.callTool({ name: 'appura_tratar_apontamentos', arguments: { ...ap, acao: 'reabrir', ids: [2], confirmacao: pr2.confirmacao } }));
+  assert.equal(t.apontamentos[1].status, 'aberto');
+
+  // Prompts prontos
+  const prompts = (await c.listPrompts()).prompts.map((p) => p.name).sort();
+  assert.deepEqual(prompts, ['clientes_sem_procuracao', 'fechamento_do_mes', 'guias_do_mes', 'revisar_empresa']);
+  const pf: any = await c.getPrompt({ name: 'fechamento_do_mes', arguments: { competencia: '2026-09' } });
+  assert.match(pf.messages[0].content.text, /appura_central_fechamento.*2026-09|2026-09[\s\S]*appura_central_fechamento/);
+  assert.match(pf.messages[0].content.text, /PRÉVIA/, 'com ações: lembra da prévia');
+  const pg2: any = await c.getPrompt({ name: 'guias_do_mes', arguments: {} });
+  assert.match(pg2.messages[0].content.text, /appura_gerar_das/);
+  const rev: any = await c.getPrompt({ name: 'revisar_empresa', arguments: { empresa: '55.885.998/0001-40' } });
+  assert.match(rev.messages[0].content.text, /55\.885\.998\/0001-40/);
+
   // Tudo registrado com o usuário e o app
   const reg = deps.registro.filter((r: any) => ACOES.includes(r.ferramenta));
   assert.ok(reg.length >= 12 && reg.every((r: any) => r.email === 'ana@x.com'));
   assert.ok(reg.some((r: any) => r.clientId === 'app1' && r.sucesso === false), 'falhas também ficam registradas');
+  assert.ok(reg.every((r: any) => !r.argumentos?.confirmacao || r.argumentos.confirmacao === 'informada'), 'o código de confirmação não vai para o registro');
   await c.close();
+  const leitor2 = await conectar(deps, { email: 'ana@x.com', perfil: 'consulta', clientId: null, acoes: false });
+  assert.doesNotMatch((await leitor2.getPrompt({ name: 'guias_do_mes', arguments: {} }) as any).messages[0].content.text, /appura_gerar_das/, 'sem ações: prompt não oferece ação');
+  await leitor2.close();
+
+  // Uso do MCP (administração)
+  t.mcp_clientes.push({ client_id: 'app1', nome: 'Claude' });
+  const agoraUso = Date.now();
+  for (const r of deps.registro) t.mcp_chamadas.push({ id: t.mcp_chamadas.length + 1, em: new Date(agoraUso - 1000).toISOString(), email: r.email, client_id: r.clientId, ferramenta: r.ferramenta, argumentos: r.argumentos, sucesso: r.sucesso });
+  t.mcp_chamadas.push({ id: 9999, em: new Date(agoraUso - 40 * 86_400_000).toISOString(), email: 'velho@x.com', client_id: null, ferramenta: 'appura_guias', argumentos: {}, sucesso: true });
+  const uso = await usoMcp(db, 7, agoraUso);
+  assert.equal(uso.totais.chamadas, deps.registro.length, 'só o período');
+  assert.deepEqual(uso.porUsuario.map((p: any) => p.email), ['ana@x.com']);
+  assert.ok(uso.totais.acoesExecutadas >= 8 && uso.acoes.every((a: any) => a.app === 'Claude' || a.app === 'Token pessoal'));
+  assert.ok(uso.acoes.some((a: any) => a.ferramenta === 'appura_gerar_das' && a.sucesso && /competencia: 2026-08/.test(a.resumo)));
+  assert.ok(uso.falhas.length > 0 && uso.falhas.every((f: any) => !f.sucesso));
+  assert.equal((await usoMcp(db, 30, agoraUso)).dias, 30); assert.equal((await usoMcp(db, 999, agoraUso)).dias, 7);
+  assert.ok(ehExecucao({ ferramenta: 'appura_gerar_das', argumentos: { confirmacao: 'informada' } }) && !ehExecucao({ ferramenta: 'appura_gerar_das', argumentos: {} }) && !ehExecucao({ ferramenta: 'appura_guias', argumentos: { confirmacao: 'informada' } }));
+  assert.equal(resumoArgumentos({ empresas: ['a', 'b'], confirmacao: 'informada', x: null }), 'empresas: a, b');
+  console.log('ok  DAS com bloqueios na prévia, apontamentos (sugestão, ignorar, reabrir), prompts prontos e uso do MCP');
   console.log('ok  ações: só com escopo + perfil, prévia sem efeito, código preso aos argumentos e ao alvo, execução, reuso/vencimento recusados, registro');
 }
 

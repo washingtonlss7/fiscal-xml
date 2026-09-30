@@ -18,5 +18,7 @@ console.log('ok  último uso e configuração JSON do MCP');
 assert.deepEqual(ia.iaAcesso(false, true), { texto: 'Leitura', classe: 'neutro' });
 assert.deepEqual(ia.iaAcesso(true, true), { texto: 'Leitura e ações', classe: 'pendente' });
 assert.equal(ia.iaAcesso(true, false).texto, 'Leitura (ações bloqueadas pelo perfil)', 'perfil Consulta: o selo não promete ações');
-console.log('ok  selo de acesso das conexões');
+assert.equal(ia.iaFerramenta('appura_gerar_das'), 'Gerar DAS');
+assert.equal(ia.iaFerramenta('appura_nova'), 'appura_nova', 'ferramenta sem nome amigável aparece como veio');
+console.log('ok  selo de acesso das conexões e nome das ferramentas');
 console.log('\nTestes da tela Conexões de IA passaram.');

@@ -60,7 +60,7 @@ ${erro ? `<p class="erro" role="alert">${esc(erro)}</p>` : ''}
 <form method="post" action="/oauth/authorize" class="mcp-form" autocomplete="on">${ocultos}
 <label class="campo">E-mail do Appura<input name="email" type="email" required autocomplete="username" value="${esc(email)}"></label>
 <label class="campo">Senha<input name="senha" type="password" required autocomplete="current-password"></label>
-${pedeAcoes ? `<label class="mcp-permissao"><input type="checkbox" name="acoes" value="sim"${acoesMarcadas ? ' checked' : ''}><span><strong>Permitir também ações</strong> (justificar divergências, verificar procuração, enviar guias já geradas à Acessórias). Cada ação mostra uma prévia e só é feita depois que você confirmar na conversa. Só vale se o seu perfil puder operar.</span></label>` : ''}
+${pedeAcoes ? `<label class="mcp-permissao"><input type="checkbox" name="acoes" value="sim"${acoesMarcadas ? ' checked' : ''}><span><strong>Permitir também ações</strong> (justificar divergências, tratar apontamentos da auditoria, verificar procuração, gerar DAS e enviar guias à Acessórias). Cada ação mostra uma prévia e só é feita depois que você confirmar na conversa. Só vale se o seu perfil puder operar.</span></label>` : ''}
 <div class="gaveta-acoes mcp-acoes"><button type="submit" name="decisao" value="permitir" class="botao primario">Permitir acesso</button>
 <button type="submit" name="decisao" value="negar" class="botao fantasma" formnovalidate>Cancelar</button></div>
 </form>

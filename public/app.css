@@ -1409,3 +1409,16 @@ body.com-dialogo { overflow: hidden; }
 .mcp-permissao input { width: 20px; height: 20px; margin: 1px 0 0; flex: none; accent-color: var(--primaria); cursor: pointer; }
 .mcp-permissao input:disabled, .mcp-permissao input:disabled + span { cursor: not-allowed; opacity: .6; }
 .ia-selos { display: flex; gap: var(--esp-1); flex-wrap: wrap; }
+/* Uso do MCP (administração) */
+.ia-numeros { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--esp-3); }
+.ia-numero { display: flex; flex-direction: column; gap: 2px; padding: var(--esp-3); border: var(--borda); border-radius: var(--raio-m); background: var(--superficie-2); }
+.ia-numero strong { font-size: var(--t-xl); font-variant-numeric: tabular-nums; }
+.ia-numero span { font-size: var(--t-s); color: var(--tinta-2); }
+.ia-numero.pendente strong { color: var(--pendente); }
+.ia-numero.problema strong { color: var(--problema); }
+.ia-tabela { min-width: 560px; }
+.ia-tabela .num { text-align: right; font-variant-numeric: tabular-nums; }
+.ia-subtitulo { font-size: var(--t-m); margin: var(--esp-2) 0 0; }
+.ia-resumo { overflow-wrap: anywhere; }
+@media (max-width: 640px) { .ia-numeros { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 900px) { .ia-tabela-caixa { display: block; } }

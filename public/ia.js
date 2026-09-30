@@ -31,11 +31,20 @@ function iaAcesso(acoes, podeOperar) {
   return podeOperar ? { texto: 'Leitura e ações', classe: 'pendente' } : { texto: 'Leitura (ações bloqueadas pelo perfil)', classe: 'neutro' };
 }
 
-if (typeof module !== 'undefined') module.exports = { iaUltimoUso, iaConfigJson, iaAcesso };
+/** Nome das ferramentas do MCP para a tela. */
+const IA_FERRAMENTAS = {
+  appura_listar_empresas: 'Listar empresas', appura_central_fechamento: 'Central de Fechamento', appura_resumo_empresa: 'Resumo da empresa',
+  appura_divergencias: 'Divergências', appura_apontamentos_auditoria: 'Apontamentos da auditoria', appura_notas_fiscais: 'Notas fiscais', appura_guias: 'Guias',
+  appura_justificar_divergencias: 'Justificar divergências', appura_reabrir_divergencias: 'Reabrir divergências', appura_tratar_apontamentos: 'Tratar apontamentos',
+  appura_verificar_procuracao: 'Verificar procuração', appura_gerar_das: 'Gerar DAS', appura_enviar_guias_acessorias: 'Enviar guias à Acessórias',
+};
+const iaFerramenta = (nome) => IA_FERRAMENTAS[nome] || nome;
+
+if (typeof module !== 'undefined') module.exports = { iaUltimoUso, iaConfigJson, iaAcesso, iaFerramenta };
 
 /* ---------- tela ---------- */
 if (typeof window !== 'undefined') {
-  var ia = { dados: null, erro: null, novoToken: null, confirmar: null };
+  var ia = { dados: null, erro: null, novoToken: null, confirmar: null, uso: null, usoErro: null, usoDias: 7 };
 
   function iaMostrar() {
     for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias', 'tela-escritorio']) $(id).hidden = true;
@@ -47,6 +56,12 @@ if (typeof window !== 'undefined') {
 
   async function iaCarregar() {
     try { ia.dados = await chamar('/api/mcp/conexoes'); ia.erro = null; } catch (e) { ia.erro = e.message; }
+    iaRender();
+    if (pode('usuarios')) iaCarregarUso();
+  }
+
+  async function iaCarregarUso() {
+    try { ia.uso = await chamar(`/api/mcp/uso?dias=${ia.usoDias}`); ia.usoErro = null; } catch (e) { ia.usoErro = e.message; }
     iaRender();
   }
 
@@ -73,7 +88,7 @@ if (typeof window !== 'undefined') {
 
     const endereco = h('section', { class: 'vg-card' },
       h('div', { class: 'vg-card-topo' }, h('div', {}, h('h2', { class: 'vg-card-titulo', text: 'Endereço do MCP do Appura' }),
-        h('p', { class: 'meta', text: 'Qualquer app de IA compatível com MCP (servidor remoto) se conecta por este endereço. A IA consulta empresas, Central de Fechamento, SPED/SINTEGRA, auditoria, notas e guias com as permissões do seu perfil. Se você permitir, ela também justifica divergências, verifica procurações e envia guias já geradas à Acessórias, sempre mostrando uma prévia e esperando a sua confirmação.' })),
+        h('p', { class: 'meta', text: 'Qualquer app de IA compatível com MCP (servidor remoto) se conecta por este endereço. A IA consulta empresas, Central de Fechamento, SPED/SINTEGRA, auditoria, notas e guias com as permissões do seu perfil. Se você permitir, ela também justifica divergências, trata apontamentos, verifica procurações, gera DAS e envia guias à Acessórias, sempre mostrando uma prévia e esperando a sua confirmação.' })),
         h('span', { class: 'selo info', text: iaPodeOperar() ? 'Leitura + ações com confirmação' : 'Somente leitura' })),
       h('div', { class: 'ia-url' }, h('code', { class: 'mono', text: d.url }), iaBotaoCopiar(d.url, 'Copiar endereço')));
 
@@ -83,7 +98,7 @@ if (typeof window !== 'undefined') {
       h('ol', { class: 'gu-passos ia-passos' },
         passo('Claude, ChatGPT e outros apps com login', 'Nas configurações de conectores do app, adicione um conector personalizado (servidor MCP remoto) com o endereço acima. O app abre a tela do Appura: entre com seu e-mail e senha e clique em "Permitir acesso".'),
         passo('n8n, Claude Code, Cursor e automações', 'Crie um token pessoal (quadro "Token pessoal") e use o endereço acima com o cabeçalho Authorization: Bearer <token>. No n8n, use o nó de cliente MCP com autenticação por cabeçalho.'),
-        passo('Ações com confirmação', 'Com ações permitidas, a IA primeiro mostra o que vai fazer (quais divergências, quais empresas, quais guias) e só executa depois que você confirmar na conversa. Ela não gera guias nem apaga nada.'),
+        passo('Ações com confirmação', 'Com ações permitidas, a IA primeiro mostra o que vai fazer (quais divergências, quais empresas, quais guias) e só executa depois que você confirmar na conversa. Gerar DAS e verificar procuração são chamadas cobradas pelo SERPRO: a prévia mostra quantas. Ela nunca apaga nada.'),
         passo('Segurança', 'Os dados consultados vão para o provedor da IA escolhida. Certificados, senhas e chaves nunca saem do Appura. Toda consulta e toda ação ficam registradas com o seu usuário.')));
 
     const seloAcesso = (acoes) => { const s = iaAcesso(acoes, iaPodeOperar()); return h('span', { class: `selo ${s.classe}`, text: s.texto }); };
@@ -100,7 +115,39 @@ if (typeof window !== 'undefined') {
       apps.length + pessoais.length ? h('ul', { class: 'sped-envios ia-lista' }, ...apps, ...pessoais)
         : h('div', { class: 'vg-vazio pequeno' }, h('strong', { text: 'Nenhuma conexão ainda.' }), h('span', { text: 'Conecte um app pelo endereço acima ou crie um token pessoal.' })));
 
-    alvo.replaceChildren(endereco, ia.novoToken ? iaCardNovoToken(d.url) : iaCardCriar(), lista, como);
+    alvo.replaceChildren(endereco, ia.novoToken ? iaCardNovoToken(d.url) : iaCardCriar(), lista, ...(pode('usuarios') ? [iaCardUso()] : []), como);
+  }
+
+  const iaDataHora = (iso) => new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+  /** Uso do MCP (administração): números do período, uso por pessoa, ações executadas e falhas. */
+  function iaCardUso() {
+    const seletor = h('select', { id: 'ia-uso-dias', 'aria-label': 'Período', onchange: (ev) => { ia.usoDias = Number(ev.currentTarget.value); ia.uso = null; iaRender(); iaCarregarUso(); } },
+      ...[7, 30, 90].map((d) => h('option', { value: String(d), text: `Últimos ${d} dias`, selected: ia.usoDias === d })));
+    const topo = h('div', { class: 'vg-card-topo' }, h('div', {}, h('h2', { class: 'vg-card-titulo', text: 'Uso do MCP no escritório' }),
+      h('p', { class: 'meta', text: 'Todas as conexões de IA de todos os usuários. Prévias contam como consulta; ações são as confirmadas.' })), seletor);
+    if (ia.usoErro && !ia.uso) return h('section', { class: 'vg-card' }, topo, h('p', { class: 'erro', role: 'alert', text: ia.usoErro }));
+    if (!ia.uso) return h('section', { class: 'vg-card' }, topo, h('div', { class: 'vg-skel', 'aria-hidden': 'true' }));
+    const u = ia.uso;
+    const numero = (valor, rotulo, tom) => h('div', { class: `ia-numero${tom ? ` ${tom}` : ''}` }, h('strong', { text: String(valor) }), h('span', { text: rotulo }));
+    const numeros = h('div', { class: 'ia-numeros' },
+      numero(u.totais.chamadas, 'chamadas'), numero(u.totais.acoesExecutadas, 'ações executadas', u.totais.acoesExecutadas ? 'pendente' : ''),
+      numero(u.totais.falhas, 'falhas', u.totais.falhas ? 'problema' : ''), numero(u.totais.usuarios, u.totais.usuarios === 1 ? 'usuário' : 'usuários'));
+    if (!u.totais.chamadas) return h('section', { class: 'vg-card' }, topo, numeros, h('div', { class: 'vg-vazio pequeno' }, h('strong', { text: 'Nenhum uso no período.' })));
+
+    const pessoas = h('div', { class: 'vg-tabela-caixa ia-tabela-caixa' }, h('table', { class: 'vg-tabela ia-tabela' },
+      h('thead', {}, h('tr', {}, h('th', { text: 'Usuário' }), h('th', { class: 'num', text: 'Chamadas' }), h('th', { class: 'num', text: 'Ações' }), h('th', { class: 'num', text: 'Falhas' }), h('th', { text: 'Último uso' }))),
+      h('tbody', {}, ...u.porUsuario.map((p) => h('tr', {}, h('td', { text: p.email }), h('td', { class: 'num', text: String(p.chamadas) }), h('td', { class: 'num', text: String(p.acoes) }),
+        h('td', { class: 'num', text: String(p.falhas) }), h('td', { text: iaDataHora(p.ultimoUso) }))))));
+    const linhaChamada = (c) => h('li', {},
+      h('span', { class: `selo ${c.sucesso ? 'ok' : 'problema'}`, text: c.sucesso ? 'Feito' : 'Falhou' }),
+      h('div', { class: 'ia-conexao' }, h('strong', { text: iaFerramenta(c.ferramenta) }),
+        h('span', { class: 'meta', text: `${iaDataHora(c.em)} · ${c.email} · ${c.app}` }), c.resumo ? h('span', { class: 'meta ia-resumo', text: c.resumo }) : null));
+    const ferramentas = h('p', { class: 'meta', text: `Mais usadas: ${u.porFerramenta.slice(0, 5).map((f) => `${iaFerramenta(f.ferramenta)} (${f.chamadas})`).join(', ')}` });
+    return h('section', { class: 'vg-card' }, topo, numeros, pessoas, ferramentas,
+      h('h3', { class: 'ia-subtitulo', text: 'Ações executadas' }),
+      u.acoes.length ? h('ul', { class: 'sped-envios ia-lista' }, ...u.acoes.map(linhaChamada)) : h('p', { class: 'meta', text: 'Nenhuma ação executada no período.' }),
+      u.falhas.length ? h('details', { class: 'gu-composicao' }, h('summary', { text: `Falhas recentes (${u.falhas.length})` }), h('ul', { class: 'sped-envios ia-lista' }, ...u.falhas.map(linhaChamada))) : null);
   }
 
   function iaBotaoRevogar(id, texto) {
@@ -127,7 +174,7 @@ if (typeof window !== 'undefined') {
         h('option', { value: '30', text: '30 dias' }), h('option', { value: '90', text: '90 dias', selected: true }), h('option', { value: '180', text: '180 dias' }), h('option', { value: '365', text: '1 ano' }))),
       h('label', { class: 'mcp-permissao' }, h('input', { id: 'ia-acoes', type: 'checkbox', disabled: !podeOperar }),
         h('span', {}, h('strong', { text: 'Permitir ações' }), podeOperar
-          ? ' (justificar divergências, verificar procuração, enviar guias já geradas à Acessórias). Cada ação mostra uma prévia e só é feita depois de confirmada.'
+          ? ' (justificar divergências, tratar apontamentos da auditoria, verificar procuração, gerar DAS e enviar guias à Acessórias). Cada ação mostra uma prévia e só é feita depois de confirmada.'
           : ' indisponível: seu perfil é de consulta, o token será só de leitura.')),
       h('p', { id: 'ia-erro', class: 'erro', role: 'alert', hidden: true }),
       h('div', { class: 'gu-botoes' }, h('button', { type: 'submit', class: 'botao primario' }, icone('key-round'), h('span', { text: 'Criar token' }))));

@@ -69,17 +69,19 @@ export function criarServidorMcp(deps: DepsMcp, ctx: ContextoMcp, registrar: Reg
   const server = new McpServer(
     { name: 'appura', title: 'Appura', version: VERSAO_MCP },
     { instructions: 'Appura é a plataforma fiscal do escritório de contabilidade: captação de XML (NF-e, NFC-e, CT-e), auditoria, SPED/SINTEGRA, Central de Fechamento e guias (DAS). As ferramentas respeitam o perfil do usuário. Competência sempre no formato AAAA-MM. Para uma empresa, informe o CNPJ quando possível.'
-      + (acoes ? ' As ferramentas de ação (justificar/reabrir divergências, verificar procuração, enviar guias à Acessórias) funcionam em duas etapas: a primeira chamada só mostra a prévia e devolve um código; mostre a prévia ao usuário e só chame de novo com o código depois que ele confirmar explicitamente. Nunca confirme por conta própria.' : ' Todas as ferramentas desta conexão são de leitura.') },
+      + (acoes ? ' As ferramentas de ação (justificar/reabrir divergências, tratar apontamentos, verificar procuração, gerar DAS, enviar guias à Acessórias) funcionam em duas etapas: a primeira chamada só mostra a prévia e devolve um código; mostre a prévia ao usuário e só chame de novo com o código depois que ele confirmar explicitamente. Nunca confirme por conta própria.' : ' Todas as ferramentas desta conexão são de leitura.') },
   );
 
   const envolver = <A>(nome: string, fn: (a: A) => Promise<unknown>) => async (a: A) => {
     const inicio = Date.now();
+    // O código de confirmação não vai para o registro (só se foi informado: prévia × execução)
+    const registroArgs = a && typeof a === 'object' && (a as any).confirmacao ? { ...(a as any), confirmacao: 'informada' } : a;
     try {
       const r = await fn(a);
-      await registrar({ email: ctx.email, clientId: ctx.clientId, ferramenta: nome, argumentos: a, sucesso: true, duracaoMs: Date.now() - inicio }).catch(() => {});
+      await registrar({ email: ctx.email, clientId: ctx.clientId, ferramenta: nome, argumentos: registroArgs, sucesso: true, duracaoMs: Date.now() - inicio }).catch(() => {});
       return resposta(r);
     } catch (e) {
-      await registrar({ email: ctx.email, clientId: ctx.clientId, ferramenta: nome, argumentos: a, sucesso: false, duracaoMs: Date.now() - inicio }).catch(() => {});
+      await registrar({ email: ctx.email, clientId: ctx.clientId, ferramenta: nome, argumentos: registroArgs, sucesso: false, duracaoMs: Date.now() - inicio }).catch(() => {});
       return erro(mensagemDeServico(e) ?? 'Não foi possível concluir no Appura agora. Tente de novo.');
     }
   };
@@ -222,13 +224,13 @@ export function criarServidorMcp(deps: DepsMcp, ctx: ContextoMcp, registrar: Reg
   }, envolver('appura_apontamentos_auditoria', async (a: { empresa: string; competencia?: string; status: string; severidade?: string; limite: number }) => {
     const emp = await resolverEmpresa(db, a.empresa);
     const comp = a.competencia ?? mesAtualSP();
-    let q = db.from('apontamentos').select('regra,severidade,chave,n_item,mensagem,sugestao,quantidade,status,observacao,resolvido_por,resolvido_em').eq('empresa_id', emp.id).eq('competencia', `${comp}-01`);
+    let q = db.from('apontamentos').select('id,regra,severidade,chave,n_item,mensagem,sugestao,quantidade,status,observacao,resolvido_por,resolvido_em').eq('empresa_id', emp.id).eq('competencia', `${comp}-01`);
     if (a.status !== 'todos') q = q.eq('status', a.status);
     if (a.severidade) q = q.eq('severidade', a.severidade);
     const l = ok(await q.order('severidade').limit(a.limite + 1), 'apontamentos') as any[];
     return {
       empresa: emp.razao_social, competencia: comp,
-      apontamentos: l.slice(0, a.limite).map((x) => ({ regra: x.regra, severidade: x.severidade, mensagem: x.mensagem, chave: x.chave, item: x.n_item, sugestao: x.sugestao ?? undefined, quantidade: x.quantidade, status: x.status, observacao: x.observacao ?? undefined, resolvido_por: x.resolvido_por ?? undefined })),
+      apontamentos: l.slice(0, a.limite).map((x) => ({ id: x.id, regra: x.regra, severidade: x.severidade, mensagem: x.mensagem, chave: x.chave, item: x.n_item, sugestao: x.sugestao ?? undefined, quantidade: x.quantidade, status: x.status, observacao: x.observacao ?? undefined, resolvido_por: x.resolvido_por ?? undefined })),
       mais_resultados: l.length > a.limite,
     };
   }));
@@ -308,6 +310,38 @@ export function criarServidorMcp(deps: DepsMcp, ctx: ContextoMcp, registrar: Reg
       observacao: 'DCTFWeb/DARF (Lucro Presumido e Real) ainda não estão no Appura.',
     };
   }));
+
+
+  /* ---------- prompts prontos (aparecem como comandos nos apps de IA) ---------- */
+  const texto = (t: string) => ({ messages: [{ role: 'user' as const, content: { type: 'text' as const, text: t } }] });
+  const compOpc = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional().describe('AAAA-MM (padrão: mês atual)');
+  const qual = (c?: string) => c ?? mesAtualSP();
+  const mesAnterior = () => { const [y, m] = mesAtualSP().split('-').map(Number); return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`; };
+  const confirmar = acoes ? ' Se sugerir alguma ação, use a ferramenta de ação só para gerar a PRÉVIA, mostre-a e espere eu confirmar.' : '';
+
+  server.registerPrompt('fechamento_do_mes', {
+    title: 'Fechamento do mês',
+    description: 'Panorama do fechamento da competência: quem está bloqueado, com pendência e o que falta em cada etapa.',
+    argsSchema: { competencia: compOpc },
+  }, ({ competencia }) => texto(`Use o Appura para me dar o panorama do fechamento de ${qual(competencia)}. Chame appura_central_fechamento com filtro "todas" e depois: 1) totais por status; 2) as empresas bloqueadas e com pendências, agrupadas pela pendência (captação, auditoria, SPED/SINTEGRA, procuração, DAS); 3) uma lista curta do que atacar primeiro, começando pelo que bloqueia mais empresas. Responda em português, em tópicos curtos.${confirmar}`));
+
+  server.registerPrompt('revisar_empresa', {
+    title: 'Revisar empresa',
+    description: 'Revisão completa de um cliente na competência: etapas, divergências do SPED/SINTEGRA, auditoria e guias.',
+    argsSchema: { empresa: z.string().describe('CNPJ ou nome da empresa'), competencia: compOpc },
+  }, ({ empresa, competencia }) => texto(`Revise no Appura a empresa ${empresa} em ${qual(competencia)}. Use appura_resumo_empresa; se houver divergências abertas, veja-as com appura_divergencias (no arquivo que tiver), e os apontamentos em aberto com appura_apontamentos_auditoria. Explique cada problema em linguagem de contador, diga o que parece erro de escrituração e o que parece só diferença esperada (ex.: remessa, nota cancelada), e proponha o próximo passo.${confirmar}`));
+
+  server.registerPrompt('clientes_sem_procuracao', {
+    title: 'Clientes sem procuração',
+    description: 'Lista os clientes do Simples/MEI sem procuração ativa no e-CAC, para cobrar a outorga.',
+    argsSchema: { competencia: compOpc },
+  }, ({ competencia }) => texto(`No Appura, liste os clientes do Simples e MEI sem procuração ativa para o escritório (appura_guias com filtro "sem_procuracao", competência ${qual(competencia)}). Separe "ausente", "vencida" e "não verificada", e escreva uma mensagem curta e educada que eu possa mandar ao cliente pedindo a outorga no e-CAC.${acoes ? ' Para as "não verificadas", sugira verificar pelo appura_verificar_procuracao (prévia primeiro, eu confirmo).' : ''}`));
+
+  server.registerPrompt('guias_do_mes', {
+    title: 'Guias do mês',
+    description: 'Situação dos DAS da competência: quem já tem guia, quem falta gerar e o que falta enviar à Acessórias.',
+    argsSchema: { competencia: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional().describe('Período de apuração AAAA-MM (padrão: mês anterior)') },
+  }, ({ competencia }) => texto(`No Appura, mostre a situação dos DAS do período de apuração ${competencia ?? mesAnterior()} (appura_guias com filtro "todas"): quantos têm DAS, quem falta gerar e por quê (procuração, declaração do PGDAS-D), e quais guias ainda não foram para a Acessórias.${acoes ? ' Depois, proponha gerar os DAS que faltam (appura_gerar_das) e enviar os pendentes (appura_enviar_guias_acessorias), sempre pela prévia, esperando eu confirmar.' : ''}`));
 
   if (acoes) {
     registrarAcoes(server, { db, sped: deps.sped, guias: deps.guias, acessorias: deps.acessorias!, confirmacoes: deps.confirmacoes! }, {

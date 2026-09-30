@@ -24,6 +24,8 @@ import { ErroAcessorias, ServicoAcessorias } from '../integra/acessorias';
 import { ErroOAuth, ServicoOAuth } from '../mcp/oauth';
 import { rotaMcp, OpcoesMcpHttp } from '../mcp/http';
 import { Confirmacoes } from '../mcp/acoes';
+import { usoMcp } from '../mcp/uso';
+import { ErroApontamento, resolverApontamento } from './apontamentos';
 import { authDoSupabase, ErroUsuario, GestaoUsuarios, PERFIS_INFO, PERMISSOES, permissaoDaRota } from './usuarios';
 
 function exigir(nome: string): string {
@@ -341,7 +343,7 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
           .eq('regra', String(c.regra ?? '')).eq('status', 'aberto'),
         'listar apontamentos do lote',
       ) as any[];
-      for (const a of abertos) await resolverApontamento(a, String(c.acao), c.observacao ? String(c.observacao) : null, null, email);
+      for (const a of abertos) await resolverApontamento(db, a, String(c.acao), c.observacao ? String(c.observacao) : null, null, email);
       log.info('auditoria em lote', { empresa: id, regra: c.regra, acao: c.acao, quantidade: abertos.length, por: email });
       return responder(res, 200, { quantidade: abertos.length });
     }
@@ -352,7 +354,7 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
     const c = await lerCorpo(req);
     const a = ok(await db.from('apontamentos').select('*').eq('id', Number(apont[1])).maybeSingle(), 'ler apontamento') as any;
     if (!a) throw new ErroHttp(404, 'Apontamento não encontrado.');
-    await resolverApontamento(a, String(c.acao), c.observacao ? String(c.observacao) : null, c.valor ? String(c.valor) : null, email);
+    await resolverApontamento(db, a, String(c.acao), c.observacao ? String(c.observacao) : null, c.valor ? String(c.valor) : null, email);
     return responder(res, 200, { ok: true });
   }
 
@@ -497,6 +499,9 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
   if (rota === '/api/mcp/conexoes' && metodo === 'GET') {
     return responder(res, 200, { url: `${urlPublica(req)}/mcp`, ...(await servicoOAuth.conexoes(email)) });
   }
+  if (rota === '/api/mcp/uso' && metodo === 'GET') {
+    return responder(res, 200, await usoMcp(db, Number(url.searchParams.get('dias') ?? 7)));
+  }
   if (rota === '/api/mcp/tokens' && metodo === 'POST') {
     const c = await lerCorpo(req, 10_000);
     const querAcoes = c.acoes === true;
@@ -606,53 +611,6 @@ async function listarAuditoria(res: http.ServerResponse, id: string, f: FiltroNo
   const { count } = await db.from('documentos').select('chave', { count: 'exact', head: true }).eq('empresa_id', id)
     .gte('emitida_em', f.de).lt('emitida_em', f.ate).eq('auditado', false);
   responder(res, 200, { apontamentos: lista, regras: REGRAS, monofasico: mono, aguardandoAuditoria: count ?? 0 });
-}
-
-const CFOP_ENTRADA_VALIDO = /^[123]\d{3}$/;
-const CST_PIS_VALIDO = /^\d{2}$/;
-
-/** Marca um apontamento como ajustado/ignorado/aberto e, quando é o caso, grava o ajuste no item. */
-async function resolverApontamento(a: any, acao: string, observacao: string | null, valor: string | null, email: string) {
-  const agora = new Date().toISOString();
-  if (acao === 'reabrir') {
-    ok(await db.from('apontamentos').update({ status: 'aberto', resolvido_por: null, resolvido_em: null, atualizado_em: agora }).eq('id', a.id), 'reabrir');
-    return;
-  }
-  if (acao !== 'resolver' && acao !== 'ignorar') throw new ErroHttp(400, 'Ação inválida.');
-
-  if (acao === 'resolver' && a.chave && a.n_item) {
-    const campo: string | undefined = a.regra === 'CFOP_ENTRADA_INDEFINIDO' ? 'cfop_escrit' : a.sugestao?.campo;
-    const v = valor ?? a.sugestao?.valor ?? null;
-    if (campo && v) {
-      let alteracao: Record<string, unknown>;
-      if (campo === 'cfop_escrit') {
-        if (!CFOP_ENTRADA_VALIDO.test(v)) throw new ErroHttp(422, 'Informe um CFOP de entrada válido (1xxx, 2xxx ou 3xxx).');
-        alteracao = { cfop_escrit: v };
-      } else if (campo === 'cst_pis_cofins_escrit') {
-        if (!CST_PIS_VALIDO.test(v)) throw new ErroHttp(422, 'CST de PIS/COFINS inválido.');
-        alteracao = { cst_pis_escrit: v, cst_cofins_escrit: v };
-      } else {
-        throw new ErroHttp(400, 'Ajuste não suportado para este apontamento.');
-      }
-      ok(
-        await db.from('documento_itens').update({ ...alteracao, ajustado_por: email, ajustado_em: agora })
-          .eq('empresa_id', a.empresa_id).eq('chave', a.chave).eq('n_item', a.n_item),
-        'ajustar item',
-      );
-    } else if (a.regra === 'CFOP_ENTRADA_INDEFINIDO') {
-      throw new ErroHttp(422, 'Informe o CFOP de entrada.');
-    }
-  }
-  ok(
-    await db.from('apontamentos').update({
-      status: acao === 'resolver' ? 'ajustado' : 'ignorado',
-      observacao: observacao ?? a.observacao ?? null,
-      resolvido_por: email,
-      resolvido_em: agora,
-      atualizado_em: agora,
-    }).eq('id', a.id),
-    'resolver apontamento',
-  );
 }
 
 /* ---------- notas ---------- */
@@ -920,7 +878,7 @@ const servidor = http.createServer(async (req, res) => {
     if (e instanceof ErroIntegra) return responder(res, e.status, { erro: e.message, ...(e.codigo ? { codigo: e.codigo } : {}) });
     if (e instanceof ErroAcessorias) return responder(res, e.status, { erro: e.message });
     if (e instanceof ErroOAuth) return responder(res, e.status, { erro: e.message });
-    if (e instanceof ErroHttp || e instanceof ErroUsuario || e instanceof ErroSped) return responder(res, e.status, { erro: e.message });
+    if (e instanceof ErroHttp || e instanceof ErroUsuario || e instanceof ErroSped || e instanceof ErroApontamento) return responder(res, e.status, { erro: e.message });
     log.error('erro no painel', { rota: url.pathname, erro: (e as Error).message });
     responder(res, 500, { erro: 'Erro inesperado no servidor. Tente de novo.' });
   }

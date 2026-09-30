@@ -16,6 +16,7 @@ import { Db, ok } from '../db';
 import type { ServicoSped } from '../painel/sped';
 import type { ServicoGuias } from '../painel/guias';
 import type { ServicoAcessorias } from '../integra/acessorias';
+import { resolverApontamento } from '../painel/apontamentos';
 
 export const VALIDADE_CONFIRMACAO_MS = 10 * 60_000;
 export const MAX_ITENS_ACAO = 500;
@@ -83,7 +84,7 @@ const MODELO: Record<string, string> = { '55': 'NF-e', '65': 'NFC-e', '57': 'CT-
 /** Mensagens das camadas de serviço que já são para o usuário. */
 export function mensagemDeServico(e: unknown): string | null {
   const n = (e as Error)?.constructor?.name;
-  return ['ErroAcao', 'ErroSped', 'ErroIntegra', 'ErroAcessorias', 'ErroFerramenta'].includes(n) ? (e as Error).message : null;
+  return ['ErroAcao', 'ErroSped', 'ErroIntegra', 'ErroAcessorias', 'ErroFerramenta', 'ErroApontamento'].includes(n) ? (e as Error).message : null;
 }
 
 export function registrarAcoes(server: McpServer, deps: DepsAcoes, aj: Ajudantes) {
@@ -249,6 +250,128 @@ export function registrarAcoes(server: McpServer, deps: DepsAcoes, aj: Ajudantes
         enviadas: r.filter((x) => x.ok).length, com_erro: r.filter((x) => !x.ok).length, nao_tentadas: ids.length - r.length,
         resultados: r.map((x) => { const e = nomes.get(porGuia.get(x.guiaId)!); return { empresa: e ? e.razao_social : String(x.guiaId), ok: x.ok, mensagem: x.mensagem }; }),
       };
+    });
+  }));
+
+  /* ---------- DAS (Integra Contador) ---------- */
+
+  server.registerTool('appura_gerar_das', {
+    title: 'Gerar DAS',
+    description: 'Gera o DAS do Simples Nacional ou do MEI pelo Integra Contador (SERPRO), grava o PDF no Appura e, se o envio automático estiver ligado, manda à Acessórias. Cada empresa é uma emissão cobrada pelo SERPRO. Não gera de novo quando já existe DAS da competência dentro do vencimento. Em duas etapas: prévia com código, depois execução com o código, após o usuário confirmar.',
+    inputSchema: {
+      empresas: z.array(z.string().min(2).max(120)).min(1).max(20).describe('Até 20 empresas do Simples ou MEI: CNPJ, id ou parte da razão social.'),
+      competencia: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).describe('Período de apuração AAAA-MM (obrigatório: normalmente o mês anterior).'),
+      confirmacao: confirmacaoSchema,
+    },
+    annotations: { title: 'Gerar DAS', ...acao, idempotentHint: false, openWorldHint: true },
+  }, aj.envolver('appura_gerar_das', async (a: { empresas: string[]; competencia: string; confirmacao?: string }) => {
+    const comp = a.competencia;
+    if (comp > aj.competencia()) throw new ErroAcao('Não dá para gerar DAS de competência futura.');
+    const emps: Empresa[] = [];
+    for (const t of a.empresas) { const e = await aj.resolverEmpresa(t); if (!emps.some((x) => x.id === e.id)) emps.push(e); }
+    const ids = emps.map((e) => e.id);
+    const [procs, decls, guias] = await Promise.all([
+      deps.db.from('integra_procuracoes').select('empresa_id,situacao').in('empresa_id', ids).then((r: any) => ok(r, 'procurações') as any[]),
+      deps.db.from('pgdas_declaracoes').select('empresa_id,situacao').in('empresa_id', ids).eq('competencia', `${comp}-01`).then((r: any) => ok(r, 'declarações') as any[]),
+      deps.db.from('guias').select('empresa_id,total,vencimento,gerado_em').in('empresa_id', ids).eq('competencia', `${comp}-01`).order('gerado_em', { ascending: false }).then((r: any) => ok(r, 'guias') as any[]),
+    ]);
+    const hoje = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+    const analise = emps.map((e) => {
+      const proc = procs.find((p) => p.empresa_id === e.id);
+      const decl = decls.find((d) => d.empresa_id === e.id);
+      const guia = guias.find((g) => g.empresa_id === e.id);
+      let motivo: string | null = null;
+      if (e.regime !== 'simples' && e.regime !== 'mei') motivo = 'Regime sem DAS (DCTFWeb/DARF ainda não estão no Appura).';
+      else if (proc && (proc.situacao === 'ausente' || proc.situacao === 'vencida')) motivo = `Procuração ${proc.situacao} no e-CAC.`;
+      else if (guia && (!guia.vencimento || guia.vencimento >= hoje)) motivo = `Já tem DAS da competência dentro do vencimento (total ${guia.total}, vence ${guia.vencimento ?? '—'}).`;
+      return {
+        e, motivo,
+        linha: {
+          razao_social: e.razao_social, cnpj: aj.cnpjFmt(e.cnpj), regime: e.regime === 'mei' ? 'MEI' : e.regime === 'simples' ? 'Simples Nacional' : (e.regime ?? 'não informado'),
+          procuracao: proc ? proc.situacao : 'não verificada',
+          declaracao_pgdas: e.regime === 'simples' ? (decl ? decl.situacao : 'não consultada') : undefined,
+          vai_gerar: !motivo, motivo: motivo ?? undefined,
+        },
+      };
+    });
+    const gerar = analise.filter((x) => !x.motivo).map((x) => x.e);
+    if (!gerar.length) throw new ErroAcao(`Nenhuma das empresas pode ter DAS gerado agora: ${analise.map((x) => `${x.e.razao_social}: ${x.motivo}`).join(' ')}`);
+    const alvo = { comp, ids: gerar.map((e) => e.id).sort() };
+    return duasEtapas('appura_gerar_das', a.confirmacao, alvo, () => ({
+      acao: `Gerar o DAS de ${comp} para ${gerar.length} empresa${gerar.length === 1 ? '' : 's'}`,
+      custo: `${gerar.length} emiss${gerar.length === 1 ? 'ão cobrada' : 'ões cobradas'} pelo SERPRO no contrato do escritório.`,
+      atencao: analise.some((x) => x.linha.declaracao_pgdas && x.linha.declaracao_pgdas !== 'transmitida' && !x.motivo)
+        ? 'Há empresa do Simples sem declaração do PGDAS-D confirmada: sem a declaração transmitida o SERPRO não emite o DAS.' : undefined,
+      empresas: analise.map((x) => x.linha),
+    }), async () => {
+      const resultados = [];
+      for (const e of gerar) {
+        try {
+          const r = await deps.guias.gerarDas(e.id, comp, email, false) as any;
+          const g = r.guias[0] ?? {};
+          resultados.push({ razao_social: e.razao_social, cnpj: aj.cnpjFmt(e.cnpj), ok: true, total: g.total != null ? Number(g.total) : undefined, vencimento: g.vencimento ?? undefined,
+            pdf: g.caminho ? 'guardado no Appura' : 'o SERPRO não devolveu o PDF', acessorias: g.envio ? g.envio.status : undefined, avisos: r.avisos?.length ? r.avisos : undefined });
+        } catch (x) {
+          resultados.push({ razao_social: e.razao_social, cnpj: aj.cnpjFmt(e.cnpj), ok: false, mensagem: mensagemDeServico(x) ?? 'Falha inesperada.' });
+          if (/configurad|chave|certificado|autentica/i.test((x as Error).message)) break;
+        }
+      }
+      return { geradas: resultados.filter((r) => r.ok).length, com_erro: resultados.filter((r) => !r.ok).length, nao_tentadas: gerar.length - resultados.length, resultados };
+    });
+  }));
+
+  /* ---------- apontamentos da auditoria ---------- */
+
+  server.registerTool('appura_tratar_apontamentos', {
+    title: 'Tratar apontamentos da auditoria',
+    description: 'Trata apontamentos da auditoria das notas, igual aos botões do painel: aplicar_sugestao (grava no item a correção sugerida pela regra, ex.: CST de PIS/COFINS, e marca como ajustado), ignorar (com observação obrigatória) ou reabrir. Escolha por regra e/ou ids (de appura_apontamentos_auditoria). Em duas etapas: prévia com código, depois execução com o código, após o usuário confirmar.',
+    inputSchema: {
+      empresa: z.string().min(2).max(120).describe('CNPJ, id ou parte da razão social.'),
+      competencia: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional().describe('AAAA-MM (padrão: mês atual).'),
+      acao: z.enum(['aplicar_sugestao', 'ignorar', 'reabrir']),
+      regras: z.array(z.string().max(60)).max(20).optional().describe('Códigos das regras (campo "regra").'),
+      ids: z.array(z.number().int().positive()).max(500).optional().describe('Ids dos apontamentos.'),
+      observacao: z.string().max(1000).optional().describe('Obrigatória para ignorar (mínimo 5 caracteres).'),
+      confirmacao: confirmacaoSchema,
+    },
+    annotations: { title: 'Tratar apontamentos', ...acao, openWorldHint: false },
+  }, aj.envolver('appura_tratar_apontamentos', async (a: { empresa: string; competencia?: string; acao: string; regras?: string[]; ids?: number[]; observacao?: string; confirmacao?: string }) => {
+    if (!(a.regras && a.regras.length) && !(a.ids && a.ids.length)) throw new ErroAcao('Diga quais apontamentos: informe regras ou ids (veja em appura_apontamentos_auditoria).');
+    const obs = a.observacao?.trim() || null;
+    if (a.acao === 'ignorar' && (!obs || obs.length < 5)) throw new ErroAcao('Para ignorar, escreva a observação (pelo menos 5 caracteres): ela fica no histórico.');
+    const emp = await aj.resolverEmpresa(a.empresa);
+    const comp = aj.competencia(a.competencia);
+    let q = deps.db.from('apontamentos').select('*').eq('empresa_id', emp.id).eq('competencia', `${comp}-01`);
+    if (a.acao === 'reabrir') q = q.in('status', ['ajustado', 'ignorado']); else q = q.eq('status', 'aberto');
+    if (a.regras && a.regras.length) q = q.in('regra', a.regras);
+    if (a.ids && a.ids.length) q = q.in('id', a.ids);
+    const todos = ok(await q.order('id').limit(MAX_ITENS_ACAO + 1), 'apontamentos') as any[];
+    if (todos.length > MAX_ITENS_ACAO) throw new ErroAcao(`Mais de ${MAX_ITENS_ACAO} apontamentos com esses filtros. Filtre por regra ou ids.`);
+    const temSugestao = (x: any) => !!(x.sugestao && x.sugestao.campo && x.sugestao.valor != null && x.chave && x.n_item);
+    const lista = a.acao === 'aplicar_sugestao' ? todos.filter(temSugestao) : todos;
+    const semSugestao = todos.length - lista.length;
+    if (!lista.length) {
+      throw new ErroAcao(todos.length ? `Nenhum desses ${todos.length} apontamentos tem correção sugerida: trate no painel (ex.: informar o CFOP) ou use ignorar.`
+        : `Nenhum apontamento ${a.acao === 'reabrir' ? 'tratado' : 'em aberto'} com esses filtros em ${comp}.`);
+    }
+    const alvo = { acao: a.acao, ids: lista.map((x) => x.id), obs };
+    const verbo = { aplicar_sugestao: 'Aplicar a correção sugerida em', ignorar: 'Ignorar', reabrir: 'Reabrir' }[a.acao]!;
+    return duasEtapas('appura_tratar_apontamentos', a.confirmacao, alvo, () => ({
+      acao: `${verbo} ${lista.length} apontamento${lista.length === 1 ? '' : 's'}`,
+      empresa: `${emp.razao_social} (${aj.cnpjFmt(emp.cnpj)})`, competencia: comp, observacao: obs ?? undefined,
+      sem_sugestao_fora_da_acao: semSugestao || undefined,
+      apontamentos: lista.slice(0, 30).map((x) => ({
+        id: x.id, regra: x.regra, severidade: x.severidade, mensagem: x.mensagem, chave: x.chave ?? undefined, item: x.n_item ?? undefined, status_atual: x.status,
+        correcao: a.acao === 'aplicar_sugestao' ? `${x.sugestao.campo} → ${x.sugestao.valor}` : undefined,
+      })),
+      mais: Math.max(0, lista.length - 30),
+    }), async () => {
+      const acaoPainel = { aplicar_sugestao: 'resolver', ignorar: 'ignorar', reabrir: 'reabrir' }[a.acao]!;
+      let feitos = 0; const erros: string[] = [];
+      for (const x of lista) {
+        try { await resolverApontamento(deps.db, x, acaoPainel, obs, null, email); feitos++; } catch (e) { erros.push(`#${x.id}: ${mensagemDeServico(e) ?? 'falha inesperada'}`); }
+      }
+      return { mensagem: `${feitos} apontamento${feitos === 1 ? '' : 's'} tratado${feitos === 1 ? '' : 's'}.`, tratados: feitos, erros: erros.length ? erros.slice(0, 20) : undefined };
     });
   }));
 }
