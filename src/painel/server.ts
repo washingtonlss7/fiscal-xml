@@ -49,6 +49,7 @@ const ARQUIVOS: Record<string, [string, string]> = {
   '/index.html': ['index.html', 'text/html; charset=utf-8'],
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/visao-geral.js': ['visao-geral.js', 'text/javascript; charset=utf-8'],
+  '/empresa-360.js': ['empresa-360.js', 'text/javascript; charset=utf-8'],
   '/app.css': ['app.css', 'text/css; charset=utf-8'],
   '/manifest.webmanifest': ['manifest.webmanifest', 'application/manifest+json; charset=utf-8'],
   '/sw.js': ['sw.js', 'text/javascript; charset=utf-8'],
@@ -410,6 +411,16 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
       log.info('tabela de ST do ES importada', { regras: n, por: email });
       return responder(res, 200, { regras: n });
     }
+  }
+
+  // Empresa 360°: cadastro, certificado, captação, números da competência e histórico numa chamada só
+  const e360 = rota.match(/^\/api\/empresas\/([0-9a-f-]{36})\/360$/);
+  if (metodo === 'GET' && e360) {
+    const f = filtroNotas(url);
+    const { data, error } = await db.rpc('painel_empresa_360', { p_empresa: e360[1], p_competencia: `${f.mes}-01` });
+    if (error) throw new Error(`empresa 360: ${error.message}`);
+    if (!data) throw new ErroHttp(404, 'Empresa não encontrada.');
+    return responder(res, 200, data);
   }
 
   const notas = rota.match(/^\/api\/empresas\/([0-9a-f-]{36})\/(notas|xml|zip)$/);

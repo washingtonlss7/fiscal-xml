@@ -413,10 +413,10 @@ if (typeof window !== 'undefined') {
     const base = `#/empresas/${e.id}`;
     // Cada chamada cria um elemento novo (a mesma linha aparece na tabela e no cartão do celular)
     const cel = {
-      xml: () => vgCelula(vgXml(e), base, 'XML'),
+      xml: () => vgCelula(vgXml(e), `${base}/notas`, 'XML'),
       aud: () => vgCelula(vgAuditoria(e), e.notas_mes ? `${base}/auditoria` : null, 'Auditoria'),
-      st: () => vgCelula(st, e.uf === 'ES' ? `${base}/auditoria` : null, 'ICMS-ST'),
-      stTabela: () => vgCelula(stTabela, e.uf === 'ES' ? `${base}/auditoria` : null, 'ICMS-ST'),
+      st: () => vgCelula(st, e.uf === 'ES' ? `${base}/icms-st` : null, 'ICMS-ST'),
+      stTabela: () => vgCelula(stTabela, e.uf === 'ES' ? `${base}/icms-st` : null, 'ICMS-ST'),
       sped: () => vgCelula(na, null, 'SPED'), val: () => vgCelula(na, null, 'Validação'), guias: () => vgCelula(na, null, 'Guias'),
     };
     return { e, g, ult, cel };

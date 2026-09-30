@@ -270,47 +270,109 @@
       </section>
      </section>
 
-     <section id="tela-notas" class="pilha" hidden>
-      <div class="cabecalho-pagina">
-        <div>
-          <button id="notas-voltar" type="button" class="botao fantasma pequeno voltar">← Empresas</button>
-          <h1 id="notas-titulo"></h1>
-          <p id="notas-sub" class="subtitulo"></p>
+     <section id="tela-notas" class="pilha e360" hidden>
+      <div class="e360-topo">
+        <button id="notas-voltar" type="button" class="botao fantasma pequeno voltar">← Empresas</button>
+        <div class="e360-cab">
+          <div class="e360-id">
+            <h1 id="notas-titulo"></h1>
+            <p id="notas-sub" class="e360-sub"></p>
+            <div id="e360-selos" class="e360-selos"></div>
+          </div>
+          <div class="e360-status-caixa">
+            <span class="e360-status-rotulo">Status do fechamento</span>
+            <span id="e360-status" class="selo neutro">—</span>
+          </div>
+          <div class="acoes-cabecalho e360-acoes">
+            <button id="e360-sincronizar" type="button" class="botao primario"><svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-refresh-cw"></use></svg>Sincronizar XML</button>
+            <button id="notas-importar" type="button" class="botao"><svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-cloud-download"></use></svg>Importar arquivos</button>
+            <input id="notas-importar-arquivos" type="file" accept=".xml,.zip,text/xml,application/zip" multiple hidden>
+            <div class="menu-acoes">
+              <button id="e360-mais" type="button" class="botao" aria-haspopup="menu" aria-expanded="false" aria-controls="e360-menu">Mais ações<svg class="icone-svg nav-seta" aria-hidden="true"><use href="/icones.svg#i-chevron-down"></use></svg></button>
+              <div id="e360-menu" class="menu-suspenso" role="menu" hidden></div>
+            </div>
+            <button id="e360-acoes-celular" type="button" class="botao primario e360-acoes-celular" aria-haspopup="dialog" aria-controls="e360-folha">+ Ações</button>
+          </div>
         </div>
-        <div class="acoes-cabecalho">
-          <button id="notas-importar" type="button" class="botao">Importar XMLs</button>
-          <input id="notas-importar-arquivos" type="file" accept=".xml,.zip,text/xml,application/zip" multiple hidden>
-          <button id="notas-zip" type="button" class="botao primario">Baixar XMLs do mês (ZIP)</button>
-        </div>
+        <input id="notas-mes" type="month" hidden>
       </div>
-      <div class="filtros">
-        <label class="campo"><span>Mês</span><input id="notas-mes" type="month"></label>
-        <label class="campo so-notas"><span>Documento</span>
-          <select id="notas-modelo"><option value="">Todos</option><option value="55">NF-e</option><option value="65">NFC-e</option><option value="57">CT-e</option></select>
-        </label>
-        <label class="campo so-notas"><span>Direção</span>
-          <select id="notas-direcao"><option value="">Entradas e saídas</option><option value="entrada">Entradas</option><option value="saida">Saídas</option></select>
-        </label>
-      </div>
-      <div class="abas-tela" role="tablist">
-        <button id="aba-notas" type="button" role="tab" class="aba-tela ativa" aria-selected="true">Notas</button>
-        <button id="aba-auditoria" type="button" role="tab" class="aba-tela" aria-selected="false">Auditoria <span id="aba-auditoria-qtd" class="contador" hidden></span></button>
-      </div>
+
+      <nav class="abas-tela e360-abas" role="tablist" aria-label="Seções da empresa">
+        <button id="aba-visao" type="button" role="tab" class="aba-tela" data-aba="visao">Visão Geral</button>
+        <button id="aba-notas" type="button" role="tab" class="aba-tela" data-aba="notas">Notas Fiscais</button>
+        <button id="aba-auditoria" type="button" role="tab" class="aba-tela" data-aba="auditoria">Auditoria <span id="aba-auditoria-qtd" class="contador" hidden></span></button>
+        <button id="aba-st" type="button" role="tab" class="aba-tela" data-aba="st">ICMS-ST</button>
+        <button id="aba-sped" type="button" role="tab" class="aba-tela" data-aba="sped">SPED</button>
+        <button id="aba-guias" type="button" role="tab" class="aba-tela" data-aba="guias">Guias</button>
+        <button id="aba-arquivos" type="button" role="tab" class="aba-tela" data-aba="arquivos">Arquivos</button>
+        <button id="aba-historico" type="button" role="tab" class="aba-tela" data-aba="historico">Histórico</button>
+      </nav>
+
       <section id="importacao" class="importacao" hidden aria-live="polite"></section>
-      <div id="painel-notas" class="pilha">
+
+      <div id="painel-visao" class="pilha" role="tabpanel" aria-labelledby="aba-visao" hidden>
+        <div class="e360-grade">
+          <div class="e360-principal">
+            <section class="vg-card" aria-labelledby="e360-etapas-titulo">
+              <div class="vg-card-topo"><h2 id="e360-etapas-titulo" class="vg-card-titulo">Fechamento · <span id="e360-etapas-mes"></span></h2></div>
+              <ol id="e360-etapas" class="e360-etapas"></ol>
+            </section>
+            <section class="vg-card" aria-labelledby="e360-atencao-titulo">
+              <div class="vg-card-topo"><h2 id="e360-atencao-titulo" class="vg-card-titulo">Precisa de atenção</h2></div>
+              <ul id="e360-atencao" class="vg-atencao"></ul>
+            </section>
+            <div id="e360-cards" class="e360-cards"></div>
+            <section class="vg-card" aria-labelledby="e360-atividade-titulo">
+              <div class="vg-card-topo">
+                <h2 id="e360-atividade-titulo" class="vg-card-titulo">Atividade recente</h2>
+                <button id="e360-ver-historico" type="button" class="botao fantasma pequeno">Ver histórico</button>
+              </div>
+              <ol id="e360-atividade" class="e360-linha-tempo"></ol>
+            </section>
+          </div>
+          <aside id="e360-dados" class="vg-card e360-dados" aria-label="Dados da empresa"></aside>
+        </div>
+      </div>
+
+      <div id="painel-notas" class="pilha" role="tabpanel" aria-labelledby="aba-notas" hidden>
+        <div class="filtros e360-filtros">
+          <label class="vg-busca">
+            <span class="visualmente-oculto">Buscar nota</span>
+            <svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-search"></use></svg>
+            <input id="notas-busca" type="search" placeholder="Número, chave, CNPJ ou nome" autocomplete="off">
+          </label>
+          <label class="fc-campo"><span>Direção</span>
+            <select id="notas-direcao" class="vg-select"><option value="">Entradas e saídas</option><option value="entrada">Entradas</option><option value="saida">Saídas</option></select>
+          </label>
+          <label class="fc-campo"><span>Documento</span>
+            <select id="notas-modelo" class="vg-select"><option value="">Todos</option><option value="55">NF-e</option><option value="65">NFC-e</option><option value="57">CT-e</option></select>
+          </label>
+          <label class="fc-campo"><span>Situação</span>
+            <select id="notas-situacao" class="vg-select"><option value="">Todas</option><option value="autorizada">Autorizadas</option><option value="cancelada">Canceladas</option><option value="resumo">Só resumo</option></select>
+          </label>
+          <span class="meta e360-periodo">Período: competência selecionada no topo</span>
+        </div>
         <div id="notas-resumo" class="numeros"></div>
         <div id="notas-lista" class="rolagem"></div>
         <p id="notas-vazio" class="vazio" hidden></p>
       </div>
-      <div id="painel-auditoria" class="pilha" hidden>
+
+      <div id="painel-auditoria" class="pilha" role="tabpanel" aria-labelledby="aba-auditoria" hidden>
         <div class="barra-auditoria">
           <div class="segmentos" role="group" aria-label="Mostrar">
-            <button id="aud-abertos" type="button" class="segmento ativo" aria-pressed="true">Abertos</button>
-            <button id="aud-todos" type="button" class="segmento" aria-pressed="false">Todos</button>
+            <button id="aud-todos" type="button" class="segmento" aria-pressed="false">Todas <span id="aud-n-todos" class="seg-n"></span></button>
+            <button id="aud-abertos" type="button" class="segmento ativo" aria-pressed="true">Pendentes <span id="aud-n-abertos" class="seg-n"></span></button>
+            <button id="aud-tratados" type="button" class="segmento" aria-pressed="false">Tratadas <span id="aud-n-tratados" class="seg-n"></span></button>
+            <button id="aud-ignorados" type="button" class="segmento" aria-pressed="false">Ignoradas <span id="aud-n-ignorados" class="seg-n"></span></button>
           </div>
           <button id="aud-refazer" type="button" class="botao pequeno">Refazer auditoria do mês</button>
         </div>
         <div id="aud-resumo" class="numeros"></div>
+        <div id="aud-lista" class="pilha"></div>
+        <p id="aud-vazio" class="vazio" hidden></p>
+      </div>
+
+      <div id="painel-st" class="pilha" role="tabpanel" aria-labelledby="aba-st" hidden>
         <section id="st-bloco" class="grupo-regra bloco-st" aria-labelledby="st-titulo">
           <div class="grupo-topo">
             <div>
@@ -334,9 +396,22 @@
             </div>
           </div>
         </section>
-        <div id="aud-lista" class="pilha"></div>
-        <p id="aud-vazio" class="vazio" hidden></p>
       </div>
+
+      <div id="painel-sped" class="pilha" role="tabpanel" aria-labelledby="aba-sped" hidden>
+        <div class="e360-breve">
+          <svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-file-spreadsheet"></use></svg>
+          <div><strong>SPED · Em breve</strong><p>O leitor, a comparação e a validação de SPED Fiscal, SPED Contribuições e SINTEGRA serão disponibilizados nesta área.</p></div>
+        </div>
+      </div>
+      <div id="painel-guias" class="pilha" role="tabpanel" aria-labelledby="aba-guias" hidden>
+        <div class="e360-breve">
+          <svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-receipt"></use></svg>
+          <div><strong>Guias · Em breve</strong><p>A geração e o acompanhamento de guias (DUA, DAS, DCTFWeb e DARF) serão disponibilizados nesta área.</p></div>
+        </div>
+      </div>
+      <div id="painel-arquivos" class="pilha" role="tabpanel" aria-labelledby="aba-arquivos" hidden></div>
+      <div id="painel-historico" class="pilha" role="tabpanel" aria-labelledby="aba-historico" hidden></div>
      </section>
     </main>
     <nav id="nav-inferior" class="nav-inferior" aria-label="Navegação rápida">
@@ -492,9 +567,18 @@
     </form>
   </aside>
 
+  <div id="e360-folha-fundo" class="gaveta-fundo" hidden></div>
+  <div id="e360-folha" class="folha" role="dialog" aria-modal="true" aria-labelledby="e360-folha-titulo" hidden>
+    <div class="folha-alca" aria-hidden="true"></div>
+    <h2 id="e360-folha-titulo" class="folha-titulo">Ações da empresa</h2>
+    <div id="e360-folha-itens" class="folha-itens"></div>
+    <button id="e360-folha-fechar" type="button" class="botao largo">Fechar</button>
+  </div>
+
   <div id="aviso" class="aviso" role="status" hidden></div>
 
   <script src="/app.js"></script>
   <script src="/visao-geral.js"></script>
+  <script src="/empresa-360.js"></script>
 </body>
 </html>
