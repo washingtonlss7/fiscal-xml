@@ -33,3 +33,12 @@ assert.deepEqual(porTamanho.map((x: any[]) => x.length), [3, 3, 3, 1], 'lote par
 assert.deepEqual(lotesImportacao([]), []);
 console.log('ok  lotes: até 50 XMLs ou 15 MB por envio; ZIP e arquivo grande sozinhos');
 console.log('\nTestes da importação em lotes passaram.');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { motivosImportacao } = require('../public/nucleo.js');
+const m = motivosImportacao([
+  { arquivo: 'a.xml', motivo: 'nota sem protocolo de autorização da SEFAZ (XML só assinado, não autorizado).' },
+  { arquivo: 'b.xml', motivo: 'o CNPJ da empresa não é emitente nem destinatário desta nota (emitente 12345678000195).' },
+  { arquivo: 'c.xml', motivo: 'o CNPJ da empresa não é emitente nem destinatário desta nota (emitente 98765432000111).' },
+]);
+assert.deepEqual(m.map((x: any) => [x.quantidade, x.exemplos]), [[2, ['b.xml', 'c.xml']], [1, ['a.xml']]], 'CNPJs diferentes caem no mesmo motivo');
+console.log('ok  motivos de recusa agrupados');

@@ -1250,7 +1250,7 @@ async function importarArquivos(lista, destino = null) {
         total.importadas += r.importadas; total.completouResumo += r.completouResumo;
         total.jaExistiam += r.jaExistiam; total.rejeitadas += r.rejeitadas;
         for (const [k, v] of Object.entries(r.porModelo || {})) total.porModelo[k] = (total.porModelo[k] || 0) + v;
-        for (const x of r.resultados || []) rejeitadas.push(`${x.arquivo}: ${x.motivo}`);
+        for (const x of r.resultados || []) rejeitadas.push({ arquivo: x.arquivo, motivo: x.motivo || '' });
         break;
       } catch (e) {
         // Falha de rede ou servidor reiniciando: tenta de novo (o que já entrou é reconhecido e pulado)
@@ -1260,7 +1260,7 @@ async function importarArquivos(lista, destino = null) {
         if (transitorio) falhasConexao.push(...lote);
         else {
           total.rejeitadas += lote.length;
-          rejeitadas.push(`${lote.length === 1 ? lote[0].name : `${lote.length} arquivos (${lote[0].name} …)`}: ${e.message}`);
+          for (const f of lote) rejeitadas.push({ arquivo: f.name, motivo: e.message });
         }
         break;
       }
@@ -1297,7 +1297,15 @@ async function importarArquivos(lista, destino = null) {
     detalhe ? h('span', { class: 'meta', text: detalhe }) : '',
     h('span', { class: 'meta', text: extra || 'Itens e impostos já foram extraídos para a auditoria.' }),
     reenviar(),
-    rejeitadas.length ? h('ul', {}, ...rejeitadas.slice(0, 200).map((t) => h('li', { text: t }))) : '',
+    rejeitadas.length ? h('div', { class: 'imp-recusados' },
+      h('strong', { text: 'Por que foram recusados' }),
+      h('ul', {}, ...motivosImportacao(rejeitadas).slice(0, 12).map((m) => h('li', {}, h('strong', { text: `${m.quantidade.toLocaleString('pt-BR')}× ` }), m.motivo, h('span', { class: 'meta', text: ` (ex.: ${m.exemplos.join(', ')})` })))),
+      h('button', { type: 'button', class: 'botao pequeno', onclick: () => {
+        const csv = ['arquivo;motivo', ...rejeitadas.map((x) => `"${x.arquivo.replace(/"/g, '""')}";"${x.motivo.replace(/"/g, '""')}"`)].join('\r\n');
+        const url = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' }));
+        const a = h('a', { href: url, download: `recusados-${emp.nome.replace(/[^\w]+/g, '_').slice(0, 40)}.csv` }); document.body.append(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+      } }, icone('cloud-download'), h('span', { text: `Baixar a lista dos ${rejeitadas.length.toLocaleString('pt-BR')} recusados` }))) : '',
   );
   botao.disabled = false;
   if (naEmpresa()) {

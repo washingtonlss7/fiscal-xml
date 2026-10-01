@@ -210,3 +210,17 @@ export async function importarXmls(
     resultados,
   };
 }
+
+/** Agrupa os motivos de recusa (números longos viram #) para o registro e a tela: [{ motivo, quantidade, exemplos }]. */
+export function agruparMotivos(resultados: ResultadoArquivo[], limite = 20) {
+  const g = new Map<string, { motivo: string; quantidade: number; exemplos: string[] }>();
+  for (const r of resultados) {
+    if (r.situacao !== 'rejeitada') continue;
+    const chave = String(r.motivo ?? 'motivo não informado').replace(/\d{4,}/g, '#').slice(0, 160);
+    const x = g.get(chave) ?? { motivo: chave, quantidade: 0, exemplos: [] };
+    x.quantidade++;
+    if (x.exemplos.length < 3) x.exemplos.push(r.arquivo);
+    g.set(chave, x);
+  }
+  return [...g.values()].sort((a, b) => b.quantidade - a.quantidade).slice(0, limite);
+}

@@ -9,7 +9,7 @@ import { ErroValidacao, salvarEmpresaComCertificado } from '../empresas';
 import { log } from '../log';
 import { Zip } from './zip';
 import { registrarStatus } from '../status';
-import { abrirEnvio, importarXmls } from '../importacao/importar';
+import { abrirEnvio, agruparMotivos, importarXmls } from '../importacao/importar';
 import { Aba, Coluna, escreverXlsx } from './xlsx';
 import { buscar as buscarXml, caminhoNoZip, ErroBusca, FiltroBusca, lerFiltro as lerFiltroBusca, listaChaves, MAX_ZIP, NotaBusca, notasParaExcel, notasParaZip, registrarDownload, UF_DA_CHAVE } from './buscaXml';
 import { abasST, lerRegrasST, relatorioST } from '../fiscal/relatorioST';
@@ -378,19 +378,36 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
       { id: string; cnpj: string; c_uf: number } | null;
     if (!empresa) throw new ErroHttp(404, 'Empresa não encontrada.');
     const nome = (url.searchParams.get('nome') || 'arquivo.xml').slice(0, 200);
-    const corpo = await lerBruto(req, 80 * 1024 * 1024);
-    if (!corpo.length) throw new ErroHttp(400, 'Arquivo vazio.');
-    let arquivos;
+    const inicio = Date.now();
+    // Todo envio fica registrado (importacoes_xml), inclusive o que falhar inteiro, para dar para investigar depois
+    const registrar = async (r: Partial<{ arquivos: number; importadas: number; completouResumo: number; jaExistiam: number; rejeitadas: number; motivos: unknown; erro: string }>) => {
+      const { error } = await db.from('importacoes_xml').insert({
+        empresa_id: empresa.id, email, arquivo: nome, arquivos: r.arquivos ?? 0, importadas: r.importadas ?? 0, completou_resumo: r.completouResumo ?? 0,
+        ja_existiam: r.jaExistiam ?? 0, rejeitadas: r.rejeitadas ?? 0, motivos: r.motivos ?? null, erro: r.erro ?? null, duracao_ms: Date.now() - inicio,
+      });
+      if (error) log.warn('importação sem registro', { erro: error.message });
+    };
     try {
-      arquivos = abrirEnvio(nome, corpo);
+      const corpo = await lerBruto(req, 80 * 1024 * 1024);
+      if (!corpo.length) throw new ErroHttp(400, 'Arquivo vazio.');
+      let arquivos;
+      try {
+        arquivos = abrirEnvio(nome, corpo);
+      } catch (e) {
+        throw new ErroHttp(422, `${nome}: ${(e as Error).message}`);
+      }
+      if (!arquivos.length) throw new ErroHttp(422, `${nome}: nenhum XML encontrado.`);
+      const r = await importarXmls(db, arm, empresa, arquivos);
+      const motivos = agruparMotivos(r.resultados);
+      log.info('importação de XML', { empresa: empresa.cnpj, arquivo: nome, por: email, importadas: r.importadas, completou: r.completouResumo, repetidas: r.jaExistiam, rejeitadas: r.rejeitadas, motivos: motivos.slice(0, 3).map((m) => `${m.quantidade}× ${m.motivo}`) });
+      await registrar({ ...r, motivos: motivos.length ? motivos : null });
+      // Devolve só as rejeitadas em detalhe (o resto vai resumido)
+      return responder(res, 200, { ...r, motivos, resultados: r.resultados.filter((x) => x.situacao === 'rejeitada').slice(0, 1000) });
     } catch (e) {
-      throw new ErroHttp(422, `${nome}: ${(e as Error).message}`);
+      await registrar({ erro: (e as Error).message.slice(0, 500) });
+      log.error('importação de XML falhou', { empresa: empresa.cnpj, arquivo: nome, por: email, erro: (e as Error).message });
+      throw e;
     }
-    if (!arquivos.length) throw new ErroHttp(422, `${nome}: nenhum XML encontrado.`);
-    const r = await importarXmls(db, arm, empresa, arquivos);
-    log.info('importação de XML', { empresa: empresa.cnpj, arquivo: nome, por: email, importadas: r.importadas, completou: r.completouResumo, repetidas: r.jaExistiam, rejeitadas: r.rejeitadas });
-    // Devolve só as rejeitadas em detalhe (o resto vai resumido)
-    return responder(res, 200, { ...r, resultados: r.resultados.filter((x) => x.situacao === 'rejeitada').slice(0, 200) });
   }
 
   // SPED Fiscal (EFD ICMS/IPI) e SPED Contribuições (EFD PIS/COFINS): lê, valida, compara e guarda o arquivo e o resultado.

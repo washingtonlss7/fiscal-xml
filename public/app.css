@@ -1575,3 +1575,5 @@ table.notas tr.bx-marcada td { background: var(--info-fundo); }
 .cd-confirma > svg { color: var(--atencao); flex: none; margin-top: 2px; }
 .cd-confirma > div { display: flex; flex-direction: column; gap: var(--esp-2); }
 @media (max-width: 760px) { .cd-grade { grid-template-columns: minmax(0, 1fr); } }
+.imp-recusados { display: flex; flex-direction: column; gap: var(--esp-2); align-items: flex-start; }
+.imp-recusados ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: var(--t-s); }

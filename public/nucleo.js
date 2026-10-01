@@ -115,6 +115,19 @@ function lotesImportacao(arquivos, maxArquivos = 50, maxBytes = 15 * 1024 * 1024
   return lotes;
 }
 
+
+/** Agrupa os recusados da importação por motivo (números longos viram #): [{ motivo, quantidade, exemplos }]. */
+function motivosImportacao(lista) {
+  const g = new Map();
+  for (const x of lista) {
+    const k = String(x.motivo || 'motivo não informado').replace(/\d{4,}/g, '#');
+    const m = g.get(k) || { motivo: k, quantidade: 0, exemplos: [] };
+    m.quantidade++; if (m.exemplos.length < 3) m.exemplos.push(x.arquivo);
+    g.set(k, m);
+  }
+  return [...g.values()].sort((a, b) => b.quantidade - a.quantidade);
+}
+
 if (typeof module !== 'undefined') {
-  module.exports = { MESES, moeda, formatarCnpj, formatarData, formatarHora, formatarPercentual, textoCompetencia, resolverRota, enderecoEmpresa, ABA_NO_ENDERECO, crc32, zipSimples, lotesImportacao };
+  module.exports = { MESES, moeda, formatarCnpj, formatarData, formatarHora, formatarPercentual, textoCompetencia, resolverRota, enderecoEmpresa, ABA_NO_ENDERECO, crc32, zipSimples, lotesImportacao, motivosImportacao };
 }
