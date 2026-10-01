@@ -33,6 +33,8 @@ export interface LinhaReceita {
   cstPis: string;
   cstCofins: string;
   valor: number;
+  /** Valor bruto (VL_ITEM / VL_OPR, sem tirar o desconto): é o que vai no M400/M800 (Guia, campo VL_TOT_REC). */
+  bruto?: number;
   vlPis: number;
   vlCofins: number;
 }
@@ -92,7 +94,7 @@ const TRIBUTADAS = new Set(['01', '02', '03', '05']);
 /** Receitas que vão para o M400/M800 (isentas, alíquota zero, monofásicas, sem incidência, suspensão). */
 const M400_CST = new Set(['04', '06', '07', '08', '09']);
 /** CFOP de venda de mercadoria ou produção (5/6/7.1xx e as vendas com ST 5/6.401, 402, 403 e 405). Devoluções e remessas ficam de fora. */
-export const cfopVenda = (cfop: string) => /^[567]1\d\d$/.test(cfop) || /^[56]40[1235]$/.test(cfop);
+export const cfopVenda = (cfop: string) => /^[567]1[0-2]\d$/.test(cfop) || /^[56]40[1235]$/.test(cfop);
 const r2 = (n: number) => Math.round(Number((n * 100).toFixed(6))) / 100;
 const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -155,7 +157,7 @@ export function lerContribuicoes(texto: string): { efd: EfdContrib; malformadas:
           doc.itens++;
           const v = r2(num(f[6]) - num(f[7]));
           doc.vlItens = r2(doc.vlItens + v);
-          if (saidaValida()) receita({ cfop: f[10], cstPis: f[24], cstCofins: f[30], valor: v, vlPis: num(f[29]), vlCofins: num(f[35]) });
+          if (saidaValida()) receita({ cfop: f[10], cstPis: f[24], cstCofins: f[30], valor: v, bruto: num(f[6]), vlPis: num(f[29]), vlCofins: num(f[35]) });
         }
         break;
       case 'C175':
@@ -163,7 +165,7 @@ export function lerContribuicoes(texto: string): { efd: EfdContrib; malformadas:
           doc.itens++;
           const v = r2(num(f[2]) - num(f[3]));
           doc.vlItens = r2(doc.vlItens + v);
-          if (saidaValida()) receita({ cfop: f[1], cstPis: f[4], cstCofins: f[10], valor: v, vlPis: num(f[9]), vlCofins: num(f[15]) });
+          if (saidaValida()) receita({ cfop: f[1], cstPis: f[4], cstCofins: f[10], valor: v, bruto: num(f[2]), vlPis: num(f[9]), vlCofins: num(f[15]) });
         }
         break;
       case 'C180':
@@ -301,12 +303,18 @@ export function analisarContribuicoes(buf: Buffer): ResultadoContrib {
   else if (Math.abs(cofM - calc.cofins) > 1) add('alerta', 'M600_TOTAL', `COFINS apurada no M600 (${brl(cofM)}) difere da COFINS das receitas tributadas nos documentos (${brl(calc.cofins)}).`);
   // Receitas não tributadas (04, 06, 07, 08, 09) precisam estar no M400/M800
   const porCst = new Map<string, number>();
-  for (const x of efd.receitas) if (M400_CST.has(x.cstPis)) porCst.set(x.cstPis, r2((porCst.get(x.cstPis) ?? 0) + x.valor));
+  const porCstLiq = new Map<string, number>();
+  for (const x of efd.receitas) if (M400_CST.has(x.cstPis)) {
+    porCst.set(x.cstPis, r2((porCst.get(x.cstPis) ?? 0) + (x.bruto ?? x.valor)));
+    porCstLiq.set(x.cstPis, r2((porCstLiq.get(x.cstPis) ?? 0) + x.valor));
+  }
+  // O Guia manda o valor bruto no M400; há sistemas que informam líquido de desconto: aceita os dois
+  const confere = (m: number, cst: string) => Math.abs(m - (porCst.get(cst) ?? 0)) <= 1 || Math.abs(m - (porCstLiq.get(cst) ?? 0)) <= 1;
   for (const [cst, v] of porCst) {
     const m4 = efd.m400.get(cst) ?? 0;
-    if (Math.abs(m4 - v) > 1) add('alerta', 'M400', `Receita com CST ${cst} (${CST_PIS[cst]}) de ${brl(v)} nos documentos, mas ${brl(m4)} no M400 (receitas não tributadas do PIS).`);
+    if (!confere(m4, cst)) add('alerta', 'M400', `Receita com CST ${cst} (${CST_PIS[cst]}) de ${brl(v)} nos documentos, mas ${brl(m4)} no M400 (receitas não tributadas do PIS).`);
     const m8 = efd.m800.get(cst) ?? 0;
-    if (Math.abs(m8 - v) > 1) add('alerta', 'M800', `Receita com CST ${cst} de ${brl(v)} nos documentos, mas ${brl(m8)} no M800 (receitas não tributadas da COFINS).`);
+    if (!confere(m8, cst)) add('alerta', 'M800', `Receita com CST ${cst} de ${brl(v)} nos documentos, mas ${brl(m8)} no M800 (receitas não tributadas da COFINS).`);
   }
   // Documento × itens (NFC-e/NF-e de saída: valor do documento × soma dos itens)
   const difItens = efd.c100.filter((d) => d.indOper === '1' && !CANCELADOS.has(d.codSit) && d.itens > 0 && Math.abs(d.vlDoc - d.vlItens) > 0.05);
