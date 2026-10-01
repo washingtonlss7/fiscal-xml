@@ -1561,3 +1561,17 @@ table.notas tr.bx-marcada td { background: var(--info-fundo); }
 .imp-flutuante .barra span { display: block; height: 100%; background: var(--destaque); transition: width .2s; }
 .imp-flutuante-link { font-size: var(--t-s); font-weight: 600; color: var(--primaria); }
 @media (max-width: 760px) { .imp-flutuante { bottom: calc(76px + env(safe-area-inset-bottom, 0px)); } }
+
+/* ---------- Editar cadastro (cadastro.js) ---------- */
+.e360-dados-topo { display: flex; justify-content: space-between; align-items: center; gap: var(--esp-2); }
+.cd-gaveta { width: min(640px, 100vw); }
+.cd-fixo { display: flex; flex-direction: column; gap: 2px; padding: var(--esp-3); border-radius: var(--raio-m); background: var(--superficie-2); }
+.cd-secao { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--esp-2); }
+.cd-secao legend { font-family: var(--fonte-titulo, inherit); font-weight: 600; font-size: var(--t-m); margin-bottom: var(--esp-2); padding: 0; }
+.cd-grade { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--esp-3); }
+.cd-grade .cd-logradouro, .cd-grade .cd-nome_fantasia, .cd-grade .cd-contador_nome, .cd-grade .cd-regime { grid-column: 1 / -1; }
+.cd-confirma { display: flex; gap: var(--esp-3); align-items: flex-start; padding: var(--esp-3); border-radius: var(--raio-m); background: var(--atencao-fundo); color: var(--tinta); }
+.cd-confirma[hidden] { display: none; }
+.cd-confirma > svg { color: var(--atencao); flex: none; margin-top: 2px; }
+.cd-confirma > div { display: flex; flex-direction: column; gap: var(--esp-2); }
+@media (max-width: 760px) { .cd-grade { grid-template-columns: minmax(0, 1fr); } }

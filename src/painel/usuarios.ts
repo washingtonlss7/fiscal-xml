@@ -36,7 +36,7 @@ export function permissaoDaRota(metodo: string, rota: string): Permissao | null 
   if (rota === '/api/xml/zip' || rota === '/api/xml/excel') return null;
   // Conexões de IA: cada usuário gerencia só as próprias (o MCP respeita o perfil a cada chamada)
   if (rota === '/api/mcp/tokens' || rota.startsWith('/api/mcp/conexoes/')) return null;
-  if (rota === '/api/empresas' || /^\/api\/empresas\/[^/]+\/ativo$/.test(rota)) return 'certificados';
+  if (rota === '/api/empresas' || /^\/api\/empresas\/[^/]+\/(ativo|cadastro)$/.test(rota)) return 'certificados';
   if (rota === '/api/st-es/tabela') return 'configuracoes';
   // Teste de conexão com o SERPRO: configuração do escritório
   if (rota === '/api/guias/testar' || rota === '/api/guias/chaves' || rota === '/api/acessorias' || rota === '/api/acessorias/testar') return 'configuracoes';

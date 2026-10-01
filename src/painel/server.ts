@@ -22,6 +22,7 @@ import { ServicoGuias } from './guias';
 import { configIntegra, ErroIntegra, IntegraContador, transporteHttps } from '../integra/cliente';
 import { ErroAcessorias, MAX_PDF, ServicoAcessorias, TIPOS_DOCUMENTO, TIPOS_UPLOAD } from '../integra/acessorias';
 import { ErroDocumento, ServicoDocumentosEntrega } from './documentosEntrega';
+import { CAMPOS as CAMPOS_CADASTRO, editarCadastro, ErroCadastro, lerCadastro, REGIMES as REGIMES_CADASTRO } from './cadastroEmpresa';
 import { ErroOAuth, ServicoOAuth } from '../mcp/oauth';
 import { rotaMcp, OpcoesMcpHttp } from '../mcp/http';
 import { Confirmacoes } from '../mcp/acoes';
@@ -64,6 +65,7 @@ const ARQUIVOS: Record<string, [string, string]> = {
   '/sped.js': ['sped.js', 'text/javascript; charset=utf-8'],
   '/documentos.js': ['documentos.js', 'text/javascript; charset=utf-8'],
   '/busca-xml.js': ['busca-xml.js', 'text/javascript; charset=utf-8'],
+  '/cadastro.js': ['cadastro.js', 'text/javascript; charset=utf-8'],
   '/guias.js': ['guias.js', 'text/javascript; charset=utf-8'],
   '/apuracao.js': ['apuracao.js', 'text/javascript; charset=utf-8'],
   '/sped-gerar.js': ['sped-gerar.js', 'text/javascript; charset=utf-8'],
@@ -302,6 +304,16 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
       return responder(res, 200, r);
     } catch (e) {
       if (e instanceof ErroValidacao) throw new ErroHttp(422, e.message);
+      throw e;
+    }
+  }
+
+  // Cadastro da empresa (regime, IE, endereço, contador, captação): leitura livre; edição com permissão de cadastro
+  const cadEmp = rota.match(/^\/api\/empresas\/([0-9a-f-]{36})\/cadastro$/);
+  if (cadEmp && metodo === 'GET') return responder(res, 200, { cadastro: await lerCadastro(db, cadEmp[1]), campos: CAMPOS_CADASTRO, regimes: REGIMES_CADASTRO });
+  if (cadEmp && metodo === 'PATCH') {
+    try { return responder(res, 200, await editarCadastro(db, cadEmp[1], await lerCorpo(req, 50_000), email)); } catch (e) {
+      if (e instanceof ErroCadastro) return responder(res, e.status, { erro: e.message, ...(e.codigo ? { codigo: e.codigo } : {}) });
       throw e;
     }
   }
@@ -1096,7 +1108,7 @@ const servidor = http.createServer(async (req, res) => {
     if (e instanceof ErroIntegra) return responder(res, e.status, { erro: e.message, ...(e.codigo ? { codigo: e.codigo } : {}) });
     if (e instanceof ErroAcessorias) return responder(res, e.status, { erro: e.message });
     if (e instanceof ErroOAuth) return responder(res, e.status, { erro: e.message });
-    if (e instanceof ErroHttp || e instanceof ErroUsuario || e instanceof ErroSped || e instanceof ErroApontamento || e instanceof ErroApuracao || e instanceof ErroGerarSped || e instanceof ErroDocumento || e instanceof ErroBusca) return responder(res, e.status, { erro: e.message });
+    if (e instanceof ErroHttp || e instanceof ErroUsuario || e instanceof ErroSped || e instanceof ErroApontamento || e instanceof ErroApuracao || e instanceof ErroGerarSped || e instanceof ErroDocumento || e instanceof ErroBusca || e instanceof ErroCadastro) return responder(res, e.status, { erro: e.message });
     log.error('erro no painel', { rota: url.pathname, erro: (e as Error).message });
     responder(res, 500, { erro: 'Erro inesperado no servidor. Tente de novo.' });
   }

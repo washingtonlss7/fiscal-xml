@@ -194,7 +194,7 @@ function e360Historico(d) {
         return { em: x.em, tom: v.cstat === '656' ? 'atencao' : 'neutro', icone: 'cloud-download', titulo: `Consulta SEFAZ (${mod(v.modelo)})`, detalhe: `${v.cstat || ''} · ${v.motivo || ''}`, por: 'Coletor automático' };
       }
       case 'pedido': {
-        const st = { pendente: 'aguardando a janela', processando: 'em andamento', concluido: 'concluída', erro: 'com erro' }[v.status] || v.status;
+        const st = { pendente: 'na fila', processando: 'em andamento', concluido: 'concluída', erro: 'com erro' }[v.status] || v.status;
         return { em: x.em, tom: v.status === 'erro' ? 'problema' : 'info', icone: 'refresh-cw', titulo: `Sincronização pedida pelo painel (${st})`, detalhe: v.mensagem || '', por: null };
       }
       case 'auditoria': {
@@ -218,6 +218,13 @@ function e360Historico(d) {
         return v.status === 'aprovado'
           ? { em: x.em, tom: 'ok', icone: 'building-2', titulo: `Cadastro atualizado pelo arquivo fiscal (${n} campo${n === 1 ? '' : 's'})`, detalhe: '', por: x.por }
           : { em: x.em, tom: 'neutro', icone: 'building-2', titulo: 'Dados do arquivo fiscal recusados no cadastro', detalhe: '', por: x.por };
+      }
+      case 'edicao': {
+        const lista = v.campos || [];
+        const regime = lista.find((a) => a.campo === 'regime');
+        return { em: x.em, tom: regime ? 'atencao' : 'info', icone: 'building-2',
+          titulo: regime ? `Regime alterado: ${window.cdTextoAlteracao ? window.cdTextoAlteracao(regime).split(': ')[1] : ''}` : `Cadastro editado (${lista.length} campo${lista.length === 1 ? '' : 's'})`,
+          detalhe: lista.filter((a) => a !== regime).map((a) => (window.cdTextoAlteracao ? window.cdTextoAlteracao(a) : a.rotulo)).join(' · '), por: x.por };
       }
       case 'justificativa': {
         const n = Number(v.n);
@@ -431,8 +438,13 @@ if (typeof window !== 'undefined') {
         h('div', {}, h('strong', { text: 'Dados do arquivo fiscal para conferir' }),
           h('span', { class: 'meta', text: `O arquivo de ${textoCompetencia(String(d.sugestao.competencia).slice(0, 7))} traz dados diferentes do cadastro.` }),
           h('a', { class: 'botao pequeno', href: `#/sped?cadastro=${d.sugestao.id}` }, 'Conferir e aprovar'))) : null,
-      h('h2', { class: 'vg-card-titulo', text: 'Dados da empresa' }),
-      h('dl', { class: 'e360-dl' }, ...campo('CNPJ', formatarCnpj(e.cnpj)), ...campo('Nome fantasia', k.nome_fantasia), ...campo('IE', k.ie),
+      h('div', { class: 'e360-dados-topo' }, h('h2', { class: 'vg-card-titulo', text: 'Dados da empresa' }),
+        pode('certificados') ? h('button', { type: 'button', class: 'botao pequeno', onclick: () => window.cdAbrir(e, (c) => {
+          // O regime e a captação mudam abas e cálculos: atualiza a empresa aberta e recarrega
+          for (const x of [empresaNotas, ...(typeof empresas !== 'undefined' ? empresas.filter((y) => y.id === e.id) : [])]) if (x && x.id === e.id) Object.assign(x, { regime: c.regime, codigo_erp: c.codigo_erp });
+          window.e360Chave = null; recarregarAba();
+        }) }, 'Editar cadastro') : null),
+      h('dl', { class: 'e360-dl' }, ...campo('CNPJ', formatarCnpj(e.cnpj)), ...campo('Nome fantasia', k.nome_fantasia), ...campo('IE', k.ie), ...campo('IM', k.im),
         ...campo('Regime', e.regime ? REGIMES[e.regime] || e.regime : 'Não informado'),
         ...campo('UF', e.uf), ...campo('Município', municipio), ...campo('Código ERP', e.codigo_erp), ...campo('Situação', e.ativo ? 'Ativa' : 'Pausada')),
       h('h2', { class: 'vg-card-titulo', text: 'Endereço e contato' }),
@@ -446,8 +458,8 @@ if (typeof window !== 'undefined') {
       h('dl', { class: 'e360-dl' }, ...campo('Última consulta', ultConsulta ? e3Quando(ultConsulta) : null), ...campo('Próxima consulta', proxima ? e3Quando(proxima) : null),
         ...campo('Situação SEFAZ', porModelo), ...campo('Janela', 'Das 23h às 6h')),
       h('p', { class: 'meta', text: k.cadastro_atualizado_em
-        ? `Cadastro conferido pelo SPED ${e3Quando(k.cadastro_atualizado_em)}${k.cadastro_atualizado_por ? ` por ${k.cadastro_atualizado_por}` : ''}.`
-        : 'IE, município, endereço e contador entram quando o escritório aprovar os dados de um SPED ou SINTEGRA enviado.' }),
+        ? `Cadastro atualizado ${e3Quando(k.cadastro_atualizado_em)}${k.cadastro_atualizado_por ? ` por ${k.cadastro_atualizado_por}` : ''}.`
+        : 'Use "Editar cadastro" ou aprove os dados de um SPED ou SINTEGRA enviado para preencher IE, município, endereço e contador.' }),
     ].filter(Boolean));
   }
 
