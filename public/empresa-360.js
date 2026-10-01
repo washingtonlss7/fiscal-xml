@@ -373,7 +373,7 @@ if (typeof window !== 'undefined') {
     const at = e360Atencao(d, e3.st && !e3.st.erro ? e3.st : null);
     $('e360-atencao').replaceChildren(...(at.length ? at.map((a) => {
       const corpo = [h('span', { class: `vg-atencao-icone ${a.tom}` }, icone(a.icone)), h('span', { class: 'vg-atencao-texto', text: a.texto })];
-      const destino = a.aba ? () => { if (a.filtroSituacao) $('notas-situacao').value = a.filtroSituacao; if (a.spedAba) e3.spedAba = a.spedAba; trocarAba(a.aba); }
+      const destino = a.aba ? () => { if (a.filtroSituacao) window.bxEmpresaSituacao(a.filtroSituacao); if (a.spedAba) e3.spedAba = a.spedAba; trocarAba(a.aba); }
         : a.acao === 'certificado' && pode('certificados') ? () => abrirGaveta(empresaNotas)
           : a.acao === 'cadastro' ? () => irPara(`#/sped?cadastro=${d.sugestao.id}`) : null;
       return h('li', {}, destino

@@ -32,6 +32,8 @@ export function permissaoDaRota(metodo: string, rota: string): Permissao | null 
   // Uso do MCP de todos os usuários: só a administração
   if (rota === '/api/mcp/uso') return 'usuarios';
   if (metodo === 'GET' || metodo === 'HEAD') return null;
+  // Download de XML e planilha da busca: leitura (o perfil Consulta também baixa), mesmo sendo POST
+  if (rota === '/api/xml/zip' || rota === '/api/xml/excel') return null;
   // Conexões de IA: cada usuário gerencia só as próprias (o MCP respeita o perfil a cada chamada)
   if (rota === '/api/mcp/tokens' || rota.startsWith('/api/mcp/conexoes/')) return null;
   if (rota === '/api/empresas' || /^\/api\/empresas\/[^/]+\/ativo$/.test(rota)) return 'certificados';

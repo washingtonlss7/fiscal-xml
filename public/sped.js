@@ -48,7 +48,7 @@ if (typeof window !== 'undefined') {
   function spMostrar(consulta) {
     const q = new URLSearchParams(consulta || '');
     sp.foco = q.get('cadastro') ? Number(q.get('cadastro')) : null;
-    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-guias', 'tela-escritorio', 'tela-ia']) $(id).hidden = true;
+    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-guias', 'tela-escritorio', 'tela-ia', 'tela-xml']) $(id).hidden = true;
     $('tela-sped').hidden = false;
     $('sp-enviar').hidden = !pode('operar');
     $('sp-sem-permissao').hidden = pode('operar');

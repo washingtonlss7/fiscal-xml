@@ -48,7 +48,7 @@ if (typeof window !== 'undefined') {
   var ia = { dados: null, erro: null, novoToken: null, confirmar: null, uso: null, usoErro: null, usoDias: 7 };
 
   function iaMostrar() {
-    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias', 'tela-escritorio']) $(id).hidden = true;
+    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias', 'tela-escritorio', 'tela-xml']) $(id).hidden = true;
     $('tela-ia').hidden = false;
     window.scrollTo(0, 0);
     ia.novoToken = null; ia.confirmar = null;

@@ -10,7 +10,8 @@ import { log } from '../log';
 import { Zip } from './zip';
 import { registrarStatus } from '../status';
 import { abrirEnvio, importarXmls } from '../importacao/importar';
-import { escreverXlsx } from './xlsx';
+import { Aba, Coluna, escreverXlsx } from './xlsx';
+import { buscar as buscarXml, caminhoNoZip, ErroBusca, FiltroBusca, lerFiltro as lerFiltroBusca, listaChaves, MAX_ZIP, NotaBusca, notasParaExcel, notasParaZip, registrarDownload, UF_DA_CHAVE } from './buscaXml';
 import { abasST, lerRegrasST, relatorioST } from '../fiscal/relatorioST';
 import { lerTabelaCsv, tabelaParaCsv } from '../fiscal/st';
 import { Armazenamento, configArmazenamento } from '../armazenamento';
@@ -65,6 +66,7 @@ const ARQUIVOS: Record<string, [string, string]> = {
   '/empresa-360.js': ['empresa-360.js', 'text/javascript; charset=utf-8'],
   '/sped.js': ['sped.js', 'text/javascript; charset=utf-8'],
   '/documentos.js': ['documentos.js', 'text/javascript; charset=utf-8'],
+  '/busca-xml.js': ['busca-xml.js', 'text/javascript; charset=utf-8'],
   '/guias.js': ['guias.js', 'text/javascript; charset=utf-8'],
   '/apuracao.js': ['apuracao.js', 'text/javascript; charset=utf-8'],
   '/sped-gerar.js': ['sped-gerar.js', 'text/javascript; charset=utf-8'],
@@ -725,12 +727,35 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
     return responder(res, 200, data);
   }
 
+  // Busca de XML (escritório inteiro ou uma empresa): lista paginada, ZIP (até 5.000) e Excel
+  if (metodo === 'GET' && rota === '/api/xml/busca') {
+    const q = Object.fromEntries(url.searchParams.entries());
+    return responder(res, 200, await buscarXml(db, lerFiltroBusca(q), Number(q.pagina) || 1));
+  }
+  if (metodo === 'POST' && (rota === '/api/xml/zip' || rota === '/api/xml/excel')) {
+    const c = await lerCorpo(req, 400_000);
+    const f = lerFiltroBusca(c.filtros && typeof c.filtros === 'object' ? c.filtros : {});
+    const chaves = Array.isArray(c.chaves) && c.chaves.length ? listaChaves(c.chaves.map(String).join(' ')) : undefined;
+    const registroFiltros = { ...f, termo: f.termo.slice(0, 500), selecionadas: chaves ? chaves.length : undefined };
+    if (rota === '/api/xml/excel') {
+      const notasX = await notasParaExcel(db, f, chaves);
+      if (!notasX.length) throw new ErroHttp(404, 'Nenhuma nota com esses filtros.');
+      const erroReg = await registrarDownload(db, { email, tipo: 'excel', empresaId: f.empresa, filtros: registroFiltros, quantidade: notasX.length });
+      if (erroReg) log.warn('download sem registro', { erro: erroReg });
+      log.info('busca de XML exportada', { quantidade: notasX.length, empresa: f.empresa, por: email });
+      res.writeHead(200, { ...CABECALHOS_SEGURANCA, 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': `attachment; filename="notas_${f.de}_${f.ate}.xlsx"`, 'Cache-Control': 'no-store' });
+      await escreverXlsx(new Zip(res), [abaBuscaXml(notasX, f, !f.empresa)]);
+      return void res.end();
+    }
+    return baixarZipBusca(res, f, chaves, email, registroFiltros);
+  }
+
   const notas = rota.match(/^\/api\/empresas\/([0-9a-f-]{36})\/(notas|xml|zip)$/);
   if (metodo === 'GET' && notas) {
     const [, id, tipo] = notas;
-    if (tipo === 'xml') return baixarXml(res, id, url.searchParams.get('chave') ?? '');
+    if (tipo === 'xml') return baixarXml(res, id, url.searchParams.get('chave') ?? '', email);
     const filtro = filtroNotas(url);
-    if (tipo === 'zip') return baixarZip(res, id, filtro);
+    if (tipo === 'zip') return baixarZip(res, id, filtro, email);
     return listarNotas(res, id, filtro);
   }
 
@@ -863,7 +888,7 @@ const opcoesMcp: OpcoesMcpHttp = {
   ip: ipDe,
 };
 
-async function baixarXml(res: http.ServerResponse, id: string, chave: string) {
+async function baixarXml(res: http.ServerResponse, id: string, chave: string, email: string) {
   if (!/^\d{44}$/.test(chave)) throw new ErroHttp(400, 'Chave inválida.');
   const doc = ok(
     await db.from('documentos').select('xml_path,xml_resumo_path').eq('empresa_id', id).eq('chave', chave).maybeSingle(),
@@ -872,6 +897,8 @@ async function baixarXml(res: http.ServerResponse, id: string, chave: string) {
   const caminho = doc?.xml_path ?? doc?.xml_resumo_path;
   if (!caminho) throw new ErroHttp(404, 'XML não encontrado.');
   const xml = await lerXmlStorage(caminho);
+  const erroReg = await registrarDownload(db, { email, tipo: 'xml', empresaId: id, filtros: { chave }, quantidade: 1 });
+  if (erroReg) log.warn('download sem registro', { erro: erroReg });
   res.writeHead(200, {
     ...CABECALHOS_SEGURANCA,
     'Content-Type': 'application/xml; charset=utf-8',
@@ -881,7 +908,7 @@ async function baixarXml(res: http.ServerResponse, id: string, chave: string) {
   res.end(xml);
 }
 
-async function baixarZip(res: http.ServerResponse, id: string, f: FiltroNotas) {
+async function baixarZip(res: http.ServerResponse, id: string, f: FiltroNotas, email: string) {
   const empresa = ok(await db.from('empresas').select('cnpj').eq('id', id).maybeSingle(), 'buscar empresa') as { cnpj: string } | null;
   if (!empresa) throw new ErroHttp(404, 'Empresa não encontrada.');
   const docs = await buscarTodos<any>(
@@ -889,7 +916,9 @@ async function baixarZip(res: http.ServerResponse, id: string, f: FiltroNotas) {
     'listar XMLs',
   );
   if (!docs.length) throw new ErroHttp(404, 'Nenhum XML completo nesse período.');
-  if (docs.length > 20000) throw new ErroHttp(413, 'Período com XMLs demais. Filtre por modelo ou direção.');
+  if (docs.length > MAX_ZIP) throw new ErroHttp(413, `O mês tem ${docs.length.toLocaleString('pt-BR')} XMLs: o ZIP tem limite de ${MAX_ZIP.toLocaleString('pt-BR')}. Use a busca de notas com filtros (modelo, direção ou período menor).`);
+  const erroReg = await registrarDownload(db, { email, tipo: 'zip', empresaId: id, filtros: { mes: f.mes, modelo: f.modelo, direcao: f.direcao }, quantidade: docs.length });
+  if (erroReg) log.warn('download sem registro', { erro: erroReg });
 
   res.writeHead(200, {
     ...CABECALHOS_SEGURANCA,
@@ -913,6 +942,55 @@ async function baixarZip(res: http.ServerResponse, id: string, f: FiltroNotas) {
   }
   await zip.finalizar();
   res.end();
+}
+
+/** ZIP da busca de XML: as chaves marcadas ou tudo o que o filtro achar (até 5.000). No escritório inteiro, uma pasta por empresa. */
+async function baixarZipBusca(res: http.ServerResponse, f: FiltroBusca, chaves: string[] | undefined, email: string, registroFiltros: unknown) {
+  const { notas: lista } = await notasParaZip(db, f, chaves);
+  const comXml = lista.filter((n) => n.xml_path);
+  if (!comXml.length) throw new ErroHttp(404, lista.length ? 'As notas encontradas só têm o resumo (sem XML completo).' : 'Nenhuma nota com esses filtros.');
+  const porEmpresa = new Set(comXml.map((n) => n.empresa_id)).size > 1 || !f.empresa;
+  const erroReg = await registrarDownload(db, { email, tipo: 'zip', empresaId: f.empresa, filtros: registroFiltros, quantidade: comXml.length });
+  if (erroReg) log.warn('download sem registro', { erro: erroReg });
+  log.info('ZIP da busca de XML', { quantidade: comXml.length, soResumo: lista.length - comXml.length, empresa: f.empresa, por: email });
+  const nome = chaves ? `xmls_selecionados_${comXml.length}.zip` : `${f.empresa ? comXml[0].empresa_cnpj : 'escritorio'}_${f.de}_${f.ate}.zip`;
+  res.writeHead(200, { ...CABECALHOS_SEGURANCA, 'Content-Type': 'application/zip', 'Content-Disposition': `attachment; filename="${nome}"`, 'Cache-Control': 'no-store' });
+  const zip = new Zip(res);
+  for (let i = 0; i < comXml.length; i += 8) {
+    const bloco = comXml.slice(i, i + 8);
+    const conteudos = await Promise.all(bloco.map((d) => lerXmlStorage(d.xml_path!).catch(() => null)));
+    for (let j = 0; j < bloco.length; j++) if (conteudos[j]) await zip.adicionar(caminhoNoZip(bloco[j], porEmpresa), conteudos[j]!);
+  }
+  if (lista.length > comXml.length) {
+    const falta = lista.filter((n) => !n.xml_path).map((n) => `${n.chave};${n.numero ?? ''};${n.empresa_cnpj}`).join('\r\n');
+    await zip.adicionar('SEM-XML-COMPLETO.txt', Buffer.from(`Notas só com resumo (o XML completo ainda não chegou):\r\nchave;numero;empresa\r\n${falta}\r\n`, 'utf8'));
+  }
+  await zip.finalizar();
+  res.end();
+}
+
+/** Planilha da busca de XML. */
+function abaBuscaXml(lista: NotaBusca[], f: FiltroBusca, comEmpresa: boolean): Aba {
+  const doc = (d: string | null) => (d && d.length === 14 ? d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : d && d.length === 11 ? d.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4') : d ?? '');
+  const tipo: Record<string, string> = { '55': 'NF-e', '57': 'CT-e', '65': 'NFC-e' };
+  const colunas: Coluna[] = [
+    ...(comEmpresa ? [{ titulo: 'Empresa', tipo: 'texto' as const, largura: 34 }, { titulo: 'CNPJ da empresa', tipo: 'texto' as const, largura: 20 }] : []),
+    { titulo: 'Emissão', tipo: 'data', largura: 12 }, { titulo: 'Tipo', tipo: 'texto', largura: 8 }, { titulo: 'Direção', tipo: 'texto', largura: 9 },
+    { titulo: 'Série', tipo: 'texto', largura: 7 }, { titulo: 'Número', tipo: 'texto', largura: 11 }, { titulo: 'Chave', tipo: 'texto', largura: 48 },
+    { titulo: 'CNPJ emitente', tipo: 'texto', largura: 20 }, { titulo: 'Emitente', tipo: 'texto', largura: 34 }, { titulo: 'UF', tipo: 'texto', largura: 5 },
+    { titulo: 'Destinatário (CNPJ/CPF)', tipo: 'texto', largura: 20 }, { titulo: 'Destinatário', tipo: 'texto', largura: 30 }, { titulo: 'CFOP', tipo: 'texto', largura: 7 },
+    { titulo: 'Valor', tipo: 'moeda', largura: 14, total: true }, { titulo: 'ICMS', tipo: 'moeda', largura: 12, total: true }, { titulo: 'ICMS-ST', tipo: 'moeda', largura: 12, total: true },
+    { titulo: 'Situação', tipo: 'texto', largura: 11 }, { titulo: 'XML', tipo: 'texto', largura: 10 },
+  ];
+  const linhas = lista.map((n) => [
+    ...(comEmpresa ? [n.empresa_nome, doc(n.empresa_cnpj)] : []),
+    new Date(n.emitida_em).toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }), tipo[n.modelo] ?? n.modelo, n.direcao === 'entrada' ? 'Entrada' : 'Saída',
+    n.serie ?? '', n.numero ?? '', n.chave, doc(n.emit_cnpj), n.emit_nome ?? '', UF_DA_CHAVE[n.chave.slice(0, 2)] ?? '', doc(n.dest_doc), n.dest_nome ?? '', n.cfop ?? '',
+    n.valor != null ? Number(n.valor) : null, n.v_icms != null ? Number(n.v_icms) : null, n.v_st != null ? Number(n.v_st) : null,
+    n.situacao === 'cancelada' ? 'Cancelada' : 'Autorizada', n.tem_xml ? 'Completo' : 'Só resumo',
+  ]);
+  const per = `${f.de.split('-').reverse().join('/')} a ${f.ate.split('-').reverse().join('/')}`;
+  return { nome: 'Notas', cabecalho: [`Notas fiscais · ${per}`, comEmpresa ? 'Todas as empresas do escritório' : `${lista[0]?.empresa_nome ?? ''} (${doc(lista[0]?.empresa_cnpj ?? '')})`], colunas, linhas };
 }
 
 /**
@@ -1025,7 +1103,7 @@ const servidor = http.createServer(async (req, res) => {
     if (e instanceof ErroIntegra) return responder(res, e.status, { erro: e.message, ...(e.codigo ? { codigo: e.codigo } : {}) });
     if (e instanceof ErroAcessorias) return responder(res, e.status, { erro: e.message });
     if (e instanceof ErroOAuth) return responder(res, e.status, { erro: e.message });
-    if (e instanceof ErroHttp || e instanceof ErroUsuario || e instanceof ErroSped || e instanceof ErroApontamento || e instanceof ErroApuracao || e instanceof ErroGerarSped || e instanceof ErroDocumento) return responder(res, e.status, { erro: e.message });
+    if (e instanceof ErroHttp || e instanceof ErroUsuario || e instanceof ErroSped || e instanceof ErroApontamento || e instanceof ErroApuracao || e instanceof ErroGerarSped || e instanceof ErroDocumento || e instanceof ErroBusca) return responder(res, e.status, { erro: e.message });
     log.error('erro no painel', { rota: url.pathname, erro: (e as Error).message });
     responder(res, 500, { erro: 'Erro inesperado no servidor. Tente de novo.' });
   }

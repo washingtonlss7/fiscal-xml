@@ -446,7 +446,7 @@ const NAV = [
   { id: 'captacao', rotulo: 'Captação', icone: 'cloud-download', filhos: [
     { rotulo: 'Monitor' }, { rotulo: 'Lacunas / NSU' }, { rotulo: 'Importações' }, { rotulo: 'Histórico' },
   ] },
-  { id: 'notas', rotulo: 'Notas Fiscais', icone: 'file-text' },
+  { id: 'notas', rotulo: 'Notas Fiscais', icone: 'file-text', rota: '#/notas' },
   { id: 'auditoria', rotulo: 'Auditoria', icone: 'shield-check' },
   { id: 'icms-st', rotulo: 'ICMS-ST', icone: 'calculator' },
   { id: 'sped', rotulo: 'SPED e cadastro', icone: 'file-spreadsheet', rota: '#/sped' },
@@ -589,7 +589,6 @@ function definirCompetencia(v, recarregar = true) {
 
 /* Busca global: filtra a lista de empresas */
 let timerBuscaGlobal;
-let timerBuscaNotas;
 function buscarGlobal(imediato) {
   clearTimeout(timerBuscaGlobal);
   const aplicar = () => {
@@ -649,7 +648,7 @@ async function aplicarRota() {
     return;
   }
   const esconderTudo = (menos) => {
-    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias', 'tela-escritorio', 'tela-ia']) if (id !== menos) $(id).hidden = true;
+    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias', 'tela-escritorio', 'tela-ia', 'tela-xml']) if (id !== menos) $(id).hidden = true;
   };
   if (rota.tela !== 'empresa') { empresaNotas = null; fecharGavetaUsuario(); }
   if (rota.tela === 'fechamento') {
@@ -667,6 +666,9 @@ async function aplicarRota() {
   } else if (rota.tela === 'ia') {
     esconderTudo('tela-ia');
     window.iaMostrar();
+  } else if (rota.tela === 'xml') {
+    esconderTudo('tela-xml');
+    window.bxMostrar(rota.consulta);
   } else if (rota.tela === 'visao') {
     esconderTudo('tela-visao');
     window.vgMostrar();
@@ -1092,8 +1094,6 @@ function mesAtual() {
 
 function filtroQuery() {
   const p = new URLSearchParams({ mes: $('notas-mes').value || mesAtual() });
-  if ($('notas-modelo').value) p.set('modelo', $('notas-modelo').value);
-  if ($('notas-direcao').value) p.set('direcao', $('notas-direcao').value);
   return p.toString();
 }
 
@@ -1106,9 +1106,7 @@ function abrirNotas(e, aba = 'visao') {
   $('notas-titulo').textContent = e.razao_social;
   $('notas-sub').textContent = `CNPJ ${formatarCnpj(e.cnpj)}`;
   $('importacao').hidden = true;
-  $('notas-busca').value = '';
-  $('notas-situacao').value = '';
-  notasDados = null;
+  window.bxEmpresaResetar();
   audDados = null;
   window.e360Chave = null;
   window.e360Resetar(e);
@@ -1143,103 +1141,10 @@ function situacaoNota(n) {
   return h('span', { class: 'selo ok' }, 'Autorizada');
 }
 
-let notasDados = null;
 
 async function carregarNotas() {
   if (!empresaNotas) return;
-  const id = empresaNotas.id;
-  const lista = $('notas-lista');
-  const vazio = $('notas-vazio');
-  lista.replaceChildren();
-  $('notas-resumo').replaceChildren(...Array.from({ length: 4 }, () => h('div', { class: 'numero-cartao' }, h('div', { class: 'vg-skel', 'aria-hidden': 'true' }))));
-  vazio.textContent = 'Carregando notas…';
-  vazio.hidden = false;
-  try {
-    const r = await chamar(`/api/empresas/${id}/notas?${filtroQuery()}`);
-    if (!empresaNotas || empresaNotas.id !== id) return;
-    notasDados = r;
-    renderNotas();
-  } catch (e) {
-    $('notas-resumo').replaceChildren();
-    vazio.textContent = e.message;
-  }
-}
-
-function filtrarNotasTela(notas) {
-  const t = $('notas-busca').value.trim().toLowerCase();
-  const td = t.replace(/\D/g, '');
-  const sit = $('notas-situacao').value;
-  return notas.filter((n) =>
-    (!sit || (sit === 'resumo' ? !n.completo : n.situacao === sit)) &&
-    (!t || String(n.numero || '').includes(t) || (td && ((n.chave || '').includes(td) || (n.emit_cnpj || '').includes(td) || (n.dest_doc || '').includes(td))) ||
-      (n.emit_nome || '').toLowerCase().includes(t) || (n.dest_nome || '').toLowerCase().includes(t)));
-}
-
-function renderNotas() {
-  const r = notasDados;
-  if (!r) return;
-  const lista = $('notas-lista');
-  const vazio = $('notas-vazio');
-  const s = r.resumo;
-  $('notas-resumo').replaceChildren(
-    cartao('Notas', String(s.quantidade), [s.canceladas ? `${s.canceladas} canceladas` : '', s.soResumo ? `${s.soResumo} só resumo` : ''].filter(Boolean).join(' · ')),
-    cartao('Entradas', moeda(s.entradas)),
-    cartao('Saídas', moeda(s.saidas)),
-    cartao('ICMS', moeda(s.icms)),
-    cartao('ICMS-ST', moeda(s.st)),
-    cartao('IPI', moeda(s.ipi)),
-    cartao('PIS + COFINS', moeda(s.pis + s.cofins)),
-    cartao('IBS + CBS', moeda(s.ibs + s.cbs)),
-  );
-  const notas = filtrarNotasTela(r.notas);
-  if (!notas.length) {
-    lista.replaceChildren();
-    vazio.textContent = r.notas.length ? 'Nenhuma nota com essa busca ou situação.' : 'Nenhuma nota nesta competência com esses filtros.';
-    vazio.hidden = false;
-    return;
-  }
-  vazio.hidden = true;
-  const outraParte = (n) => (n.direcao === 'entrada'
-    ? [n.emit_nome || '—', n.emit_cnpj ? formatarCnpj(n.emit_cnpj) : '']
-    : [n.dest_nome || '—', n.dest_doc ? formatarCnpj(n.dest_doc) : '']);
-  const linhas = notas.map((n) => {
-    const op = outraParte(n);
-    return h('tr', { class: n.situacao === 'cancelada' ? 'cancelada' : '' },
-      h('td', {}, dataCurta(n.emitida_em), h('span', { class: 'sub', text: new Date(n.emitida_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) })),
-      h('td', {}, `${TIPO_DOC[n.modelo] || n.modelo} ${n.numero || ''}`, h('span', { class: 'sub', text: `${n.direcao === 'entrada' ? 'Entrada' : 'Saída'}${n.serie ? ' · série ' + n.serie : ''}${n.recebido_via === 'autxml' ? ' · via escritório' : ''}` })),
-      h('td', {}, op[0], h('span', { class: 'sub mono', text: op[1] })),
-      h('td', {}, h('span', { class: 'mono', text: n.cfop || '—' })),
-      h('td', { class: 'num' }, h('span', { class: 'valor-nota', text: moeda(n.valor) })),
-      h('td', { class: 'num' }, moeda(n.v_icms), h('span', { class: 'sub', text: Number(n.v_st) ? `ST ${moeda(n.v_st)}` : '' })),
-      h('td', {}, situacaoNota(n)),
-      h('td', {}, h('button', { type: 'button', class: 'botao fantasma pequeno', onclick: () => baixarXml(n) }, 'XML')),
-    );
-  });
-  // Celular: lista compacta em vez de tabela larga
-  const cartoesNotas = h('ul', { class: 'notas-cartoes' }, ...notas.slice(0, 300).map((n) => {
-    const op = outraParte(n);
-    return h('li', { class: `nota-cartao${n.situacao === 'cancelada' ? ' cancelada' : ''}` },
-      h('div', { class: 'nota-cartao-topo' },
-        h('strong', { text: `${TIPO_DOC[n.modelo] || n.modelo} ${n.numero || ''}` }),
-        h('span', { class: 'valor-nota', text: moeda(n.valor) })),
-      h('span', { class: 'nota-cartao-parte', text: op[0] }),
-      h('div', { class: 'nota-cartao-rodape' },
-        h('span', { class: 'meta', text: `${dataCurta(n.emitida_em)} · ${n.direcao === 'entrada' ? 'Entrada' : 'Saída'}${n.cfop ? ' · CFOP ' + n.cfop : ''}` }),
-        situacaoNota(n),
-        h('button', { type: 'button', class: 'botao fantasma pequeno', onclick: () => baixarXml(n) }, 'XML')));
-  }));
-  const filtrou = notas.length !== r.notas.length;
-  lista.replaceChildren(
-    h('table', { class: 'notas' },
-      h('thead', {}, h('tr', {},
-        h('th', { text: 'Emissão' }), h('th', { text: 'Documento' }), h('th', { text: 'Emitente / destinatário' }),
-        h('th', { text: 'CFOP' }), h('th', { class: 'num', text: 'Valor' }), h('th', { class: 'num', text: 'ICMS' }),
-        h('th', { text: 'Situação' }), h('th', { text: '' }))),
-      h('tbody', {}, ...linhas)),
-    cartoesNotas,
-    ...(filtrou ? [h('div', { class: 'aviso-tabela', text: `${notas.length} de ${r.notas.length} notas com essa busca/situação.` })] : []),
-    ...(r.total > r.notas.length ? [h('div', { class: 'aviso-tabela', text: `Mostrando ${r.notas.length} de ${r.total} notas. O ZIP inclui todas.` })] : []),
-  );
+  window.bxEmpresaCarregar(empresaNotas, mesSelecionado());
 }
 
 async function baixarArquivo(caminho, nomePadrao) {
@@ -1684,10 +1589,6 @@ function ligarEventos() {
   $('notas-importar-arquivos').addEventListener('change', (e) => importarArquivos(e.target.files));
   $('notas-mes').addEventListener('change', (e) => { definirCompetencia(e.target.value, false); recarregarAba(); });
   for (const id of ABAS_EMPRESA) $(`aba-${id}`).addEventListener('click', () => trocarAba(id));
-  $('notas-busca').addEventListener('input', () => { clearTimeout(timerBuscaNotas); timerBuscaNotas = setTimeout(renderNotas, 200); });
-  $('notas-situacao').addEventListener('change', renderNotas);
-  $('notas-modelo').addEventListener('change', carregarNotas);
-  $('notas-direcao').addEventListener('change', carregarNotas);
   $('aud-refazer').addEventListener('click', refazerAuditoria);
   $('st-planilha').addEventListener('click', baixarPlanilhaST);
   $('st-ajustada').addEventListener('change', carregarST);

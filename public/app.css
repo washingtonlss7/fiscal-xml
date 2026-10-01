@@ -1509,3 +1509,46 @@ body.com-dialogo { overflow: hidden; }
 .ae-lista > li > .selo { min-width: 112px; justify-content: center; }
 .ae-lista a, .ae-detalhes a { color: var(--tinta); font-weight: 600; text-decoration: none; }
 .ae-lista a:hover, .ae-detalhes a:hover { text-decoration: underline; }
+
+/* ---------- Busca de XML (busca-xml.js): escritório e aba Notas Fiscais ---------- */
+.bx-filtros { display: flex; flex-direction: column; gap: var(--esp-3); padding: var(--esp-4); border: 1px solid var(--linha); border-radius: var(--raio); background: var(--superficie); }
+.bx-linha { display: flex; flex-wrap: wrap; gap: var(--esp-3); align-items: flex-end; }
+.bx-linha .fc-campo { min-width: 140px; }
+.bx-empresa-campo { flex: 1 1 280px; max-width: 420px; }
+.bx-empresa-campo .vg-select { width: 100%; }
+.bx-datas { display: flex; align-items: center; gap: var(--esp-2); }
+.bx-datas input { min-height: 38px; padding: 0 var(--esp-2); border: 1px solid var(--linha); border-radius: var(--raio-m); background: var(--superficie); color: var(--tinta); font: inherit; font-size: var(--t-m); }
+.bx-busca { align-items: flex-end; }
+.bx-por { display: flex; gap: var(--esp-2); align-items: flex-end; flex: 1 1 420px; min-width: 0; }
+.bx-por .fc-campo { min-width: 120px; flex: none; }
+.bx-termo { flex: 1; min-width: 0; display: flex; }
+.bx-termo input, .bx-termo textarea { width: 100%; min-height: 38px; padding: 8px var(--esp-3); border: 1px solid var(--linha); border-radius: var(--raio-m); background: var(--superficie); color: var(--tinta); font: inherit; font-size: var(--t-m); resize: vertical; }
+.bx-termo textarea { font-family: var(--mono); font-size: var(--t-xs); }
+.bx-datas input:focus-visible, .bx-termo input:focus-visible, .bx-termo textarea:focus-visible { outline: none; border-color: var(--primaria); box-shadow: var(--anel-foco); }
+.bx-acoes-filtro { display: flex; gap: var(--esp-2); }
+.bx-barra { display: flex; justify-content: space-between; align-items: center; gap: var(--esp-3); flex-wrap: wrap; }
+.bx-marcadas { font-size: var(--t-s); color: var(--tinta-2); }
+.bx-tabela table.notas { min-width: 980px; }
+.bx-caixa { width: 36px; }
+.bx-caixa input, .bx-cartao-marca input { width: 18px; height: 18px; accent-color: var(--primaria); cursor: pointer; }
+table.notas tr.bx-marcada td { background: var(--info-fundo); }
+.bx-chave { word-break: break-all; display: inline-block; max-width: 300px; color: var(--tinta-2); }
+.bx-empresa { color: var(--tinta); font-weight: 600; text-decoration: none; }
+.bx-empresa:hover { text-decoration: underline; }
+.bx-cartao-marca { display: flex; align-items: center; gap: var(--esp-2); }
+.bx-paginacao { display: flex; gap: var(--esp-1); align-items: center; flex-wrap: wrap; }
+@media (max-width: 760px) {
+  .bx-filtros { padding: var(--esp-3); }
+  .bx-linha .fc-campo, .bx-empresa-campo { flex: 1 1 calc(50% - 6px); min-width: 0; max-width: none; }
+  .bx-linha .fc-campo .vg-select { width: 100%; }
+  .bx-empresa-campo, .bx-periodo { flex-basis: 100% !important; }
+  .bx-datas input { flex: 1; min-width: 0; min-height: 44px; }
+  .bx-por { flex-basis: 100%; flex-wrap: wrap; }
+  .bx-por .fc-campo { flex: 1 1 100%; }
+  .bx-acoes-filtro { width: 100%; }
+  .bx-acoes-filtro .botao { flex: 1; }
+  .bx-tabela table.notas { display: none; }
+  .bx-tabela.rolagem { overflow: visible; border: 0; background: transparent; }
+  .bx-cartoes { display: flex; flex-direction: column; gap: var(--esp-2); }
+  .bx-barra .gu-botoes .botao { flex: 1 1 100%; }
+}

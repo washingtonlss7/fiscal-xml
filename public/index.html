@@ -285,6 +285,16 @@
       </section>
      </section>
 
+     <section id="tela-xml" class="pilha" hidden>
+      <div class="cabecalho-pagina">
+        <div>
+          <h1>Notas Fiscais</h1>
+          <p class="subtitulo">Busque XMLs de todas as empresas do escritório ou de um cliente: período de até 12 meses, filtros, seleção de chaves, ZIP de até 5.000 XMLs e planilha.</p>
+        </div>
+      </div>
+      <div id="bx-escritorio" class="pilha" aria-live="polite"></div>
+     </section>
+
      <section id="tela-ia" class="pilha ia" hidden>
       <div class="cabecalho-pagina">
         <div>
@@ -420,26 +430,7 @@
       </div>
 
       <div id="painel-notas" class="pilha" role="tabpanel" aria-labelledby="aba-notas" hidden>
-        <div class="filtros e360-filtros">
-          <label class="vg-busca">
-            <span class="visualmente-oculto">Buscar nota</span>
-            <svg class="icone-svg" aria-hidden="true"><use href="/icones.svg#i-search"></use></svg>
-            <input id="notas-busca" type="search" placeholder="Número, chave, CNPJ ou nome" autocomplete="off">
-          </label>
-          <label class="fc-campo"><span>Direção</span>
-            <select id="notas-direcao" class="vg-select"><option value="">Entradas e saídas</option><option value="entrada">Entradas</option><option value="saida">Saídas</option></select>
-          </label>
-          <label class="fc-campo"><span>Documento</span>
-            <select id="notas-modelo" class="vg-select"><option value="">Todos</option><option value="55">NF-e</option><option value="65">NFC-e</option><option value="57">CT-e</option></select>
-          </label>
-          <label class="fc-campo"><span>Situação</span>
-            <select id="notas-situacao" class="vg-select"><option value="">Todas</option><option value="autorizada">Autorizadas</option><option value="cancelada">Canceladas</option><option value="resumo">Só resumo</option></select>
-          </label>
-          <span class="meta e360-periodo">Período: competência selecionada no topo</span>
-        </div>
-        <div id="notas-resumo" class="numeros"></div>
-        <div id="notas-lista" class="rolagem"></div>
-        <p id="notas-vazio" class="vazio" hidden></p>
+        <div id="bx-empresa" class="pilha" aria-live="polite"></div>
       </div>
 
       <div id="painel-auditoria" class="pilha" role="tabpanel" aria-labelledby="aba-auditoria" hidden>
@@ -706,6 +697,7 @@
   <script src="/apuracao.js?v=__VERSAO__"></script>
   <script src="/sped-gerar.js?v=__VERSAO__"></script>
   <script src="/documentos.js?v=__VERSAO__"></script>
+  <script src="/busca-xml.js?v=__VERSAO__"></script>
   <script src="/ia.js?v=__VERSAO__"></script>
 </body>
 </html>
