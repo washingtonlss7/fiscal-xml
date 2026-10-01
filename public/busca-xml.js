@@ -78,9 +78,11 @@ if (typeof window !== 'undefined') {
       const seq = ++st.seq;
       try {
         const q = new URLSearchParams({ ...bxParametros(st.f), pagina: String(pagina) });
-        const d = await chamar(`/api/xml/busca?${q}`);
+        // Na empresa: as vendas cuja nota a SEFAZ rejeitou (e que não têm nota boa no mesmo número), no mesmo período
+        const [d, rej] = await Promise.all([chamar(`/api/xml/busca?${q}`),
+          empresaFixa && pagina === 1 ? chamar(`/api/empresas/${empresaFixa.id}/rejeitadas?de=${st.f.de}&ate=${st.f.ate}`).catch(() => null) : Promise.resolve(st.rejeitadas)]);
         if (seq !== st.seq) return;
-        st.dados = d;
+        st.dados = d; st.rejeitadas = rej;
       } catch (e) {
         if (seq !== st.seq) return;
         st.erro = e.message; st.dados = null;
@@ -152,6 +154,7 @@ if (typeof window !== 'undefined') {
       const partes = [filtros()];
       if (st.erro) partes.push(h('div', { class: 'vg-erro', role: 'alert' }, h('strong', { text: 'Não foi possível buscar.' }), h('span', { text: st.erro })));
       if (!d && st.carregando) partes.push(h('div', { class: 'vg-card' }, h('div', { class: 'vg-skel', 'aria-hidden': 'true' }), h('div', { class: 'vg-skel', 'aria-hidden': 'true' })));
+      if (empresaFixa && st.rejeitadas && st.rejeitadas.total) partes.push(cartaoRejeitadas(st.rejeitadas));
       if (d) {
         const s = d.resumo || {};
         partes.push(h('div', { class: 'numeros' },
@@ -169,6 +172,24 @@ if (typeof window !== 'undefined') {
         partes.push(tabela(d));
       }
       alvo.replaceChildren(...partes);
+    }
+
+    /** Aviso das vendas sem nota autorizada, com motivos e a lista para baixar. */
+    function cartaoRejeitadas(r) {
+      const dia = (iso) => (iso ? new Date(iso).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '');
+      const baixar = () => {
+        const linhas = r.vendas.map((v) => [TIPO_DOC[v.modelo] || v.modelo, v.serie || '', v.numero || '', dia(v.emitida_em), v.valor != null ? String(v.valor).replace('.', ',') : '', v.cstat, (v.motivo || '').replace(/;/g, ','), v.tentativas, v.chaves.join(' ')].join(';'));
+        const csv = ['documento;serie;numero;emissao;valor;cstat;motivo;tentativas;chaves', ...linhas].join('\r\n');
+        const url = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' }));
+        const a = h('a', { href: url, download: `vendas-sem-nota-${st.f.de}_${st.f.ate}.csv` }); document.body.append(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+      };
+      return h('section', { class: 'vg-card bx-rejeitadas', role: 'alert' },
+        h('div', { class: 'vg-card-topo' }, h('div', {},
+          h('h2', { class: 'vg-card-titulo', text: `${r.total.toLocaleString('pt-BR')} venda${r.total === 1 ? '' : 's'} sem nota autorizada` }),
+          h('p', { class: 'meta', text: `O sistema de venda gerou XMLs que a SEFAZ rejeitou, e não há nota autorizada com o mesmo número no Appura. Somam ${moeda(r.valor)}. O cliente precisa corrigir e reemitir, ou inutilizar a numeração.` })),
+          h('button', { type: 'button', class: 'botao pequeno', onclick: baixar }, icone('cloud-download'), h('span', { text: 'Baixar a lista' }))),
+        h('ul', { class: 'bx-motivos' }, ...r.porMotivo.slice(0, 5).map((m) => h('li', {}, h('strong', { text: `${m.quantidade.toLocaleString('pt-BR')}× ` }), m.motivo))));
     }
 
     function tabela(d) {

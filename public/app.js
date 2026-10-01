@@ -1203,7 +1203,7 @@ async function importarArquivos(lista, destino = null) {
   const caixa = $('importacao');
   const botao = $('notas-importar');
   botao.disabled = true;
-  const total = { importadas: 0, completouResumo: 0, jaExistiam: 0, rejeitadas: 0, porModelo: {} };
+  const total = { importadas: 0, completouResumo: 0, jaExistiam: 0, rejeitadas: 0, rejeitadasSefaz: 0, porModelo: {} };
   const rejeitadas = [];
   const falhasConexao = [];
   const barra = h('span');
@@ -1248,7 +1248,7 @@ async function importarArquivos(lista, destino = null) {
       try {
         const r = await enviarArquivo(`/api/empresas/${emp.id}/importar?nome=${encodeURIComponent(nome)}`, corpo);
         total.importadas += r.importadas; total.completouResumo += r.completouResumo;
-        total.jaExistiam += r.jaExistiam; total.rejeitadas += r.rejeitadas;
+        total.jaExistiam += r.jaExistiam; total.rejeitadas += r.rejeitadas; total.rejeitadasSefaz += r.rejeitadasSefaz || 0;
         for (const [k, v] of Object.entries(r.porModelo || {})) total.porModelo[k] = (total.porModelo[k] || 0) + v;
         for (const x of r.resultados || []) rejeitadas.push({ arquivo: x.arquivo, motivo: x.motivo || '' });
         break;
@@ -1284,6 +1284,7 @@ async function importarArquivos(lista, destino = null) {
   const extra = [
     total.completouResumo ? `${total.completouResumo} completaram notas que só tinham resumo` : '',
     total.jaExistiam ? `${total.jaExistiam.toLocaleString('pt-BR')} já estavam no sistema` : '',
+    total.rejeitadasSefaz ? `${total.rejeitadasSefaz.toLocaleString('pt-BR')} XML${total.rejeitadasSefaz === 1 ? '' : 's'} de nota rejeitada pela SEFAZ (não é documento válido: ficou guardado em "Vendas sem nota autorizada", na aba Notas Fiscais)` : '',
     total.rejeitadas ? `${total.rejeitadas} recusado${total.rejeitadas === 1 ? '' : 's'}` : '',
     falhasConexao.length ? `${falhasConexao.length.toLocaleString('pt-BR')} não enviado${falhasConexao.length === 1 ? '' : 's'} por falha de conexão` : '',
   ].filter(Boolean).join(' · ');

@@ -78,7 +78,7 @@ const armFalso = { salvar: async (c: string) => `r2:${c}` } as any;
     assert.equal(p.emit, EMPRESA.cnpj);
     assert.equal(p.schema.split('_')[0], 'procNFe');
     assert.throws(() => prepararXml(nota('55', 4, { semProt: true })), /sem protocolo/);
-    assert.throws(() => prepararXml(nota('55', 5, { cStat: '204' })), /situação 204/);
+    assert.throws(() => prepararXml(nota('55', 5, { cStat: '204' })), /rejeitada pela SEFAZ \(204/);
     assert.throws(() => prepararXml('isto não é xml'), /não é um arquivo XML/);
     assert.throws(() => prepararXml('<cadastro><x>1</x></cadastro>'), /não reconhecido/);
     console.log('ok  validação: exige protocolo autorizado e tipo reconhecido (NFC-e identificada como modelo 65)');
@@ -120,6 +120,23 @@ const armFalso = { salvar: async (c: string) => `r2:${c}` } as any;
     assert.ok(nfce.xml_path.startsWith('r2:55885998000140/2026/09/65/'));
     assert.ok(ops.some((o) => o.tabela === 'documento_itens' && o.op === 'insert'), 'itens extraídos na importação');
     console.log('ok  importação: saída (NFC-e) e entrada gravadas, resumo completado, repetidas e de outro CNPJ tratadas');
+  }
+
+  // 5) Rejeitada pela SEFAZ (vai para notas_rejeitadas, não vira documento) e XML com protocolo de cancelamento (entra cancelada)
+  {
+    const { db, ops } = bancoFalso();
+    const r = await importarXmls(db, armFalso, EMPRESA, [
+      { nome: 'rej-normal.xml', conteudo: Buffer.from(nota('65', 20, { cStat: '1023' })) },
+      { nome: 'rej-normal-copia.xml', conteudo: Buffer.from(nota('65', 20, { cStat: '1023' })) },
+      { nome: 'rej-outro-emitente.xml', conteudo: Buffer.from(nota('55', 21, { cStat: '1023', emit: '11222333000181', dest: EMPRESA.cnpj })) },
+      { nome: 'cancelada.xml', conteudo: Buffer.from(nota('65', 22, { cStat: '101' })) },
+    ]);
+    assert.deepEqual([r.rejeitadasSefaz, r.rejeitadas, r.importadas], [2, 1, 1], JSON.stringify(r.resultados));
+    const rej = ops.filter((o) => o.tabela === 'notas_rejeitadas' && o.op === 'upsert').flatMap((o) => o.dados);
+    assert.deepEqual(rej.map((x: any) => [x.numero, x.cstat, x.empresa_id]), [['20', '1023', EMPRESA.id]], 'uma linha por chave, só do próprio emitente');
+    const canc = ops.find((o) => o.tabela === 'documentos' && o.op === 'upsert')!.dados;
+    assert.equal(canc.situacao, 'cancelada', 'protocolo 101 entra como cancelada');
+    console.log('ok  rejeitada pela SEFAZ guardada à parte (sem virar documento) e XML com protocolo de cancelamento entra cancelado');
   }
 
   console.log('\nTestes da importação passaram.');

@@ -6,6 +6,7 @@
 import assert from 'assert';
 import { caminhoNoZip, faixasNumeros, lerFiltro, listaChaves, MAX_ZIP, notasParaZip, parametroBusca, registrarDownload } from '../src/painel/buscaXml';
 import { permissaoDaRota } from '../src/painel/usuarios';
+import { vendasSemNota } from '../src/painel/rejeitadas';
 import { bancoFalso } from './banco-falso';
 
 const EMP = '11111111-1111-1111-1111-111111111111';
@@ -43,6 +44,16 @@ const CH = '32260955885998000140550010000012341000012340';
   const n = { chave: CH, modelo: '55', direcao: 'entrada', situacao: 'cancelada', empresa_cnpj: '55885998000140', empresa_nome: 'FARMÁCIA São José/LTDA' };
   assert.equal(caminhoNoZip(n, false), `NFe/entrada/canceladas/${CH}.xml`);
   assert.equal(caminhoNoZip(n, true), `55885998000140 FARMACIA Sao JoseLTDA/NFe/entrada/canceladas/${CH}.xml`, 'escritório: uma pasta por empresa');
+}
+
+// 3) Vendas sem nota autorizada
+{
+  const r = (chave: string, numero: string, em: string) => ({ chave, modelo: '65', serie: '1', numero, emitida_em: em, valor: 10, cstat: '1023', motivo: 'Rejeicao: cClassTrib inexistente [nItem:1]' });
+  const v = vendasSemNota([r('A1', '94005', '2026-09-01T10:00:00Z'), r('A9', '94005', '2026-09-01T09:59:00Z'), r('B1', '94006', '2026-09-01T11:00:00Z'), r('C1', '00094007', '2026-09-01T12:00:00Z')],
+    [{ modelo: '65', serie: '001', numero: '94006' }, { modelo: '55', serie: '1', numero: '94007' }]);
+  assert.deepEqual(v.map((x) => [x.numero, x.tentativas, x.emitida_em]), [['94005', 2, '2026-09-01T09:59:00Z'], ['00094007', 1, '2026-09-01T12:00:00Z']],
+    'normal + contingência do mesmo número contam como uma venda; número com nota boa sai; modelo diferente não conta');
+  console.log('ok  vendas sem nota: agrupa tentativas do mesmo número e tira as que têm nota autorizada');
 }
 
 (async () => {

@@ -22,6 +22,7 @@ import { ServicoGuias } from './guias';
 import { configIntegra, ErroIntegra, IntegraContador, transporteHttps } from '../integra/cliente';
 import { ErroAcessorias, MAX_PDF, ServicoAcessorias, TIPOS_DOCUMENTO, TIPOS_UPLOAD } from '../integra/acessorias';
 import { ErroDocumento, ServicoDocumentosEntrega } from './documentosEntrega';
+import { listarVendasSemNota } from './rejeitadas';
 import { CAMPOS as CAMPOS_CADASTRO, editarCadastro, ErroCadastro, lerCadastro, REGIMES as REGIMES_CADASTRO } from './cadastroEmpresa';
 import { ErroOAuth, ServicoOAuth } from '../mcp/oauth';
 import { rotaMcp, OpcoesMcpHttp } from '../mcp/http';
@@ -309,6 +310,15 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
   }
 
   // Cadastro da empresa (regime, IE, endereço, contador, captação): leitura livre; edição com permissão de cadastro
+  // Vendas sem nota autorizada (XMLs importados que a SEFAZ rejeitou, sem nota boa no mesmo número)
+  const rejEmp = rota.match(/^\/api\/empresas\/([0-9a-f-]{36})\/rejeitadas$/);
+  if (rejEmp && metodo === 'GET') {
+    const de = url.searchParams.get('de') ?? ''; const ate = url.searchParams.get('ate') ?? '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(de) || !/^\d{4}-\d{2}-\d{2}$/.test(ate)) throw new ErroHttp(400, 'Informe o período.');
+    const fim = new Date(Date.parse(`${ate}T12:00:00Z`) + 86400000).toISOString().slice(0, 10);
+    return responder(res, 200, await listarVendasSemNota(db, rejEmp[1], `${de}T00:00:00-03:00`, `${fim}T00:00:00-03:00`));
+  }
+
   const cadEmp = rota.match(/^\/api\/empresas\/([0-9a-f-]{36})\/cadastro$/);
   if (cadEmp && metodo === 'GET') return responder(res, 200, { cadastro: await lerCadastro(db, cadEmp[1]), campos: CAMPOS_CADASTRO, regimes: REGIMES_CADASTRO });
   if (cadEmp && metodo === 'PATCH') {

@@ -16,7 +16,7 @@ export interface EmpresaImportacao {
   c_uf: number;
 }
 
-export type Situacao = 'importada' | 'completou_resumo' | 'ja_existia' | 'rejeitada';
+export type Situacao = 'importada' | 'completou_resumo' | 'ja_existia' | 'rejeitada' | 'rejeitada_sefaz';
 
 export interface ResultadoArquivo {
   arquivo: string;
@@ -29,6 +29,8 @@ export interface ResultadoArquivo {
 
 export interface ResumoImportacao {
   arquivos: number;
+  /** Notas que a SEFAZ rejeitou (não são documentos válidos): guardadas em notas_rejeitadas para conferência. */
+  rejeitadasSefaz: number;
   importadas: number;
   completouResumo: number;
   jaExistiam: number;
@@ -39,6 +41,8 @@ export interface ResumoImportacao {
 
 const AUTORIZADA = new Set(['100', '150']);
 const DENEGADA = new Set(['110', '301', '302', '303', '304', '305', '306']);
+/** Protocolo do cancelamento no lugar do da autorização (alguns sistemas de venda guardam assim): entra como cancelada. */
+const CANCELADA = new Set(['101', '151', '155']);
 const EVENTO_OK = new Set(['135', '136', '155']);
 
 /** Decodifica o XML respeitando o encoding declarado e devolve texto UTF-8 com o prólogo ajustado. */
@@ -51,6 +55,16 @@ export function decodificarXml(b: Buffer): string {
   let texto = bytes.toString(latin ? 'latin1' : 'utf8');
   if (latin) texto = texto.replace(/(<\?xml[^>]*encoding=["'])[^"']+(["'])/i, '$1UTF-8$2');
   return texto.trim();
+}
+
+/** Nota que a SEFAZ rejeitou (protocolo com cStat de rejeição): não é documento fiscal, mas a venda precisa ser regularizada. */
+export interface NotaRejeitada {
+  chave: string; modelo: '55' | '65'; serie: string | null; numero: string | null; tpEmis: string | null; emitidaEm: string | null;
+  valor: number | null; emit?: string; cStat: string; motivo: string;
+}
+
+export class RejeitadaSefaz extends Error {
+  constructor(public readonly nota: NotaRejeitada) { super(`rejeitada pela SEFAZ (${nota.cStat}: ${nota.motivo})`); }
 }
 
 export interface XmlPreparado {
@@ -81,10 +95,17 @@ export function prepararXml(texto: string): XmlPreparado {
     const prot = acharTag(o, 'infProt');
     if (!prot) throw new Error('nota sem protocolo de autorização da SEFAZ (XML só assinado, não autorizado).');
     const cStat = txt(prot.cStat) ?? '';
-    if (!AUTORIZADA.has(cStat) && !DENEGADA.has(cStat)) throw new Error(`protocolo com situação ${cStat} (${txt(prot.xMotivo) ?? 'não autorizada'}).`);
     const chave = txt(prot.chNFe) ?? String(inf['@_Id'] ?? '').replace(/^\D+/, '');
     if (!/^\d{44}$/.test(chave)) throw new Error('chave de acesso inválida.');
     const mod = txt(inf.ide?.mod) === '65' ? '65' : '55';
+    if (!AUTORIZADA.has(cStat) && !DENEGADA.has(cStat) && !CANCELADA.has(cStat)) {
+      const v = Number(inf.total?.ICMSTot?.vNF);
+      throw new RejeitadaSefaz({
+        chave, modelo: mod, serie: txt(inf.ide?.serie) ?? null, numero: txt(inf.ide?.nNF) ?? null, tpEmis: txt(inf.ide?.tpEmis) ?? null,
+        emitidaEm: txt(inf.ide?.dhEmi) ?? null, valor: Number.isFinite(v) ? v : null, emit: txt(inf.emit?.CNPJ) ?? txt(inf.emit?.CPF),
+        cStat: cStat || '?', motivo: (txt(prot.xMotivo) ?? 'não autorizada').slice(0, 300),
+      });
+    }
     return {
       schema: 'procNFe_v4.00.xsd', xml: texto, chave, modelo: mod, evento: false,
       emit: txt(inf.emit?.CNPJ) ?? txt(inf.emit?.CPF),
@@ -140,6 +161,7 @@ export async function importarXmls(
 ): Promise<ResumoImportacao> {
   const resultados: ResultadoArquivo[] = [];
   const preparados: { arquivo: string; p: XmlPreparado }[] = [];
+  const rejeitadasSefaz: { arquivo: string; nota: NotaRejeitada }[] = [];
   const vistas = new Set<string>();
 
   for (const a of arquivos) {
@@ -155,8 +177,21 @@ export async function importarXmls(
       vistas.add(id);
       preparados.push({ arquivo: a.nome, p });
     } catch (e) {
-      resultados.push({ arquivo: a.nome, situacao: 'rejeitada', motivo: (e as Error).message });
+      if (e instanceof RejeitadaSefaz && e.nota.emit === empresa.cnpj) {
+        if (!vistas.has(`rej:${e.nota.chave}`)) { vistas.add(`rej:${e.nota.chave}`); rejeitadasSefaz.push({ arquivo: a.nome, nota: e.nota }); }
+        resultados.push({ arquivo: a.nome, situacao: 'rejeitada_sefaz', chave: e.nota.chave, modelo: e.nota.modelo, motivo: e.message });
+      } else {
+        resultados.push({ arquivo: a.nome, situacao: 'rejeitada', motivo: (e as Error).message });
+      }
     }
+  }
+
+  // Notas rejeitadas pela SEFAZ do próprio emitente: guardadas para o escritório cobrar a regularização (não viram documento)
+  for (let i = 0; i < rejeitadasSefaz.length; i += 500) {
+    ok(await db.from('notas_rejeitadas').upsert(rejeitadasSefaz.slice(i, i + 500).map(({ nota: n }) => ({
+      empresa_id: empresa.id, chave: n.chave, modelo: n.modelo, serie: n.serie, numero: n.numero, tp_emis: n.tpEmis, emitida_em: n.emitidaEm,
+      valor: n.valor, cstat: n.cStat, motivo: n.motivo, importado_em: new Date().toISOString(),
+    })), { onConflict: 'empresa_id,chave' }), 'gravar notas rejeitadas');
   }
 
   // O que já está no banco (completo = pula; só resumo = completa)
@@ -202,6 +237,7 @@ export async function importarXmls(
   }
   return {
     arquivos: arquivos.length,
+    rejeitadasSefaz: conta('rejeitada_sefaz'),
     importadas: conta('importada'),
     completouResumo: conta('completou_resumo'),
     jaExistiam: conta('ja_existia'),

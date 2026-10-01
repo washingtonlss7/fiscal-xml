@@ -81,7 +81,8 @@ export function interpretar(schema: string, xml: string): InfoDFe {
         destDoc: txt(inf.dest?.CNPJ) ?? txt(inf.dest?.CPF) ?? txt(inf.dest?.idEstrangeiro),
         destNome: txt(inf.dest?.xNome),
         valor: num(inf.total?.ICMSTot?.vNF),
-        situacao: cStat === '110' || cStat === '301' || cStat === '302' ? 'denegada' : 'autorizada',
+        // 101/151/155: alguns sistemas guardam o XML com o protocolo do cancelamento no lugar do da autorização
+        situacao: cStat === '110' || cStat === '301' || cStat === '302' ? 'denegada' : cStat === '101' || cStat === '151' || cStat === '155' ? 'cancelada' : 'autorizada',
         protocolo: txt(prot.nProt),
       };
     }
