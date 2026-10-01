@@ -190,7 +190,7 @@ export async function importarXmls(
     }
   };
   // Notas em paralelo; eventos depois (o cancelamento precisa achar a nota já gravada)
-  await emParalelo(docs, 6, gravar);
+  await emParalelo(docs, 8, gravar);
   for (const e of eventos) await gravar(e);
 
   const conta = (s: Situacao) => resultados.filter((r) => r.situacao === s).length;

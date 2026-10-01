@@ -1202,20 +1202,46 @@ async function importarArquivos(lista) {
   caixa.replaceChildren(h('h3', { text: 'Importando XMLs…' }), h('div', { class: 'barra' }, barra), status);
   caixa.hidden = false;
 
-  for (const [i, f] of arquivos.entries()) {
-    status.textContent = `${i + 1} de ${arquivos.length}: ${f.name}`;
-    try {
-      const r = await enviarArquivo(`/api/empresas/${empresaNotas.id}/importar?nome=${encodeURIComponent(f.name)}`, f);
-      total.importadas += r.importadas; total.completouResumo += r.completouResumo;
-      total.jaExistiam += r.jaExistiam; total.rejeitadas += r.rejeitadas;
-      for (const [k, v] of Object.entries(r.porModelo || {})) total.porModelo[k] = (total.porModelo[k] || 0) + v;
-      for (const x of r.resultados || []) rejeitadas.push(`${x.arquivo}: ${x.motivo}`);
-    } catch (e) {
-      total.rejeitadas++;
-      rejeitadas.push(`${f.name}: ${e.message}`);
+  // XMLs soltos vão em lotes (um ZIP sem compressão com até 50 arquivos), 3 lotes por vez: milhares de XMLs em minutos
+  const lotes = lotesImportacao(arquivos);
+  const inicio = Date.now();
+  let feitos = 0;
+  const atualizar = () => {
+    const seg = (Date.now() - inicio) / 1000;
+    const resta = feitos ? Math.round(((arquivos.length - feitos) * seg) / feitos) : null;
+    status.textContent = `${feitos.toLocaleString('pt-BR')} de ${arquivos.length.toLocaleString('pt-BR')} arquivos${resta != null && feitos < arquivos.length ? ` · cerca de ${resta >= 90 ? `${Math.ceil(resta / 60)} min` : `${Math.max(1, resta)} s`} para terminar` : ''}`;
+    barra.style.width = `${Math.round((feitos / arquivos.length) * 100)}%`;
+  };
+  const enviarLote = async (lote) => {
+    let corpo; let nome;
+    if (lote.length === 1) { corpo = lote[0]; nome = lote[0].name; }
+    else {
+      const itens = await Promise.all(lote.map(async (f) => ({ nome: f.name, bytes: new Uint8Array(await f.arrayBuffer()) })));
+      corpo = new Blob([zipSimples(itens)], { type: 'application/zip' }); nome = `lote-${lote.length}.zip`;
     }
-    barra.style.width = `${Math.round(((i + 1) / arquivos.length) * 100)}%`;
-  }
+    for (let tentativa = 1; ; tentativa++) {
+      try {
+        const r = await enviarArquivo(`/api/empresas/${empresaNotas.id}/importar?nome=${encodeURIComponent(nome)}`, corpo);
+        total.importadas += r.importadas; total.completouResumo += r.completouResumo;
+        total.jaExistiam += r.jaExistiam; total.rejeitadas += r.rejeitadas;
+        for (const [k, v] of Object.entries(r.porModelo || {})) total.porModelo[k] = (total.porModelo[k] || 0) + v;
+        for (const x of r.resultados || []) rejeitadas.push(`${x.arquivo}: ${x.motivo}`);
+        break;
+      } catch (e) {
+        // Falha de rede ou servidor reiniciando: tenta de novo (o que já entrou é reconhecido e pulado)
+        if (tentativa < 3 && (e.message === SEM_CONEXAO || /servidor não conseguiu|Erro inesperado/i.test(e.message))) { await new Promise((ok) => setTimeout(ok, 2000 * tentativa)); continue; }
+        total.rejeitadas += lote.length;
+        rejeitadas.push(`${lote.length === 1 ? lote[0].name : `${lote.length} arquivos (${lote[0].name} …)`}: ${e.message}`);
+        break;
+      }
+    }
+    feitos += lote.length; atualizar();
+  };
+  atualizar();
+  let proximo = 0;
+  await Promise.all(Array.from({ length: Math.min(3, lotes.length) }, async () => {
+    while (proximo < lotes.length) await enviarLote(lotes[proximo++]);
+  }));
 
   const novas = total.importadas + total.completouResumo;
   const detalhe = Object.entries(total.porModelo).map(([k, v]) => `${v} ${k}`).join(' · ');
@@ -1223,13 +1249,13 @@ async function importarArquivos(lista) {
     h('div', { class: 'linha-imp' },
       h('h3', { text: novas ? `${novas} documento${novas === 1 ? '' : 's'} importado${novas === 1 ? '' : 's'}` : 'Nenhum documento novo' }),
       h('button', { type: 'button', class: 'botao fantasma pequeno', onclick: () => { caixa.hidden = true; } }, 'Fechar')),
-    detalhe ? h('span', { class: 'meta', text: detalhe }) : null,
+    detalhe ? h('span', { class: 'meta', text: detalhe }) : '',
     h('span', { class: 'meta', text: [
       total.completouResumo ? `${total.completouResumo} completaram notas que só tinham resumo` : '',
       total.jaExistiam ? `${total.jaExistiam} já estavam no sistema` : '',
       total.rejeitadas ? `${total.rejeitadas} recusado${total.rejeitadas === 1 ? '' : 's'}` : '',
     ].filter(Boolean).join(' · ') || 'Itens e impostos já foram extraídos para a auditoria.' }),
-    rejeitadas.length ? h('ul', {}, ...rejeitadas.slice(0, 200).map((t) => h('li', { text: t }))) : null,
+    rejeitadas.length ? h('ul', {}, ...rejeitadas.slice(0, 200).map((t) => h('li', { text: t }))) : '',
   );
   botao.disabled = false;
   $('notas-importar-arquivos').value = '';
