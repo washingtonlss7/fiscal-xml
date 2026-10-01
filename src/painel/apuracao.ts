@@ -44,6 +44,9 @@ const COLUNAS_APURACAO = 'id,empresa_id,competencia,tipo,status,receita,hash,gru
 export class ServicoApuracao {
   constructor(private db: Db, private agora: () => Date = () => new Date(), private guias: ServicoGuias | null = null, private arm: Armazenamento | null = null) {}
 
+  /** Recibo, declaração e MAED do PGDAS-D viram documentos do mês (e vão à Acessórias com o envio automático). */
+  documentos: { registrarPgdas(empresaId: string, competencia: string, apuracaoId: number, pdfs: { tipo: 'pgdas_recibo' | 'pgdas_declaracao' | 'maed'; caminho: string | null; pdf: Buffer | null }[], email: string): Promise<unknown> } | null = null;
+
   /** Matriz e filiais (mesma raiz de CNPJ) do Simples. A matriz (0001) vem primeiro. */
   private async estabelecimentos(empresaId: string): Promise<{ principal: Estab; estabs: Estab[] }> {
     const e = ok(await this.db.from('empresas').select('id,cnpj,razao_social,regime,ativo').eq('id', empresaId).maybeSingle(), 'empresa') as Estab | null;
@@ -264,6 +267,13 @@ export class ServicoApuracao {
     ok(await this.db.from('pgdas_declaracoes').upsert({
       empresa_id: a.empresa_id, competencia: a.competencia, situacao: 'transmitida', numero: t.idDeclaracao, mensagem: null, consultado_em: agora, consultado_por: email,
     }, { onConflict: 'empresa_id,competencia' }), 'atualizar declaração');
+
+    if (this.documentos) {
+      await this.documentos.registrarPgdas(a.empresa_id, competencia, a.id, [
+        { tipo: 'pgdas_recibo', caminho: recibo, pdf: t.reciboPdf }, { tipo: 'pgdas_declaracao', caminho: decl, pdf: t.declaracaoPdf },
+        { tipo: 'maed', caminho: notif, pdf: t.notificacaoMaedPdf }, { tipo: 'maed', caminho: darf, pdf: t.darfMaedPdf },
+      ], email).catch(() => null);
+    }
 
     if (opcoes.gerarDas) {
       let das: unknown;

@@ -1481,3 +1481,31 @@ body.com-dialogo { overflow: hidden; }
 .sg-exemplos { overflow-wrap: anywhere; }
 .sg-botoes { flex-wrap: wrap; }
 @media (max-width: 760px) { .sg-numeros { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ---------- Documentos do mês e Acessórias (documentos.js) ---------- */
+.dc-card { gap: var(--esp-3); }
+.dc-form { align-items: end; }
+.dc-form-botao { display: flex; align-items: flex-end; }
+.dc-lista li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 6px var(--esp-3); }
+.dc-lista li > .ia-conexao { grid-row: span 2; }
+.dc-lista li > .selo { justify-self: end; }
+.dc-lista li > .gu-botoes { grid-column: 2; flex-wrap: wrap; justify-content: flex-end; }
+.dc-erro { color: var(--problema); overflow-wrap: anywhere; }
+.dc-entregas > li > .selo { min-width: 84px; }
+.ae-linha { display: flex; gap: var(--esp-3); align-items: flex-end; flex-wrap: wrap; }
+.ae-linha .campo { min-width: 170px; }
+.ae-subtitulo { font-size: var(--t-m); margin: var(--esp-2) 0 0; }
+.ae-progresso { display: flex; flex-direction: column; gap: 6px; }
+.ae-barra { height: 6px; background: var(--neutro-fundo); border-radius: var(--raio-pilula); overflow: hidden; }
+.ae-barra span { display: block; height: 100%; background: var(--destaque); transition: width .2s; }
+@media (max-width: 760px) {
+  .dc-lista li { grid-template-columns: minmax(0, 1fr); }
+  .dc-lista li > .ia-conexao { grid-row: auto; }
+  .dc-lista li > .selo { justify-self: start; }
+  .dc-lista li > .gu-botoes { grid-column: 1; justify-content: flex-start; }
+  .dc-lista .gu-botoes .botao { flex: 0 0 auto; }
+  .dc-card .vg-card-topo, .ae-card .vg-card-topo { flex-wrap: wrap; }
+}
+.ae-lista > li > .selo { min-width: 112px; justify-content: center; }
+.ae-lista a, .ae-detalhes a { color: var(--tinta); font-weight: 600; text-decoration: none; }
+.ae-lista a:hover, .ae-detalhes a:hover { text-decoration: underline; }

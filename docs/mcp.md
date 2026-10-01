@@ -12,7 +12,7 @@ Endereço: `https://<appura>/mcp` (Streamable HTTP, sem estado). Tela: Administr
 
 | Escopo | O que libera |
 |---|---|
-| `appura.leitura` | 9 ferramentas de consulta: empresas, Central de Fechamento, resumo da empresa, divergências, auditoria, notas, guias, apuração do Simples (`appura_apuracao_simples`) e SPED gerado (`appura_sped_gerado`) |
+| `appura.leitura` | 10 ferramentas de consulta: empresas, Central de Fechamento, resumo da empresa, divergências, auditoria, notas, guias, apuração do Simples (`appura_apuracao_simples`), SPED gerado (`appura_sped_gerado`) e obrigações/documentos na Acessórias (`appura_acessorias`) |
 | `appura.acoes` | 6 ferramentas de ação (abaixo) |
 
 As ações só aparecem quando duas condições valem ao mesmo tempo:
@@ -27,7 +27,7 @@ As ações só aparecem quando duas condições valem ao mesmo tempo:
 | `appura_justificar_divergencias` | Justifica divergências em aberto do SPED/SINTEGRA, filtradas por tipo, chave, número ou todas (até 500). Exige observação. |
 | `appura_reabrir_divergencias` | Tira a justificativa. |
 | `appura_verificar_procuracao` | Consulta a procuração no Integra Contador, até 20 empresas. Cada empresa é uma consulta cobrada pelo SERPRO. |
-| `appura_enviar_guias_acessorias` | Envia à Acessórias as guias DAS já geradas que ainda não foram enviadas. Não gera guia. |
+| `appura_enviar_guias_acessorias` | Envia à Acessórias as guias DAS já geradas e os documentos do mês (recibos do SPED, DARF, DCTFWeb, Reinf, ICMS, PGDAS-D) que ainda não foram aceitos. `o_que`: tudo, guias ou documentos. Não gera guia. Ver `docs/acessorias.md`. |
 | `appura_tratar_apontamentos` | Trata apontamentos da auditoria por regra ou id, com a mesma regra do painel (`src/painel/apontamentos.ts`): `aplicar_sugestao` grava no item só a correção sugerida pela regra; `ignorar` exige observação; `reabrir`. |
 | `appura_gerar_das` | Gera o DAS do Simples ou do MEI, até 20 empresas. A competência é obrigatória e cada empresa é uma emissão cobrada pelo SERPRO. A prévia explica quem fica de fora e por quê: regime sem DAS, procuração ausente ou vencida, ou DAS ainda no vencimento. Nunca força a geração de novo; se o envio automático estiver ligado, a guia vai para a Acessórias. |
 

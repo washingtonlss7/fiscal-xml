@@ -22,7 +22,10 @@ const vg = require(path.resolve(__dirname, '../../public/visao-geral.js'));
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const e3 = require(path.resolve(__dirname, '../../public/empresa-360.js'));
 
-export interface DepsMcp { db: Db; sped: ServicoSped; guias: ServicoGuias; acessorias?: ServicoAcessorias; confirmacoes?: Confirmacoes; apuracao?: ServicoApuracao; gerarSped?: ServicoGerarSped }
+import type { ServicoDocumentosEntrega } from '../painel/documentosEntrega';
+import { TIPOS_DOCUMENTO } from '../integra/acessorias';
+
+export interface DepsMcp { db: Db; sped: ServicoSped; guias: ServicoGuias; acessorias?: ServicoAcessorias; confirmacoes?: Confirmacoes; apuracao?: ServicoApuracao; gerarSped?: ServicoGerarSped; documentos?: ServicoDocumentosEntrega }
 /** `acoes`: a conexão tem o escopo appura.acoes E o perfil do usuário pode operar. */
 export interface ContextoMcp { email: string; perfil: string; clientId: string | null; acoes?: boolean }
 export type RegistroFerramenta = (r: { email: string; clientId: string | null; ferramenta: string; argumentos: unknown; sucesso: boolean; duracaoMs: number }) => Promise<void>;
@@ -70,7 +73,7 @@ export function criarServidorMcp(deps: DepsMcp, ctx: ContextoMcp, registrar: Reg
   const acoes = !!(ctx.acoes && deps.acessorias && deps.confirmacoes);
   const server = new McpServer(
     { name: 'appura', title: 'Appura', version: VERSAO_MCP },
-    { instructions: 'Appura é a plataforma fiscal do escritório de contabilidade: captação de XML (NF-e, NFC-e, CT-e), auditoria, SPED/SINTEGRA, Central de Fechamento e guias (DAS). As ferramentas respeitam o perfil do usuário. Competência sempre no formato AAAA-MM. Para uma empresa, informe o CNPJ quando possível.'
+    { instructions: 'Appura é a plataforma fiscal do escritório de contabilidade: captação de XML (NF-e, NFC-e, CT-e), auditoria, SPED/SINTEGRA, Central de Fechamento, guias (DAS) e a integração com o Sistema Acessórias (obrigações e documentos). As ferramentas respeitam o perfil do usuário. Competência sempre no formato AAAA-MM. Para uma empresa, informe o CNPJ quando possível.'
       + (acoes ? ' As ferramentas de ação (justificar/reabrir divergências, tratar apontamentos, verificar procuração, gerar DAS, enviar guias à Acessórias) funcionam em duas etapas: a primeira chamada só mostra a prévia e devolve um código; mostre a prévia ao usuário e só chame de novo com o código depois que ele confirmar explicitamente. Nunca confirme por conta própria.' : ' Todas as ferramentas desta conexão são de leitura.') },
   );
 
@@ -354,6 +357,43 @@ export function criarServidorMcp(deps: DepsMcp, ctx: ContextoMcp, registrar: Reg
         pendencias: (g.pendencias ?? []).filter((x: any) => x.nivel !== 'info').map((x: any) => ({ nivel: x.nivel, texto: x.texto, ocorrencias: x.quantidade, exemplos: (x.exemplos ?? []).slice(0, 3) })),
       } : 'não gerado';
       return { empresa: emp.razao_social, competencia: a.competencia ?? mesAtualSP(), regime: l.regime, sped_fiscal: fmt(l.fiscal[0]), sped_contribuicoes: fmt(l.contribuicoes[0]) };
+    }));
+  }
+
+  if (deps.acessorias) {
+    const ac = deps.acessorias; const docs = deps.documentos;
+    server.registerTool('appura_acessorias', {
+      title: 'Obrigações e documentos na Acessórias',
+      description: 'Situação das obrigações (entregas) no Sistema Acessórias. Com empresa: as entregas da competência (entregue, atrasada, pendente), o resumo das obrigações do cadastro e os documentos do mês no Appura com a situação do envio à Acessórias; atualizar=true consulta a Acessórias na hora (consulta gratuita). Sem empresa: o escritório todo, com as empresas que têm entrega atrasada ou pendente (da última consulta em lote), as que não estão cadastradas na Acessórias e as que têm obrigação atrasada no cadastro.',
+      inputSchema: { empresa: empresaSchema.optional(), competencia: competenciaSchema, atualizar: z.boolean().optional().describe('Só com empresa: consulta a Acessórias agora em vez de usar a última consulta.') },
+      annotations: { title: 'Acessórias', ...leitura, openWorldHint: true },
+    }, envolver('appura_acessorias', async (a: { empresa?: string; competencia?: string; atualizar?: boolean }) => {
+      const comp = a.competencia ?? mesAtualSP();
+      const sit = await ac.situacao();
+      if (!sit.configurado) return { configurado: false, mensagem: 'A integração com a Acessórias não está configurada (Administração › Escritório).' };
+      if (a.empresa) {
+        const emp = await resolverEmpresa(db, a.empresa);
+        let [ent] = await ac.entregasDoMes(comp, [emp.id]);
+        if (a.atualizar || !ent) { await ac.atualizarEntregas(emp.id, comp, ctx.email); [ent] = await ac.entregasDoMes(comp, [emp.id]); }
+        const cad = await ac.obrigacoesDaEmpresa(emp.cnpj);
+        const lista = docs ? await docs.listar(emp.id, comp) : [];
+        return {
+          empresa: emp.razao_social, competencia: comp, cadastrada_na_acessorias: !!cad,
+          entregas: ent ? { consultado_em: ent.consultadoEm, erro: ent.erro ?? undefined, contagem: ent.contagem, lista: ent.entregas.slice(0, 100).map((x) => ({ obrigacao: x.nome, situacao: x.situacao, prazo: x.prazo, entregue_em: x.entregue_em ?? undefined, departamento: x.departamento ?? undefined, responsavel: x.responsavel ?? undefined })) } : 'sem consulta',
+          obrigacoes_atrasadas_no_cadastro: cad ? (cad.obrigacoes ?? []).filter((o: any) => o.atrasadas > 0).map((o: any) => ({ obrigacao: o.nome, atrasadas: o.atrasadas })) : undefined,
+          documentos_do_mes: lista.map((d: any) => ({ tipo: TIPOS_DOCUMENTO[d.tipo] ?? d.tipo, nome: d.nome, origem: d.origem, enviado_a_acessorias: d.envio ? d.envio.status === 'enviado' : false, mensagem_da_acessorias: d.envio?.mensagem })),
+        };
+      }
+      const [lista, cad] = await Promise.all([ac.entregasDoMes(comp), ac.resumoEmpresas()]);
+      const nomes = ok(await db.from('empresas').select('id,razao_social,cnpj').limit(100000), 'empresas') as any[];
+      const nome = new Map(nomes.map((e) => [e.id, e.razao_social]));
+      const atencao = lista.filter((l) => l.contagem.atrasada || l.contagem.pendente).sort((x, y) => y.contagem.atrasada - x.contagem.atrasada || y.contagem.pendente - x.contagem.pendente);
+      return {
+        competencia: comp, empresas_consultadas: lista.length, consulta_em_lote: ac.progressoEntregas() ?? 'nenhuma desde que o servidor iniciou',
+        com_atraso_ou_pendente: atencao.slice(0, 100).map((l) => ({ empresa: nome.get(l.empresaId) ?? l.empresaId, atrasadas: l.contagem.atrasada, pendentes: l.contagem.pendente, obrigacoes: l.entregas.filter((x) => x.situacao !== 'entregue' && x.situacao !== 'dispensada').slice(0, 10).map((x) => `${x.nome} (${x.situacao}${x.prazo ? `, prazo ${x.prazo}` : ''})`) })),
+        cadastro: { sincronizado_em: cad.sincronizadoEm, empresas_na_acessorias: cad.naAcessorias, appura_sem_cadastro_na_acessorias: cad.totalSemCadastro, exemplos_sem_cadastro: cad.semCadastro.slice(0, 20).map((e) => e.razao_social), com_obrigacao_atrasada: cad.comAtraso.slice(0, 30).map((e) => ({ empresa: e.razao_social, atrasadas: e.atrasadas })) },
+        dica: lista.length ? undefined : 'Nenhuma entrega consultada nesta competência: no painel, Administração › Escritório › Acessórias › "Consultar entregas do mês", ou pergunte por uma empresa com atualizar=true.',
+      };
     }));
   }
 

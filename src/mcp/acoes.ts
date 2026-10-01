@@ -15,7 +15,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Db, ok } from '../db';
 import type { ServicoSped } from '../painel/sped';
 import type { ServicoGuias } from '../painel/guias';
-import type { ServicoAcessorias } from '../integra/acessorias';
+import { TIPOS_DOCUMENTO, type ServicoAcessorias } from '../integra/acessorias';
 import { resolverApontamento } from '../painel/apontamentos';
 
 export const VALIDADE_CONFIRMACAO_MS = 10 * 60_000;
@@ -223,32 +223,48 @@ export function registrarAcoes(server: McpServer, deps: DepsAcoes, aj: Ajudantes
   /* ---------- envio de guias à Acessórias ---------- */
 
   server.registerTool('appura_enviar_guias_acessorias', {
-    title: 'Enviar guias à Acessórias',
-    description: 'Envia à Acessórias (e-Contínuo) os PDFs das guias DAS já geradas na competência que ainda não foram enviadas (a mais recente de cada empresa). Não gera guia nova. Em duas etapas: prévia com código, depois execução com o código, após o usuário confirmar.',
+    title: 'Enviar guias e documentos à Acessórias',
+    description: 'Envia à Acessórias (e-Contínuo) o que a competência tem e ainda não foi aceito: os PDFs das guias DAS já geradas (a mais recente de cada empresa) e os documentos do mês guardados no Appura (recibos do SPED, DARF, DCTFWeb, Reinf, guia de ICMS, recibo e declaração do PGDAS-D). Não gera guia nem documento. Em duas etapas: prévia com código, depois execução com o código, após o usuário confirmar.',
     inputSchema: {
       competencia: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional().describe('AAAA-MM (padrão: mês atual).'),
       empresas: z.array(z.string().min(2).max(120)).max(50).optional().describe('Só estas empresas (CNPJ, id ou nome). Sem isto: todas as pendentes.'),
+      o_que: z.enum(['tudo', 'guias', 'documentos']).optional().describe('tudo (padrão), só as guias DAS ou só os documentos do mês.'),
       confirmacao: confirmacaoSchema,
     },
-    annotations: { title: 'Enviar guias à Acessórias', ...acao, openWorldHint: true },
-  }, aj.envolver('appura_enviar_guias_acessorias', async (a: { competencia?: string; empresas?: string[]; confirmacao?: string }) => {
+    annotations: { title: 'Enviar à Acessórias', ...acao, openWorldHint: true },
+  }, aj.envolver('appura_enviar_guias_acessorias', async (a: { competencia?: string; empresas?: string[]; o_que?: 'tudo' | 'guias' | 'documentos'; confirmacao?: string }) => {
     const comp = aj.competencia(a.competencia);
+    const oque = a.o_que ?? 'tudo';
     let filtro: string[] | undefined;
     if (a.empresas && a.empresas.length) { filtro = []; for (const t of a.empresas) filtro.push((await aj.resolverEmpresa(t)).id); }
-    const p = await deps.acessorias.pendentes(comp, filtro);
-    if (!p.guias.length) throw new ErroAcao(`Nenhuma guia de ${comp} para enviar${p.jaEnviadas ? ` (${p.jaEnviadas} já enviada${p.jaEnviadas === 1 ? '' : 's'})` : ''}. Guias sem PDF ou ainda não geradas não entram.`);
-    const nomes = new Map((ok(await deps.db.from('empresas').select('id,razao_social,cnpj').in('id', [...new Set(p.guias.map((g) => g.empresaId))]), 'empresas') as any[]).map((e) => [e.id, e]));
+    const p = oque === 'documentos' ? { guias: [], jaEnviadas: 0 } : await deps.acessorias.pendentes(comp, filtro);
+    const pd = oque === 'guias' ? { documentos: [], jaEnviados: 0 } : await deps.acessorias.documentosPendentes(comp, filtro);
+    if (!p.guias.length && !pd.documentos.length) {
+      throw new ErroAcao(`Nada de ${comp} para enviar${p.jaEnviadas + pd.jaEnviados ? ` (${p.jaEnviadas + pd.jaEnviados} já enviado${p.jaEnviadas + pd.jaEnviados === 1 ? '' : 's'})` : ''}. Guias sem PDF ou ainda não geradas não entram; documentos entram pela aba Documentos da empresa.`);
+    }
+    const idsEmp = [...new Set([...p.guias.map((g) => g.empresaId), ...pd.documentos.map((d) => d.empresaId)])];
+    const nomes = new Map((ok(await deps.db.from('empresas').select('id,razao_social,cnpj').in('id', idsEmp), 'empresas') as any[]).map((e) => [e.id, e]));
+    const nomeEmp = (id: string) => { const e = nomes.get(id); return e ? `${e.razao_social} (${aj.cnpjFmt(e.cnpj)})` : id; };
     const ids = p.guias.map((g) => g.id).sort((x, y) => x - y);
-    return duasEtapas('appura_enviar_guias_acessorias', a.confirmacao, { comp, ids }, () => ({
-      acao: `Enviar ${ids.length} guia${ids.length === 1 ? '' : 's'} de ${comp} à Acessórias`,
-      ja_enviadas: p.jaEnviadas,
-      guias: p.guias.map((g) => { const e = nomes.get(g.empresaId); return { empresa: e ? `${e.razao_social} (${aj.cnpjFmt(e.cnpj)})` : g.empresaId, total: g.total != null ? Number(g.total) : undefined, vencimento: g.vencimento ?? undefined }; }),
+    const idsDoc = pd.documentos.map((d) => d.id).sort((x, y) => x - y);
+    const partes = [ids.length ? `${ids.length} guia${ids.length === 1 ? '' : 's'}` : '', idsDoc.length ? `${idsDoc.length} documento${idsDoc.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' e ');
+    return duasEtapas('appura_enviar_guias_acessorias', a.confirmacao, { comp, ids, idsDoc }, () => ({
+      acao: `Enviar ${partes} de ${comp} à Acessórias`,
+      ja_enviados: p.jaEnviadas + pd.jaEnviados,
+      guias: p.guias.map((g) => ({ empresa: nomeEmp(g.empresaId), total: g.total != null ? Number(g.total) : undefined, vencimento: g.vencimento ?? undefined })),
+      documentos: pd.documentos.map((d) => ({ empresa: nomeEmp(d.empresaId), tipo: TIPOS_DOCUMENTO[d.tipo] ?? d.tipo, arquivo: d.nome })),
     }), async () => {
-      const r = await deps.acessorias.enviarLista(ids, email);
+      const r = ids.length ? await deps.acessorias.enviarLista(ids, email) : [];
+      const rd = idsDoc.length ? await deps.acessorias.enviarDocumentos(idsDoc, email) : [];
       const porGuia = new Map(p.guias.map((g) => [g.id, g.empresaId]));
+      const porDoc = new Map(pd.documentos.map((d) => [d.id, d]));
       return {
-        enviadas: r.filter((x) => x.ok).length, com_erro: r.filter((x) => !x.ok).length, nao_tentadas: ids.length - r.length,
-        resultados: r.map((x) => { const e = nomes.get(porGuia.get(x.guiaId)!); return { empresa: e ? e.razao_social : String(x.guiaId), ok: x.ok, mensagem: x.mensagem }; }),
+        enviados: r.filter((x) => x.ok).length + rd.filter((x) => x.ok).length, com_erro: r.filter((x) => !x.ok).length + rd.filter((x) => !x.ok).length,
+        nao_tentados: ids.length - r.length + idsDoc.length - rd.length,
+        resultados: [
+          ...r.map((x) => ({ empresa: nomes.get(porGuia.get(x.guiaId)!)?.razao_social ?? String(x.guiaId), documento: 'DAS', ok: x.ok, mensagem: x.mensagem })),
+          ...rd.map((x) => { const d = porDoc.get(x.documentoId)!; return { empresa: nomes.get(d.empresaId)?.razao_social ?? d.empresaId, documento: TIPOS_DOCUMENTO[d.tipo] ?? d.tipo, ok: x.ok, mensagem: x.mensagem }; }),
+        ],
       };
     });
   }));

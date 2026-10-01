@@ -20,7 +20,8 @@ import { dentroDaJanela, lerJanela } from '../util';
 import { ErroSped, ServicoSped } from './sped';
 import { ServicoGuias } from './guias';
 import { configIntegra, ErroIntegra, IntegraContador, transporteHttps } from '../integra/cliente';
-import { ErroAcessorias, ServicoAcessorias } from '../integra/acessorias';
+import { ErroAcessorias, MAX_PDF, ServicoAcessorias, TIPOS_DOCUMENTO, TIPOS_UPLOAD } from '../integra/acessorias';
+import { ErroDocumento, ServicoDocumentosEntrega } from './documentosEntrega';
 import { ErroOAuth, ServicoOAuth } from '../mcp/oauth';
 import { rotaMcp, OpcoesMcpHttp } from '../mcp/http';
 import { Confirmacoes } from '../mcp/acoes';
@@ -63,6 +64,7 @@ const ARQUIVOS: Record<string, [string, string]> = {
   '/visao-geral.js': ['visao-geral.js', 'text/javascript; charset=utf-8'],
   '/empresa-360.js': ['empresa-360.js', 'text/javascript; charset=utf-8'],
   '/sped.js': ['sped.js', 'text/javascript; charset=utf-8'],
+  '/documentos.js': ['documentos.js', 'text/javascript; charset=utf-8'],
   '/guias.js': ['guias.js', 'text/javascript; charset=utf-8'],
   '/apuracao.js': ['apuracao.js', 'text/javascript; charset=utf-8'],
   '/sped-gerar.js': ['sped-gerar.js', 'text/javascript; charset=utf-8'],
@@ -595,6 +597,78 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
     throw new ErroHttp(404, 'Rota não encontrada.');
   }
 
+  // Acessórias: documentos do mês (recibos e guias além do DAS), cadastro das empresas e entregas
+  if (rota.startsWith('/api/acessorias/') || rota.startsWith('/api/documentos/') || /^\/api\/empresas\/[0-9a-f-]{36}\/(documentos|acessorias)/.test(rota)) {
+    const mesUrl = url.searchParams.get('mes') ?? '';
+    const mesHoje = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }).slice(0, 7);
+    const mesAc = /^\d{4}-(0[1-9]|1[0-2])$/.test(mesUrl) ? mesUrl : mesHoje;
+    const docsEmp = rota.match(/^\/api\/empresas\/([0-9a-f-]{36})\/documentos$/);
+    if (docsEmp && metodo === 'GET') {
+      const e = ok(await db.from('empresas').select('id,cnpj').eq('id', docsEmp[1]).maybeSingle(), 'empresa') as { id: string; cnpj: string } | null;
+      if (!e) throw new ErroHttp(404, 'Empresa não encontrada.');
+      const situacao = await servicoAcessorias.situacao();
+      const [entregas] = situacao.configurado ? await servicoAcessorias.entregasDoMes(mesAc, [e.id]) : [];
+      return responder(res, 200, {
+        competencia: mesAc, documentos: await servicoDocumentos.listar(e.id, mesAc),
+        tipos: TIPOS_UPLOAD.map((t) => ({ id: t, nome: TIPOS_DOCUMENTO[t] })),
+        acessorias: { configurado: situacao.configurado, envioAutomatico: situacao.envioAutomatico },
+        cadastro: situacao.configurado ? await servicoAcessorias.obrigacoesDaEmpresa(e.cnpj) : null,
+        entregas: entregas ?? null,
+      });
+    }
+    if (docsEmp && metodo === 'POST') {
+      const pdf = await lerBruto(req, MAX_PDF + 1024);
+      const r = await servicoDocumentos.registrar(docsEmp[1], mesAc, {
+        tipo: String(url.searchParams.get('tipo') ?? ''), descricao: url.searchParams.get('descricao'), nomeOriginal: (url.searchParams.get('nome') || 'documento.pdf').slice(0, 200), pdf,
+      }, email);
+      return responder(res, 200, r);
+    }
+    const entEmp = rota.match(/^\/api\/empresas\/([0-9a-f-]{36})\/acessorias\/entregas$/);
+    if (entEmp && metodo === 'POST') {
+      await servicoAcessorias.atualizarEntregas(entEmp[1], mesAc, email);
+      const [r] = await servicoAcessorias.entregasDoMes(mesAc, [entEmp[1]]);
+      return responder(res, 200, r ?? null);
+    }
+    const doc = rota.match(/^\/api\/documentos\/(\d+)(?:\/(arquivo|enviar))?$/);
+    if (doc && metodo === 'GET' && doc[2] === 'arquivo') {
+      const a = await servicoDocumentos.baixar(Number(doc[1]));
+      res.writeHead(200, { ...CABECALHOS_SEGURANCA, 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${a.nome.replace(/[^\w.\- ]+/g, '_')}"`, 'Cache-Control': 'no-store' });
+      return void res.end(a.conteudo);
+    }
+    if (doc && metodo === 'POST' && doc[2] === 'enviar') {
+      const c = await lerCorpo(req);
+      return responder(res, 200, await servicoAcessorias.enviarDocumento(Number(doc[1]), email, c.forcar === true));
+    }
+    if (doc && metodo === 'DELETE' && !doc[2]) return responder(res, 200, await servicoDocumentos.remover(Number(doc[1]), email));
+    if (metodo === 'POST' && rota === '/api/acessorias/documentos/enviar') {
+      const c = await lerCorpo(req);
+      const comp = /^\d{4}-\d{2}$/.test(String(c.mes)) ? String(c.mes) : mesAc;
+      const ids = Array.isArray(c.empresas) ? c.empresas.map(String).filter((x: string) => /^[0-9a-f-]{36}$/.test(x)) : undefined;
+      const p = await servicoAcessorias.documentosPendentes(comp, ids);
+      return responder(res, 200, { resultados: await servicoAcessorias.enviarDocumentos(p.documentos.map((d) => d.id), email), jaEnviados: p.jaEnviados });
+    }
+    if (metodo === 'GET' && rota === '/api/acessorias/empresas') return responder(res, 200, await servicoAcessorias.resumoEmpresas());
+    if (metodo === 'POST' && rota === '/api/acessorias/empresas/sincronizar') return responder(res, 200, await servicoAcessorias.sincronizarEmpresas(email));
+    if (metodo === 'GET' && rota === '/api/acessorias/entregas') {
+      const lista = await servicoAcessorias.entregasDoMes(mesAc);
+      const nomes = new Map((ok(await db.from('empresas').select('id,cnpj,razao_social').limit(100000), 'empresas') as any[]).map((e) => [e.id, e]));
+      const empresas = lista.map((l) => ({ ...l, razao_social: nomes.get(l.empresaId)?.razao_social ?? null, cnpj: nomes.get(l.empresaId)?.cnpj ?? null, entregas: l.entregas.filter((x) => x.situacao === 'atrasada' || x.situacao === 'pendente') }))
+        .filter((l) => l.contagem.atrasada || l.contagem.pendente || l.erro)
+        .sort((a, b) => b.contagem.atrasada - a.contagem.atrasada || b.contagem.pendente - a.contagem.pendente);
+      const docs = await servicoAcessorias.documentosPendentes(mesAc).catch(() => ({ documentos: [], jaEnviados: 0 }));
+      return responder(res, 200, {
+        competencia: mesAc, progresso: servicoAcessorias.progressoEntregas(), consultadas: lista.length,
+        totais: lista.reduce((t, l) => ({ entregue: t.entregue + l.contagem.entregue, atrasada: t.atrasada + l.contagem.atrasada, pendente: t.pendente + l.contagem.pendente }), { entregue: 0, atrasada: 0, pendente: 0 }),
+        empresas: empresas.slice(0, 300), documentosPendentes: docs.documentos.length,
+      });
+    }
+    if (metodo === 'POST' && rota === '/api/acessorias/entregas/atualizar') {
+      const c = await lerCorpo(req);
+      return responder(res, 200, await servicoAcessorias.iniciarEntregasDoMes(/^\d{4}-\d{2}$/.test(String(c.mes)) ? String(c.mes) : mesAc, email));
+    }
+    throw new ErroHttp(404, 'Rota não encontrada.');
+  }
+
   // Guias pelo Integra Contador (SERPRO)
   if (rota.startsWith('/api/guias') || /^\/api\/empresas\/[0-9a-f-]{36}\/guias/.test(rota)) {
     // Mês é opcional aqui (situação, chaves, teste e PDF não dependem dele): sem mês válido, vale o mês corrente
@@ -754,6 +828,8 @@ const servicoAcessorias = new ServicoAcessorias(db, arm, cfg.masterKey);
 const servicoApuracao = new ServicoApuracao(db, () => new Date(), servicoGuias, arm);
 const servicoGerarSped = new ServicoGerarSped(db, arm, servicoSped);
 servicoGuias.acessorias = servicoAcessorias;
+const servicoDocumentos = new ServicoDocumentosEntrega(db, arm, servicoAcessorias);
+servicoApuracao.documentos = servicoDocumentos;
 
 /* ---------- MCP do Appura (IA): OAuth 2.1 próprio + ferramentas de leitura ---------- */
 const servicoOAuth = new ServicoOAuth(db);
@@ -767,7 +843,7 @@ function urlPublica(req: http.IncomingMessage): string {
 }
 const opcoesMcp: OpcoesMcpHttp = {
   oauth: servicoOAuth,
-  deps: { db, sped: servicoSped, guias: servicoGuias, acessorias: servicoAcessorias, confirmacoes: new Confirmacoes(cfg.masterKey), apuracao: servicoApuracao, gerarSped: servicoGerarSped },
+  deps: { db, sped: servicoSped, guias: servicoGuias, acessorias: servicoAcessorias, documentos: servicoDocumentos, confirmacoes: new Confirmacoes(cfg.masterKey), apuracao: servicoApuracao, gerarSped: servicoGerarSped },
   base: urlPublica,
   entrar: async (email, senha, ip) => {
     limitarTentativas(ip);
@@ -949,7 +1025,7 @@ const servidor = http.createServer(async (req, res) => {
     if (e instanceof ErroIntegra) return responder(res, e.status, { erro: e.message, ...(e.codigo ? { codigo: e.codigo } : {}) });
     if (e instanceof ErroAcessorias) return responder(res, e.status, { erro: e.message });
     if (e instanceof ErroOAuth) return responder(res, e.status, { erro: e.message });
-    if (e instanceof ErroHttp || e instanceof ErroUsuario || e instanceof ErroSped || e instanceof ErroApontamento || e instanceof ErroApuracao || e instanceof ErroGerarSped) return responder(res, e.status, { erro: e.message });
+    if (e instanceof ErroHttp || e instanceof ErroUsuario || e instanceof ErroSped || e instanceof ErroApontamento || e instanceof ErroApuracao || e instanceof ErroGerarSped || e instanceof ErroDocumento) return responder(res, e.status, { erro: e.message });
     log.error('erro no painel', { rota: url.pathname, erro: (e as Error).message });
     responder(res, 500, { erro: 'Erro inesperado no servidor. Tente de novo.' });
   }

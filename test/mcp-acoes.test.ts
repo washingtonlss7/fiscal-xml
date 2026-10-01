@@ -85,9 +85,12 @@ async function testeFerramentas() {
   };
   const pendentes = [{ id: 51, empresaId: FARMA.id, total: 312.4, vencimento: '2026-10-20' }, { id: 52, empresaId: DROGA.id, total: 75.9, vencimento: '2026-10-20' }];
   const enviadas: number[][] = [];
+  const docsEnviados: number[][] = [];
   const acessorias = {
     pendentes: async (_comp: string, ids?: string[]) => ({ guias: pendentes.filter((g) => !ids || ids.includes(g.empresaId)), jaEnviadas: 1 }),
     enviarLista: async (ids: number[]) => { enviadas.push(ids); return ids.map((id) => ({ guiaId: id, ok: id === 51, mensagem: id === 51 ? 'Enviada.' : 'Entrega inexistente.' })); },
+    documentosPendentes: async (_comp: string, ids?: string[]) => ({ documentos: [{ id: 81, empresaId: FARMA.id, tipo: 'recibo_sped_fiscal', nome: 'Recibo-SPED-Fiscal-2026-09.pdf' }].filter((d) => !ids || ids.includes(d.empresaId)), jaEnviados: 2 }),
+    enviarDocumentos: async (ids: number[]) => { docsEnviados.push(ids); return ids.map((id) => ({ documentoId: id, ok: true, mensagem: 'Entrega processada com sucesso! [SPED Fiscal]' })); },
   };
   let agora = Date.parse('2026-09-30T15:00:00Z');
   const deps: any = { db, sped, guias, acessorias, confirmacoes: new Confirmacoes('s', () => agora), registro: [] };
@@ -153,14 +156,19 @@ async function testeFerramentas() {
 
   // Guias à Acessórias
   const pg = ler(await c.callTool({ name: 'appura_enviar_guias_acessorias', arguments: { competencia: '2026-09' } }));
-  assert.equal(pg.ja_enviadas, 1); assert.deepEqual(pg.guias.map((g: any) => g.total), [312.4, 75.9]);
+  assert.equal(pg.ja_enviados, 3); assert.deepEqual(pg.guias.map((g: any) => g.total), [312.4, 75.9]);
+  assert.match(pg.acao, /2 guias e 1 documento/);
+  assert.deepEqual(pg.documentos, [{ empresa: 'FARMA DIGITAL LTDA (55.885.998/0001-40)', tipo: 'Recibo do SPED Fiscal', arquivo: 'Recibo-SPED-Fiscal-2026-09.pdf' }]);
   assert.equal(enviadas.length, 0);
+  const so = ler(await c.callTool({ name: 'appura_enviar_guias_acessorias', arguments: { competencia: '2026-09', o_que: 'documentos' } }));
+  assert.equal(so.guias.length, 0, 'só documentos');
   const pg1 = ler(await c.callTool({ name: 'appura_enviar_guias_acessorias', arguments: { competencia: '2026-09', empresas: ['farma'] } }));
   const errado: any = await c.callTool({ name: 'appura_enviar_guias_acessorias', arguments: { competencia: '2026-09', confirmacao: pg1.confirmacao } });
   assert.equal(errado.isError, true, 'código da prévia de 1 empresa não envia todas');
   const eg = ler(await c.callTool({ name: 'appura_enviar_guias_acessorias', arguments: { competencia: '2026-09', confirmacao: pg.confirmacao } }));
-  assert.deepEqual(enviadas, [[51, 52]]);
-  assert.deepEqual([eg.enviadas, eg.com_erro], [1, 1]);
+  assert.deepEqual(enviadas, [[51, 52]]); assert.deepEqual(docsEnviados, [[81]]);
+  assert.deepEqual([eg.enviados, eg.com_erro], [2, 1]);
+  assert.deepEqual(eg.resultados.map((r: any) => r.documento), ['DAS', 'DAS', 'Recibo do SPED Fiscal']);
 
   // Gerar DAS: competência obrigatória, bloqueios explicados na prévia, só as liberadas entram no código
   t.empresas.push({ id: '33333333-3333-3333-3333-333333333333', cnpj: '11222333000181', razao_social: 'MERCADO REAL LTDA', regime: 'real', uf: 'ES' });

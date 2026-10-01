@@ -1346,7 +1346,7 @@ const ORDEM_SEV = { erro: 0, alerta: 1, info: 2 };
 const SEV_TEXTO = { erro: 'Erro', alerta: 'Alerta', info: 'Informativo' };
 const SEV_TOM = { erro: 'problema', alerta: 'atencao', info: 'neutro' };
 
-const ABAS_EMPRESA = ['visao', 'notas', 'auditoria', 'st', 'sped', 'apuracao', 'guias', 'arquivos', 'historico'];
+const ABAS_EMPRESA = ['visao', 'notas', 'auditoria', 'st', 'sped', 'apuracao', 'guias', 'documentos', 'arquivos', 'historico'];
 
 function trocarAba(aba, atualizarEndereco = true) {
   if (!ABAS_EMPRESA.includes(aba)) aba = 'visao';
@@ -1374,6 +1374,7 @@ function recarregarAba() {
   if (abaAtual === 'sped') { window.spedCarregar(); window.sgCarregar(); }
   if (abaAtual === 'apuracao') window.apCarregar();
   if (abaAtual === 'guias') window.guEmpresaCarregar();
+  if (abaAtual === 'documentos') window.dcCarregar();
   // Dados da Empresa 360° (cabeçalho, visão geral, arquivos e histórico): uma chamada por empresa/competência
   const chave = `${empresaNotas.id}|${mesSelecionado()}`;
   if (window.e360Chave !== chave || ['visao', 'arquivos', 'historico'].includes(abaAtual)) { window.e360Chave = chave; window.e360Carregar(); }

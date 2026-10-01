@@ -479,7 +479,9 @@ if (typeof window !== 'undefined') {
           h('button', { type: 'button', class: 'botao primario', onclick: () => abrirGaveta(empresa, 'escritorio') }, icone('key-round'), 'Trocar certificado'),
           h('a', { class: 'botao', href: `#/empresas/${esc.id}` }, 'Abrir empresa')));
     }
-    alvo.replaceChildren(card, esCardChaves(s), guIntegraCard(s, false), esCardAcessorias(es.acessorias));
+    const ae = es.acessorias && es.acessorias.configurado ? h('div', { id: 'ae-conteudo', class: 'pilha', 'aria-live': 'polite' }) : null;
+    alvo.replaceChildren(card, esCardChaves(s), guIntegraCard(s, false), esCardAcessorias(es.acessorias), ...(ae ? [ae] : []));
+    if (ae && window.aeCarregar) window.aeCarregar();
   }
 
   /** Sistema Acessórias: API Token (cifrado) e envio automático das guias pelo e-Contínuo. */
