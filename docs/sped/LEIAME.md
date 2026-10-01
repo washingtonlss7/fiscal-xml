@@ -30,3 +30,42 @@ Resumo do **Guia Prático da EFD-ICMS/IPI, versão 3.2.2 (11/02/2026)**.
 
 Pendências que o guia não resolve e que vêm da SEFAZ-ES: tabelas 5.1.1, 5.2 e 5.3 de códigos de ajuste do ES,
 códigos de receita do DUA e vencimentos, perfil (A/B/C) de cada estabelecimento, exigência do 1601, 1400 e 0221.
+
+## Gerador do Appura (implementado)
+
+| Arquivo | Conteúdo |
+|---|---|
+| `gerador-icms-spec.md` | Especificação campo a campo usada pelo gerador da EFD ICMS/IPI (Guia 3.2.2, leiaute 020 em 2026) |
+| `gerador-contrib-spec.md` | Especificação campo a campo usada pelo gerador da EFD-Contribuições (leiaute 006, não cumulativo) |
+
+**Código:**
+
+- `src/sped/gerar/`: motores puros, testados em `test/sped-gerar.test.ts`.
+  - `escrita.ts`: formatação, contadores e bloco 9.
+  - `anterior.ts`: o que vem do SPED do mês anterior.
+  - `xml.ts`: campos extras do XML.
+  - `icms.ts` e `contribuicoes.ts`: os dois geradores.
+- `src/painel/gerarSped.ts`: carrega os dados, gera, valida com o leitor, guarda as versões (`sped_gerados`) e audita pelo caminho do SPED recebido.
+- A tela é o cartão "Gerar SPED" na aba SPED da empresa (`public/sped-gerar.js`).
+
+**Do SPED anterior vêm:**
+
+- contabilista, perfil e IE;
+- código próprio dos itens (de-para pelo GTIN) e fatores do 0220;
+- CST e CFOP usados na última entrada de cada item;
+- saldo credor do E110;
+- código de receita e vencimento do E116;
+- 1010;
+- contas contábeis por CST/CFOP;
+- saldos 1100/1500.
+
+**Ainda não gerados (viram pendência de erro quando necessários):**
+
+- E200/E210 (ST com débito ou crédito);
+- inventário em fevereiro (H005/H010);
+- 1601 (IND_CART = S);
+- C101/E300 (DIFAL);
+- NAT_REC dos CST 06 a 09;
+- EFD-Contribuições do Lucro Presumido (cumulativo).
+
+Antes de transmitir, valide sempre no PVA.

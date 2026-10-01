@@ -221,6 +221,22 @@ async function testeFerramentas() {
   const rev: any = await c.getPrompt({ name: 'revisar_empresa', arguments: { empresa: '55.885.998/0001-40' } });
   assert.match(rev.messages[0].content.text, /55\.885\.998\/0001-40/);
 
+  // Consultas da apuração do Simples e do SPED gerado (só leitura, inclusive para o perfil Consulta)
+  const depsLeitura: any = { ...deps,
+    apuracao: { previa: async (id: string, comp: string) => ({ empresa: { razao_social: 'FARMA DIGITAL LTDA' }, competencia: comp, receita: 1000, comparacao: {},
+      grupos: [{ titulo: 'Revenda com ICMS-ST', atividade: 2, valor: 1000, vendas: 1000, devolucoes: 0, ajustes: 0, ncms: [] }],
+      estabelecimentos: [{ alertas: [{ nivel: 'alerta', titulo: 'Possível ICMS-ST não aplicado', detalhe: 'x', quantidade: 2, valor: 30 }], fora: [] }],
+      apuracoes: [{ status: 'transmitida', tipo: 1, total_devido: '45.10', valores_devidos: [{ codigoTributo: 1001, valor: 5 }], simulado_em: 'x', transmitido_em: 'y', id_declaracao: '123', atual: true }] }) },
+    gerarSped: { listar: async () => ({ regime: 'real', fiscal: [{ tipo: 'efd_icms_ipi', versao: 2, erros: 0, alertas: 1, resumo: { icms: { aRecolher: 10 } }, pendencias: [{ nivel: 'info', texto: 'i' }, { nivel: 'alerta', texto: 'a', quantidade: 3, exemplos: ['e1'] }] }], contribuicoes: [] }) } };
+  const leitor3 = await conectar(depsLeitura, { email: 'ana@x.com', perfil: 'consulta', clientId: null, acoes: false });
+  const nomes3 = (await leitor3.listTools()).tools.map((f) => f.name);
+  assert.ok(nomes3.includes('appura_apuracao_simples') && nomes3.includes('appura_sped_gerado'));
+  const apx = ler(await leitor3.callTool({ name: 'appura_apuracao_simples', arguments: { empresa: 'farma', competencia: '2026-09' } }));
+  assert.deepEqual([apx.receita, apx.pgdas.situacao, apx.pgdas.total_das, apx.pontos_de_atencao[0].titulo], [1000, 'transmitida', 45.1, 'Possível ICMS-ST não aplicado']);
+  const sgd = ler(await leitor3.callTool({ name: 'appura_sped_gerado', arguments: { empresa: 'farma', competencia: '2026-09' } }));
+  assert.deepEqual([sgd.sped_fiscal.versao, sgd.sped_fiscal.pronto_para_o_pva, sgd.sped_fiscal.pendencias.length, sgd.sped_contribuicoes], [2, true, 1, 'não gerado']);
+  await leitor3.close();
+
   // Tudo registrado com o usuário e o app
   const reg = deps.registro.filter((r: any) => ACOES.includes(r.ferramenta));
   assert.ok(reg.length >= 12 && reg.every((r: any) => r.email === 'ana@x.com'));

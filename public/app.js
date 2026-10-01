@@ -1371,7 +1371,7 @@ function recarregarAba() {
   if (abaAtual === 'notas') carregarNotas();
   carregarAuditoria();
   if (abaAtual === 'st') carregarST();
-  if (abaAtual === 'sped') window.spedCarregar();
+  if (abaAtual === 'sped') { window.spedCarregar(); window.sgCarregar(); }
   if (abaAtual === 'apuracao') window.apCarregar();
   if (abaAtual === 'guias') window.guEmpresaCarregar();
   // Dados da Empresa 360° (cabeçalho, visão geral, arquivos e histórico): uma chamada por empresa/competência

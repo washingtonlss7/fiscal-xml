@@ -13,6 +13,8 @@ import { Arquivo, d8, dataLocal, n, paraBuffer, t } from '../src/sped/gerar/escr
 import { cfopEntradaItem, cstEntrada, gerarEfdIcms } from '../src/sped/gerar/icms';
 import { DocFiscal, Estabelecimento, ItemDoc } from '../src/sped/gerar/tipos';
 import { extraCTe, extraNFe } from '../src/sped/gerar/xml';
+import { ServicoGerarSped } from '../src/painel/gerarSped';
+import { bancoFalso } from './banco-falso';
 
 /* ---------- utilitários de teste: CNPJ e chave com DV válidos ---------- */
 function dvCnpj(base12: string) {
@@ -278,4 +280,58 @@ async function teste() {
   console.log('ok  SPED Contribuições: estrutura validada pelo leitor, C170/C175/D101, CST 50/70/04, exclusão do ICMS, M100/M105/M200/M210/M410, crédito anterior (1100), 0500 e cruzamento com o SPED Fiscal');
 }
 
-teste().then(() => console.log('\nTestes da geração de SPED passaram.')).catch((e) => { console.error(e); process.exit(1); });
+async function testeServico() {
+  const { db, t } = bancoFalso(['empresas', 'documentos', 'documento_itens', 'sped_arquivos', 'sped_gerados']);
+  const E = { id: '11111111-1111-1111-1111-111111111111', cnpj: FARMA, razao_social: 'FARMACIA VIDA LTDA', uf: 'ES', regime: 'real', ativo: true, ie: '081234567', cod_municipio: '3205309',
+    nome_fantasia: 'VIDA', cep: '29100000', logradouro: 'RUA A', numero: '1', complemento: null, bairro: 'CENTRO', fone: null, email: null, perfil_sped: 'A',
+    contador_nome: null, contador_crc: null, contador_cnpj: null, contador_email: null, contador_fone: null };
+  const S = { ...E, id: '22222222-2222-2222-2222-222222222222', cnpj: dvCnpj('998887770001'), regime: 'simples' };
+  t.empresas.push(E, S);
+  const armazem = new Map<string, Buffer>();
+  const arm: any = { salvar: async (c: string, b: Buffer) => { armazem.set(`r2:${c}`, Buffer.from(b)); return `r2:${c}`; }, ler: async (c: string) => { const b = armazem.get(c); if (!b) throw new Error('não achou'); return b; } };
+  // Compra tributada com o XML guardado; NFC-e só no banco; CT-e com XML que falha na leitura
+  const chC = chave(DISTRIB, '55', 1, 50); const chN = chave(FARMA, '65', 1, 7); const chT = chave(TRANSP, '57', 1, 9);
+  t.documentos.push(
+    { empresa_id: E.id, chave: chC, modelo: '55', serie: '1', numero: '50', situacao: 'autorizada', completo: true, emitida_em: '2026-09-03T10:00:00-03:00', tp_nf: 1, fin_nfe: 1, emit_cnpj: DISTRIB, dest_doc: FARMA, toma_doc: null, uf_emit: 'ES', cfop: '5102', valor: 1000, v_prod: 1000, v_desc: 0, v_frete: 0, v_seg: 0, v_outro: 0, xml_path: 'r2:xml/c.xml', direcao: 'entrada' },
+    { empresa_id: E.id, chave: chN, modelo: '65', serie: '1', numero: '7', situacao: 'autorizada', completo: true, emitida_em: '2026-09-04T10:00:00-03:00', tp_nf: 1, fin_nfe: 1, emit_cnpj: FARMA, dest_doc: null, toma_doc: null, uf_emit: 'ES', cfop: '5102', valor: 50, v_prod: 50, v_desc: 0, v_frete: 0, v_seg: 0, v_outro: 0, xml_path: 'r2:xml/n.xml', direcao: 'saida' },
+    { empresa_id: E.id, chave: chT, modelo: '57', serie: '1', numero: '9', situacao: 'autorizada', completo: true, emitida_em: '2026-09-05T10:00:00-03:00', tp_nf: null, fin_nfe: null, emit_cnpj: TRANSP, dest_doc: null, toma_doc: FARMA, uf_emit: 'ES', cfop: '5353', valor: 200, v_prod: 200, v_desc: 0, v_frete: 0, v_seg: 0, v_outro: 0, xml_path: 'r2:xml/sumiu.xml', direcao: 'entrada' },
+  );
+  t.documento_itens.push(
+    { empresa_id: E.id, ...item({ c_prod: 'D10', ean: '7891000000017', cfop: '5102', v_prod: 1000, v_bc_icms: 1000, v_icms: 170 }), chave: chC, n_item: 1 },
+    { empresa_id: E.id, ...item({ cfop: '5102', v_prod: 50, v_bc_icms: 50, v_icms: 8.5 }), chave: chN, n_item: 1 },
+  );
+  armazem.set('r2:xml/c.xml', Buffer.from(`<nfeProc><NFe><infNFe><ide><dhEmi>2026-09-03T10:00:00-03:00</dhEmi></ide><emit><CNPJ>${DISTRIB}</CNPJ><xNome>DISTRIBUIDORA X</xNome><enderEmit><xLgr>AV B</xLgr><nro>5</nro><xBairro>IBES</xBairro><cMun>3205200</cMun><UF>ES</UF></enderEmit><IE>082222331</IE></emit><dest><CNPJ>${FARMA}</CNPJ></dest><transp><modFrete>0</modFrete></transp></infNFe></NFe></nfeProc>`));
+  // SPED anterior guardado (agosto)
+  armazem.set('r2:sped/ant.txt', Buffer.from(anteriorIcmsTxt, 'latin1'));
+  t.sped_arquivos.push({ id: 1, empresa_id: E.id, cnpj: FARMA, tipo: 'efd_icms_ipi', competencia: '2026-08-01', caminho: 'r2:sped/ant.txt', enviado_em: '2026-09-02T10:00:00Z' });
+  const recebidos: any[] = [];
+  const spedFalso: any = { receber: async (nome: string, buf: Buffer, email: string, emp: any) => { recebidos.push({ nome, tamanho: buf.length, email, emp }); return { valido: true, id: 77 }; } };
+  const s = new ServicoGerarSped(db, arm, spedFalso);
+
+  await assert.rejects(s.gerar(S.id, '2026-09', 'efd_icms_ipi', 'ana@x.com'), /Lucro Real e Presumido/);
+  await assert.rejects(s.gerar(E.id, '2026-9', 'efd_icms_ipi', 'ana@x.com'), /Competência inválida/);
+  const g1 = await s.gerar(E.id, '2026-09', 'efd_icms_ipi', 'ana@x.com') as any;
+  assert.equal(g1.versao, 1); assert.equal(g1.nome, `SPED-FISCAL_${FARMA}_202609_v1.txt`);
+  assert.ok(g1.pendencias.some((p: any) => p.codigo === 'xml_ausente' && /1 XML/.test(p.texto)), 'XML do CT-e que não foi lido vira pendência');
+  assert.equal(g1.resumo.icms.saldoCredorAnterior, 150, 'saldo credor do SPED anterior guardado');
+  assert.deepEqual(g1.validacao.filter((o: any) => o.nivel === 'erro'), []);
+  const arq = await s.baixar(g1.id);
+  const txt = arq.conteudo.toString('latin1');
+  assert.ok(txt.startsWith(`|0000|020|0|01092026|30092026|FARMACIA VIDA LTDA|${FARMA}|`) && txt.endsWith('|\r\n'));
+  assert.ok(txt.includes('|0150|DIST01|DISTRIBUIDORA X|01058|') && txt.includes('|C170|1|1002|'), 'participante pelo XML e item pelo de-para do SPED anterior');
+  const g2 = await s.gerar(E.id, '2026-09', 'efd_icms_ipi', 'ana@x.com') as any;
+  assert.equal(g2.versao, 2, 'nova geração = nova versão');
+  const lst = await s.listar(E.id, '2026-09');
+  assert.deepEqual(lst.fiscal.map((x: any) => x.versao), [2, 1]);
+  // Contribuições: não tem anterior → COD_CTA vira erro de pendência, mas o arquivo sai
+  const gc = await s.gerar(E.id, '2026-09', 'efd_contribuicoes', 'ana@x.com') as any;
+  assert.ok(gc.pendencias.some((p: any) => p.codigo === 'cod_cta'));
+  assert.ok(gc.erros > 0);
+  // Auditar: passa pelo recebimento de SPED do Appura (comparações e justificativas)
+  const r = await s.auditar(g2.id, 'sup@x.com') as any;
+  assert.equal(r.id, 77); assert.equal(recebidos[0].emp.cnpj, FARMA); assert.equal(recebidos[0].nome, g2.nome);
+  assert.equal(t.sped_gerados.find((x: any) => x.id === g2.id).auditado_arquivo_id, 77);
+  console.log('ok  serviço: documentos do banco + XML do armazenamento, SPED anterior guardado, versões, validação, download e auditoria');
+}
+
+teste().then(testeServico).then(() => console.log('\nTestes da geração de SPED passaram.')).catch((e) => { console.error(e); process.exit(1); });

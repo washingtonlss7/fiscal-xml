@@ -27,6 +27,7 @@ import { Confirmacoes } from '../mcp/acoes';
 import { usoMcp } from '../mcp/uso';
 import { ErroApontamento, resolverApontamento } from './apontamentos';
 import { ErroApuracao, ServicoApuracao } from './apuracao';
+import { ErroGerarSped, ServicoGerarSped } from './gerarSped';
 import { authDoSupabase, ErroUsuario, GestaoUsuarios, PERFIS_INFO, PERMISSOES, permissaoDaRota } from './usuarios';
 
 function exigir(nome: string): string {
@@ -64,6 +65,7 @@ const ARQUIVOS: Record<string, [string, string]> = {
   '/sped.js': ['sped.js', 'text/javascript; charset=utf-8'],
   '/guias.js': ['guias.js', 'text/javascript; charset=utf-8'],
   '/apuracao.js': ['apuracao.js', 'text/javascript; charset=utf-8'],
+  '/sped-gerar.js': ['sped-gerar.js', 'text/javascript; charset=utf-8'],
   '/ia.js': ['ia.js', 'text/javascript; charset=utf-8'],
   '/nucleo.js': ['nucleo.js', 'text/javascript; charset=utf-8'],
   '/app.css': ['app.css', 'text/css; charset=utf-8'],
@@ -540,6 +542,28 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
     return responder(res, 200, { ok: true });
   }
 
+  // SPED gerado pelo Appura (Fiscal e Contribuições): gerar, listar versões, baixar e auditar
+  const sg = rota.match(/^\/api\/empresas\/([0-9a-f-]{36})\/sped-gerado$/);
+  if (sg) {
+    const mesSg = /^\d{4}-(0[1-9]|1[0-2])$/.test(url.searchParams.get('mes') ?? '') ? url.searchParams.get('mes')! : new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }).slice(0, 7);
+    if (metodo === 'GET') return responder(res, 200, await servicoGerarSped.listar(sg[1], mesSg));
+    if (metodo === 'POST') {
+      const c = await lerCorpo(req, 10_000);
+      const tipo = c.tipo === 'efd_contribuicoes' ? 'efd_contribuicoes' : c.tipo === 'efd_icms_ipi' ? 'efd_icms_ipi' : null;
+      if (!tipo) throw new ErroHttp(400, 'Tipo de SPED inválido.');
+      const mes = /^\d{4}-(0[1-9]|1[0-2])$/.test(String(c.mes)) ? String(c.mes) : mesSg;
+      return responder(res, 200, await servicoGerarSped.gerar(sg[1], mes, tipo, email));
+    }
+  }
+  const sgArq = rota.match(/^\/api\/sped-gerado\/(\d+)\/(arquivo|auditar)$/);
+  if (sgArq && metodo === 'GET' && sgArq[2] === 'arquivo') {
+    const f = await servicoGerarSped.baixar(Number(sgArq[1]));
+    res.writeHead(200, { ...CABECALHOS_SEGURANCA, 'Content-Type': 'text/plain; charset=iso-8859-1', 'Content-Disposition': `attachment; filename="${f.nome.replace(/[^\w.\- ]+/g, '_')}"`, 'Cache-Control': 'no-store' });
+    log.info('SPED gerado baixado', { id: sgArq[1], por: email });
+    return void res.end(f.conteudo);
+  }
+  if (sgArq && metodo === 'POST' && sgArq[2] === 'auditar') return responder(res, 200, await servicoGerarSped.auditar(Number(sgArq[1]), email));
+
   // Conexões de IA (MCP): cada usuário vê, cria e revoga só as próprias
   if (rota === '/api/mcp/conexoes' && metodo === 'GET') {
     return responder(res, 200, { url: `${urlPublica(req)}/mcp`, ...(await servicoOAuth.conexoes(email)) });
@@ -728,6 +752,7 @@ const servicoGuias = new ServicoGuias(db, arm, cfg.masterKey, (c, contratante, r
 if (cfgIntegra) log.info('Integra Contador com chaves do servidor', { ambiente: cfgIntegra.ambiente });
 const servicoAcessorias = new ServicoAcessorias(db, arm, cfg.masterKey);
 const servicoApuracao = new ServicoApuracao(db, () => new Date(), servicoGuias, arm);
+const servicoGerarSped = new ServicoGerarSped(db, arm, servicoSped);
 servicoGuias.acessorias = servicoAcessorias;
 
 /* ---------- MCP do Appura (IA): OAuth 2.1 próprio + ferramentas de leitura ---------- */
@@ -742,7 +767,7 @@ function urlPublica(req: http.IncomingMessage): string {
 }
 const opcoesMcp: OpcoesMcpHttp = {
   oauth: servicoOAuth,
-  deps: { db, sped: servicoSped, guias: servicoGuias, acessorias: servicoAcessorias, confirmacoes: new Confirmacoes(cfg.masterKey) },
+  deps: { db, sped: servicoSped, guias: servicoGuias, acessorias: servicoAcessorias, confirmacoes: new Confirmacoes(cfg.masterKey), apuracao: servicoApuracao, gerarSped: servicoGerarSped },
   base: urlPublica,
   entrar: async (email, senha, ip) => {
     limitarTentativas(ip);
@@ -924,7 +949,7 @@ const servidor = http.createServer(async (req, res) => {
     if (e instanceof ErroIntegra) return responder(res, e.status, { erro: e.message, ...(e.codigo ? { codigo: e.codigo } : {}) });
     if (e instanceof ErroAcessorias) return responder(res, e.status, { erro: e.message });
     if (e instanceof ErroOAuth) return responder(res, e.status, { erro: e.message });
-    if (e instanceof ErroHttp || e instanceof ErroUsuario || e instanceof ErroSped || e instanceof ErroApontamento || e instanceof ErroApuracao) return responder(res, e.status, { erro: e.message });
+    if (e instanceof ErroHttp || e instanceof ErroUsuario || e instanceof ErroSped || e instanceof ErroApontamento || e instanceof ErroApuracao || e instanceof ErroGerarSped) return responder(res, e.status, { erro: e.message });
     log.error('erro no painel', { rota: url.pathname, erro: (e as Error).message });
     responder(res, 500, { erro: 'Erro inesperado no servidor. Tente de novo.' });
   }

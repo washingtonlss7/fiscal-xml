@@ -1469,3 +1469,15 @@ body.com-dialogo { overflow: hidden; }
 .ap-tributos li:last-child { border-bottom: 0; }
 .ap-tributos .ap-tributos-total { background: var(--superficie-2); font-size: var(--t-m); }
 .ap-bloco { display: flex; flex-direction: column; gap: var(--esp-2); }
+/* Gerar SPED (aba SPED da empresa) */
+.sg-card { gap: var(--esp-3); }
+.sg-linha { display: flex; flex-direction: column; gap: var(--esp-3); padding: var(--esp-3) 0; border-top: 1px solid var(--linha); }
+.sg-topo { display: flex; justify-content: space-between; gap: var(--esp-3); align-items: flex-start; flex-wrap: wrap; }
+.sg-topo > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sg-numeros { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--esp-2) var(--esp-3); margin: 0; }
+.sg-numeros div { display: flex; flex-direction: column; gap: 2px; padding: var(--esp-2) var(--esp-3); border-radius: var(--raio-m); background: var(--superficie-2); min-width: 0; }
+.sg-numeros dt { font-size: var(--t-xs); color: var(--tinta-2); }
+.sg-numeros dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.sg-exemplos { overflow-wrap: anywhere; }
+.sg-botoes { flex-wrap: wrap; }
+@media (max-width: 760px) { .sg-numeros { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

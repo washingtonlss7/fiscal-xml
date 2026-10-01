@@ -12,7 +12,7 @@ Endereço: `https://<appura>/mcp` (Streamable HTTP, sem estado). Tela: Administr
 
 | Escopo | O que libera |
 |---|---|
-| `appura.leitura` | 7 ferramentas de consulta: empresas, Central de Fechamento, resumo da empresa, divergências, auditoria, notas e guias |
+| `appura.leitura` | 9 ferramentas de consulta: empresas, Central de Fechamento, resumo da empresa, divergências, auditoria, notas, guias, apuração do Simples (`appura_apuracao_simples`) e SPED gerado (`appura_sped_gerado`) |
 | `appura.acoes` | 6 ferramentas de ação (abaixo) |
 
 As ações só aparecem quando duas condições valem ao mesmo tempo:

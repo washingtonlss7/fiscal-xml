@@ -35,6 +35,7 @@ function iaAcesso(acoes, podeOperar) {
 const IA_FERRAMENTAS = {
   appura_listar_empresas: 'Listar empresas', appura_central_fechamento: 'Central de Fechamento', appura_resumo_empresa: 'Resumo da empresa',
   appura_divergencias: 'Divergências', appura_apontamentos_auditoria: 'Apontamentos da auditoria', appura_notas_fiscais: 'Notas fiscais', appura_guias: 'Guias',
+  appura_apuracao_simples: 'Apuração do Simples', appura_sped_gerado: 'SPED gerado',
   appura_justificar_divergencias: 'Justificar divergências', appura_reabrir_divergencias: 'Reabrir divergências', appura_tratar_apontamentos: 'Tratar apontamentos',
   appura_verificar_procuracao: 'Verificar procuração', appura_gerar_das: 'Gerar DAS', appura_enviar_guias_acessorias: 'Enviar guias à Acessórias',
 };

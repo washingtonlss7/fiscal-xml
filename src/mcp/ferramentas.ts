@@ -14,13 +14,15 @@ import type { ServicoSped } from '../painel/sped';
 import type { ServicoGuias } from '../painel/guias';
 import type { ServicoAcessorias } from '../integra/acessorias';
 import { Confirmacoes, mensagemDeServico, registrarAcoes } from './acoes';
+import type { ServicoApuracao } from '../painel/apuracao';
+import type { ServicoGerarSped } from '../painel/gerarSped';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const vg = require(path.resolve(__dirname, '../../public/visao-geral.js'));
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const e3 = require(path.resolve(__dirname, '../../public/empresa-360.js'));
 
-export interface DepsMcp { db: Db; sped: ServicoSped; guias: ServicoGuias; acessorias?: ServicoAcessorias; confirmacoes?: Confirmacoes }
+export interface DepsMcp { db: Db; sped: ServicoSped; guias: ServicoGuias; acessorias?: ServicoAcessorias; confirmacoes?: Confirmacoes; apuracao?: ServicoApuracao; gerarSped?: ServicoGerarSped }
 /** `acoes`: a conexão tem o escopo appura.acoes E o perfil do usuário pode operar. */
 export interface ContextoMcp { email: string; perfil: string; clientId: string | null; acoes?: boolean }
 export type RegistroFerramenta = (r: { email: string; clientId: string | null; ferramenta: string; argumentos: unknown; sucesso: boolean; duracaoMs: number }) => Promise<void>;
@@ -311,6 +313,49 @@ export function criarServidorMcp(deps: DepsMcp, ctx: ContextoMcp, registrar: Reg
     };
   }));
 
+
+
+  if (deps.apuracao) {
+    const apuracao = deps.apuracao;
+    server.registerTool('appura_apuracao_simples', {
+      title: 'Apuração do Simples Nacional',
+      description: 'Prévia da receita do mês para o PGDAS-D (Simples Nacional), segregada como vai para a Receita: revenda tributada, com ICMS-ST, com PIS/COFINS monofásico e exportação; pontos de atenção (ST possivelmente não aplicada, notas faltando na sequência...); e a situação do PGDAS-D (calculado pela Receita, transmitido, valores por tributo). Matriz e filiais juntas.',
+      inputSchema: { empresa: empresaSchema, competencia: competenciaSchema },
+      annotations: { title: 'Apuração do Simples', ...leitura },
+    }, envolver('appura_apuracao_simples', async (a: { empresa: string; competencia?: string }) => {
+      const emp = await resolverEmpresa(db, a.empresa);
+      const p = await apuracao.previa(emp.id, a.competencia ?? mesAtualSP()) as any;
+      const ult = (p.apuracoes as any[]).find((x) => x.status === 'simulada' || x.status === 'transmitida') ?? null;
+      return {
+        empresa: p.empresa.razao_social, competencia: p.competencia, receita: p.receita,
+        grupos: p.grupos.map((g: any) => ({ grupo: g.titulo, atividade_pgdas: g.atividade, valor: g.valor, vendas: g.vendas, devolucoes: g.devolucoes, ajustes: g.ajustes, ncms_principais: g.ncms.slice(0, 3) })),
+        pontos_de_atencao: p.estabelecimentos.flatMap((e: any) => e.alertas.map((x: any) => ({ nivel: x.nivel, titulo: x.titulo, detalhe: x.detalhe, ocorrencias: x.quantidade, valor: x.valor || undefined }))),
+        fora_da_receita: p.estabelecimentos.flatMap((e: any) => e.fora),
+        comparacao: p.comparacao,
+        pgdas: ult ? { situacao: ult.status, tipo: ult.tipo === 2 ? 'retificadora' : 'original', total_das: Number(ult.total_devido), valores: ult.valores_devidos, calculado_em: ult.simulado_em, transmitido_em: ult.transmitido_em ?? undefined, numero_declaracao: ult.id_declaracao ?? undefined, confere_com_as_notas_atuais: ult.atual } : { situacao: 'não calculado' },
+        observacao: 'O imposto é calculado pela Receita (simulação do PGDAS-D) e transmitido pelo supervisor no painel; o MCP só consulta.',
+      };
+    }));
+  }
+
+  if (deps.gerarSped) {
+    const gerarSped = deps.gerarSped;
+    server.registerTool('appura_sped_gerado', {
+      title: 'SPED gerado pelo Appura',
+      description: 'Situação do SPED Fiscal (EFD ICMS/IPI) e do SPED Contribuições (EFD PIS/COFINS) gerados pelo Appura na competência: versão, se está pronto para o PVA, pendências (o que impede a transmissão e o que conferir), totais de ICMS e PIS/COFINS e se já foi auditado.',
+      inputSchema: { empresa: empresaSchema, competencia: competenciaSchema },
+      annotations: { title: 'SPED gerado', ...leitura },
+    }, envolver('appura_sped_gerado', async (a: { empresa: string; competencia?: string }) => {
+      const emp = await resolverEmpresa(db, a.empresa);
+      const l = await gerarSped.listar(emp.id, a.competencia ?? mesAtualSP()) as any;
+      const fmt = (g: any) => g ? {
+        versao: g.versao, gerado_em: g.gerado_em, gerado_por: g.gerado_por, pronto_para_o_pva: g.erros === 0, erros: g.erros, alertas: g.alertas, auditado: !!g.auditado_arquivo_id,
+        totais: g.tipo === 'efd_icms_ipi' ? g.resumo?.icms : { pis: g.resumo?.pis, cofins: g.resumo?.cofins },
+        pendencias: (g.pendencias ?? []).filter((x: any) => x.nivel !== 'info').map((x: any) => ({ nivel: x.nivel, texto: x.texto, ocorrencias: x.quantidade, exemplos: (x.exemplos ?? []).slice(0, 3) })),
+      } : 'não gerado';
+      return { empresa: emp.razao_social, competencia: a.competencia ?? mesAtualSP(), regime: l.regime, sped_fiscal: fmt(l.fiscal[0]), sped_contribuicoes: fmt(l.contribuicoes[0]) };
+    }));
+  }
 
   /* ---------- prompts prontos (aparecem como comandos nos apps de IA) ---------- */
   const texto = (t: string) => ({ messages: [{ role: 'user' as const, content: { type: 'text' as const, text: t } }] });
