@@ -1105,7 +1105,7 @@ function abrirNotas(e, aba = 'visao') {
   $('tela-notas').hidden = false;
   $('notas-titulo').textContent = e.razao_social;
   $('notas-sub').textContent = `CNPJ ${formatarCnpj(e.cnpj)}`;
-  $('importacao').hidden = true;
+  $('importacao').hidden = !(importacaoAtual && importacaoAtual.empresaId === e.id);
   window.bxEmpresaResetar();
   audDados = null;
   window.e360Chave = null;
@@ -1188,9 +1188,18 @@ async function enviarArquivo(caminho, arquivo) {
   return dados;
 }
 
+/** Importação em andamento (só uma por vez). Continua se o usuário sair da empresa: o aviso flutuante mostra o progresso. */
+let importacaoAtual = null;
+window.addEventListener('beforeunload', (ev) => { if (importacaoAtual) { ev.preventDefault(); ev.returnValue = ''; } });
+
 async function importarArquivos(lista) {
   const arquivos = [...lista].filter((f) => /\.(xml|zip)$/i.test(f.name));
+  $('notas-importar-arquivos').value = '';
   if (!arquivos.length) { avisar('Escolha arquivos .xml ou .zip.'); return; }
+  if (importacaoAtual) { avisar(`Já há uma importação em andamento (${importacaoAtual.nome}). Espere terminar para começar outra.`, { tipo: 'erro' }); return; }
+  // A empresa fica guardada aqui: trocar de tela não muda para onde os XMLs vão
+  const emp = { id: empresaNotas.id, nome: empresaNotas.razao_social };
+  importacaoAtual = { empresaId: emp.id, nome: emp.nome };
   const caixa = $('importacao');
   const botao = $('notas-importar');
   botao.disabled = true;
@@ -1199,8 +1208,18 @@ async function importarArquivos(lista) {
   const barra = h('span');
   barra.style.width = '0%';
   const status = h('span', { class: 'meta', text: '' });
-  caixa.replaceChildren(h('h3', { text: 'Importando XMLs…' }), h('div', { class: 'barra' }, barra), status);
+  caixa.replaceChildren(h('h3', { text: 'Importando XMLs…' }), h('div', { class: 'barra' }, barra), status,
+    h('span', { class: 'meta', text: 'Você pode usar outras telas do Appura enquanto importa. Só não feche nem recarregue esta aba.' }));
   caixa.hidden = false;
+  // Aviso flutuante: aparece quando o usuário sai da empresa
+  const barraF = h('span'); barraF.style.width = '0%';
+  const statusF = h('span', { class: 'meta', text: '' });
+  const flut = h('div', { class: 'imp-flutuante', role: 'status', hidden: true },
+    h('div', { class: 'imp-flutuante-topo' }, h('strong', { text: `Importando XMLs · ${emp.nome}` })),
+    h('div', { class: 'barra' }, barraF), statusF,
+    h('a', { href: `#/empresas/${emp.id}/notas`, class: 'imp-flutuante-link', text: 'Abrir a empresa' }));
+  document.body.append(flut);
+  const naEmpresa = () => !!empresaNotas && empresaNotas.id === emp.id && !$('tela-notas').hidden;
 
   // XMLs soltos vão em lotes (um ZIP sem compressão com até 50 arquivos), 3 lotes por vez: milhares de XMLs em minutos
   const lotes = lotesImportacao(arquivos);
@@ -1209,9 +1228,14 @@ async function importarArquivos(lista) {
   const atualizar = () => {
     const seg = (Date.now() - inicio) / 1000;
     const resta = feitos ? Math.round(((arquivos.length - feitos) * seg) / feitos) : null;
-    status.textContent = `${feitos.toLocaleString('pt-BR')} de ${arquivos.length.toLocaleString('pt-BR')} arquivos${resta != null && feitos < arquivos.length ? ` · cerca de ${resta >= 90 ? `${Math.ceil(resta / 60)} min` : `${Math.max(1, resta)} s`} para terminar` : ''}`;
-    barra.style.width = `${Math.round((feitos / arquivos.length) * 100)}%`;
+    const texto = `${feitos.toLocaleString('pt-BR')} de ${arquivos.length.toLocaleString('pt-BR')} arquivos${resta != null && feitos < arquivos.length ? ` · cerca de ${resta >= 90 ? `${Math.ceil(resta / 60)} min` : `${Math.max(1, resta)} s`} para terminar` : ''}`;
+    const pct = `${Math.round((feitos / arquivos.length) * 100)}%`;
+    status.textContent = texto; statusF.textContent = texto;
+    barra.style.width = pct; barraF.style.width = pct;
+    flut.hidden = naEmpresa();
+    caixa.hidden = !naEmpresa();
   };
+  const vigia = setInterval(atualizar, 1000);
   const enviarLote = async (lote) => {
     let corpo; let nome;
     if (lote.length === 1) { corpo = lote[0]; nome = lote[0].name; }
@@ -1221,7 +1245,7 @@ async function importarArquivos(lista) {
     }
     for (let tentativa = 1; ; tentativa++) {
       try {
-        const r = await enviarArquivo(`/api/empresas/${empresaNotas.id}/importar?nome=${encodeURIComponent(nome)}`, corpo);
+        const r = await enviarArquivo(`/api/empresas/${emp.id}/importar?nome=${encodeURIComponent(nome)}`, corpo);
         total.importadas += r.importadas; total.completouResumo += r.completouResumo;
         total.jaExistiam += r.jaExistiam; total.rejeitadas += r.rejeitadas;
         for (const [k, v] of Object.entries(r.porModelo || {})) total.porModelo[k] = (total.porModelo[k] || 0) + v;
@@ -1229,7 +1253,7 @@ async function importarArquivos(lista) {
         break;
       } catch (e) {
         // Falha de rede ou servidor reiniciando: tenta de novo (o que já entrou é reconhecido e pulado)
-        if (tentativa < 3 && (e.message === SEM_CONEXAO || /servidor não conseguiu|Erro inesperado/i.test(e.message))) { await new Promise((ok) => setTimeout(ok, 2000 * tentativa)); continue; }
+        if (tentativa < 4 && (e.message === SEM_CONEXAO || /servidor não conseguiu|Erro inesperado/i.test(e.message))) { await new Promise((ok) => setTimeout(ok, 3000 * tentativa)); continue; }
         total.rejeitadas += lote.length;
         rejeitadas.push(`${lote.length === 1 ? lote[0].name : `${lote.length} arquivos (${lote[0].name} …)`}: ${e.message}`);
         break;
@@ -1239,27 +1263,45 @@ async function importarArquivos(lista) {
   };
   atualizar();
   let proximo = 0;
-  await Promise.all(Array.from({ length: Math.min(3, lotes.length) }, async () => {
-    while (proximo < lotes.length) await enviarLote(lotes[proximo++]);
-  }));
+  try {
+    await Promise.all(Array.from({ length: Math.min(3, lotes.length) }, async () => {
+      while (proximo < lotes.length) await enviarLote(lotes[proximo++]);
+    }));
+  } finally {
+    clearInterval(vigia);
+    importacaoAtual = null;
+  }
 
   const novas = total.importadas + total.completouResumo;
   const detalhe = Object.entries(total.porModelo).map(([k, v]) => `${v} ${k}`).join(' · ');
+  const titulo = novas ? `${novas.toLocaleString('pt-BR')} documento${novas === 1 ? '' : 's'} importado${novas === 1 ? '' : 's'}` : 'Nenhum documento novo';
+  const extra = [
+    total.completouResumo ? `${total.completouResumo} completaram notas que só tinham resumo` : '',
+    total.jaExistiam ? `${total.jaExistiam.toLocaleString('pt-BR')} já estavam no sistema` : '',
+    total.rejeitadas ? `${total.rejeitadas} recusado${total.rejeitadas === 1 ? '' : 's'}` : '',
+  ].filter(Boolean).join(' · ');
   caixa.replaceChildren(
     h('div', { class: 'linha-imp' },
-      h('h3', { text: novas ? `${novas} documento${novas === 1 ? '' : 's'} importado${novas === 1 ? '' : 's'}` : 'Nenhum documento novo' }),
+      h('h3', { text: titulo }),
       h('button', { type: 'button', class: 'botao fantasma pequeno', onclick: () => { caixa.hidden = true; } }, 'Fechar')),
     detalhe ? h('span', { class: 'meta', text: detalhe }) : '',
-    h('span', { class: 'meta', text: [
-      total.completouResumo ? `${total.completouResumo} completaram notas que só tinham resumo` : '',
-      total.jaExistiam ? `${total.jaExistiam} já estavam no sistema` : '',
-      total.rejeitadas ? `${total.rejeitadas} recusado${total.rejeitadas === 1 ? '' : 's'}` : '',
-    ].filter(Boolean).join(' · ') || 'Itens e impostos já foram extraídos para a auditoria.' }),
+    h('span', { class: 'meta', text: extra || 'Itens e impostos já foram extraídos para a auditoria.' }),
     rejeitadas.length ? h('ul', {}, ...rejeitadas.slice(0, 200).map((t) => h('li', { text: t }))) : '',
   );
   botao.disabled = false;
-  $('notas-importar-arquivos').value = '';
-  if (novas) { window.e360Chave = null; recarregarAba(); }
+  if (naEmpresa()) {
+    flut.remove(); caixa.hidden = false;
+    if (novas) { window.e360Chave = null; recarregarAba(); }
+  } else {
+    // Fora da empresa: o aviso flutuante vira o resumo, com link para conferir
+    caixa.hidden = true;
+    flut.replaceChildren(
+      h('div', { class: 'imp-flutuante-topo' }, h('strong', { text: `Importação concluída · ${emp.nome}` }),
+        h('button', { type: 'button', class: 'botao fantasma pequeno', 'aria-label': 'Fechar', onclick: () => flut.remove() }, icone('x'))),
+      h('span', { text: titulo }), extra ? h('span', { class: 'meta', text: extra }) : '',
+      h('a', { href: `#/empresas/${emp.id}/notas`, class: 'imp-flutuante-link', text: 'Ver as notas', onclick: () => { flut.remove(); caixa.hidden = false; } }));
+    flut.hidden = false;
+  }
 }
 
 async function baixarZip(botao) {
