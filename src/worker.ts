@@ -94,8 +94,7 @@ async function manutencao() {
 
 /** Atende o botão "Sincronizar agora" do painel (tabela sync_requests). */
 async function atenderPedidosManuais() {
-  // Fora do horário combinado os pedidos ficam pendentes e são atendidos quando a janela abrir.
-  if (!dentroDaJanela(cfg.janela)) return;
+  // Pedido manual vale a qualquer horário: só a busca automática respeita a janela (JANELA_SINCRONIZACAO, padrão 23h às 6h).
   const pedidos = ok(
     await db.from('sync_requests').select('id,empresa_id').eq('status', 'pendente').order('solicitado_em').limit(50),
     'listar sync_requests',
@@ -146,11 +145,17 @@ async function atenderPedidosManuais() {
   }
 }
 
+let atendendoPedidos = false;
+async function ciclarPedidos() {
+  if (encerrando || atendendoPedidos) return;
+  atendendoPedidos = true;
+  try { await atenderPedidosManuais(); } catch (e) { log.error('erro nos pedidos manuais', { erro: (e as Error).message }); } finally { atendendoPedidos = false; }
+}
+
 async function tique() {
   if (encerrando || ocupadoComPedidos) return;
   ocupadoComPedidos = true;
   try {
-    await atenderPedidosManuais();
     // Detalha (itens e tributos) notas completas ainda não extraídas, inclusive o histórico.
     const extraidas = await extrairPendentes(db, arm, 150);
     if (extraidas) log.info('notas detalhadas', { quantidade: extraidas });
@@ -207,6 +212,8 @@ async function iniciar() {
   }, { timezone: 'America/Sao_Paulo' });
 
   const intervalo = setInterval(() => void tique(), 60_000);
+  // Botão "Sincronizar": conferido a cada 5 s, fora do ciclo pesado (extração, auditoria), para começar na hora
+  const pedidos = setInterval(() => void ciclarPedidos(), 5_000);
   setTimeout(() => void tique(), 5_000);
 
   const parar = async (sinal: string) => {
@@ -214,6 +221,7 @@ async function iniciar() {
     encerrando = true;
     log.info('encerrando', { sinal });
     clearInterval(intervalo);
+    clearInterval(pedidos);
     clearInterval(abastecer);
     clearInterval(manut);
     for (const t of cron.getTasks().values()) t.stop();

@@ -1192,19 +1192,20 @@ async function enviarArquivo(caminho, arquivo) {
 let importacaoAtual = null;
 window.addEventListener('beforeunload', (ev) => { if (importacaoAtual) { ev.preventDefault(); ev.returnValue = ''; } });
 
-async function importarArquivos(lista) {
+async function importarArquivos(lista, destino = null) {
   const arquivos = [...lista].filter((f) => /\.(xml|zip)$/i.test(f.name));
   $('notas-importar-arquivos').value = '';
   if (!arquivos.length) { avisar('Escolha arquivos .xml ou .zip.'); return; }
   if (importacaoAtual) { avisar(`Já há uma importação em andamento (${importacaoAtual.nome}). Espere terminar para começar outra.`, { tipo: 'erro' }); return; }
   // A empresa fica guardada aqui: trocar de tela não muda para onde os XMLs vão
-  const emp = { id: empresaNotas.id, nome: empresaNotas.razao_social };
+  const emp = destino || { id: empresaNotas.id, nome: empresaNotas.razao_social };
   importacaoAtual = { empresaId: emp.id, nome: emp.nome };
   const caixa = $('importacao');
   const botao = $('notas-importar');
   botao.disabled = true;
   const total = { importadas: 0, completouResumo: 0, jaExistiam: 0, rejeitadas: 0, porModelo: {} };
   const rejeitadas = [];
+  const falhasConexao = [];
   const barra = h('span');
   barra.style.width = '0%';
   const status = h('span', { class: 'meta', text: '' });
@@ -1253,9 +1254,14 @@ async function importarArquivos(lista) {
         break;
       } catch (e) {
         // Falha de rede ou servidor reiniciando: tenta de novo (o que já entrou é reconhecido e pulado)
-        if (tentativa < 4 && (e.message === SEM_CONEXAO || /servidor não conseguiu|Erro inesperado/i.test(e.message))) { await new Promise((ok) => setTimeout(ok, 3000 * tentativa)); continue; }
-        total.rejeitadas += lote.length;
-        rejeitadas.push(`${lote.length === 1 ? lote[0].name : `${lote.length} arquivos (${lote[0].name} …)`}: ${e.message}`);
+        // Servidor reiniciando (publicação) leva 1 a 2 minutos: espera até ~2,5 min antes de desistir do lote
+        const transitorio = e.message === SEM_CONEXAO || /servidor não conseguiu|Erro inesperado|Failed to fetch|NetworkError/i.test(e.message);
+        if (transitorio && tentativa < 8) { await new Promise((ok) => setTimeout(ok, [3, 6, 12, 20, 30, 30, 30][tentativa - 1] * 1000)); continue; }
+        if (transitorio) falhasConexao.push(...lote);
+        else {
+          total.rejeitadas += lote.length;
+          rejeitadas.push(`${lote.length === 1 ? lote[0].name : `${lote.length} arquivos (${lote[0].name} …)`}: ${e.message}`);
+        }
         break;
       }
     }
@@ -1279,13 +1285,18 @@ async function importarArquivos(lista) {
     total.completouResumo ? `${total.completouResumo} completaram notas que só tinham resumo` : '',
     total.jaExistiam ? `${total.jaExistiam.toLocaleString('pt-BR')} já estavam no sistema` : '',
     total.rejeitadas ? `${total.rejeitadas} recusado${total.rejeitadas === 1 ? '' : 's'}` : '',
+    falhasConexao.length ? `${falhasConexao.length.toLocaleString('pt-BR')} não enviado${falhasConexao.length === 1 ? '' : 's'} por falha de conexão` : '',
   ].filter(Boolean).join(' · ');
+  // Os que não foram por falha de conexão não são "recusados": dá para mandar de novo com um clique
+  const reenviar = () => (falhasConexao.length ? h('button', { type: 'button', class: 'botao primario pequeno', onclick: () => { flut.remove(); importarArquivos(falhasConexao, emp); } },
+    icone('refresh-cw'), h('span', { text: `Reenviar ${falhasConexao.length.toLocaleString('pt-BR')} que falharam` })) : '');
   caixa.replaceChildren(
     h('div', { class: 'linha-imp' },
       h('h3', { text: titulo }),
       h('button', { type: 'button', class: 'botao fantasma pequeno', onclick: () => { caixa.hidden = true; } }, 'Fechar')),
     detalhe ? h('span', { class: 'meta', text: detalhe }) : '',
     h('span', { class: 'meta', text: extra || 'Itens e impostos já foram extraídos para a auditoria.' }),
+    reenviar(),
     rejeitadas.length ? h('ul', {}, ...rejeitadas.slice(0, 200).map((t) => h('li', { text: t }))) : '',
   );
   botao.disabled = false;
@@ -1298,7 +1309,7 @@ async function importarArquivos(lista) {
     flut.replaceChildren(
       h('div', { class: 'imp-flutuante-topo' }, h('strong', { text: `Importação concluída · ${emp.nome}` }),
         h('button', { type: 'button', class: 'botao fantasma pequeno', 'aria-label': 'Fechar', onclick: () => flut.remove() }, icone('x'))),
-      h('span', { text: titulo }), extra ? h('span', { class: 'meta', text: extra }) : '',
+      h('span', { text: titulo }), extra ? h('span', { class: 'meta', text: extra }) : '', reenviar(),
       h('a', { href: `#/empresas/${emp.id}/notas`, class: 'imp-flutuante-link', text: 'Ver as notas', onclick: () => { flut.remove(); caixa.hidden = false; } }));
     flut.hidden = false;
   }

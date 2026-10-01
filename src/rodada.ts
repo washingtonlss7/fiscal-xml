@@ -70,7 +70,8 @@ export function novoContexto(db: Db, cfg: ConfigWorker, arm: Armazenamento, clie
   return {
     db, arm, tpAmb: cfg.tpAmb, maxChamadasPorRodada: cfg.maxChamadasPorRodada,
     intervaloMs: cfg.intervaloHoras * 3600_000, clientes, manual,
-    podeConsultar: () => dentroDaJanela(cfg.janela),
+    // Pedido manual (botão Sincronizar) consulta na hora, a qualquer horário; a busca automática fica na janela
+    podeConsultar: manual ? () => true : () => dentroDaJanela(cfg.janela),
   };
 }
 

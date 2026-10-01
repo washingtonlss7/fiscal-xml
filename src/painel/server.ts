@@ -17,7 +17,6 @@ import { lerTabelaCsv, tabelaParaCsv } from '../fiscal/st';
 import { Armazenamento, configArmazenamento } from '../armazenamento';
 import { auditarMes } from '../auditoria/motor';
 import { REGRAS } from '../auditoria/regras';
-import { dentroDaJanela, lerJanela } from '../util';
 import { ErroSped, ServicoSped } from './sped';
 import { ServicoGuias } from './guias';
 import { configIntegra, ErroIntegra, IntegraContador, transporteHttps } from '../integra/cliente';
@@ -52,8 +51,6 @@ const cfg = {
 };
 
 const db = criarDb(cfg.supabaseUrl, cfg.serviceKey);
-/** Mesmo horário de consultas do coletor (JANELA_SINCRONIZACAO, padrão 23h às 6h). */
-const JANELA = lerJanela(process.env.JANELA_SINCRONIZACAO ?? '23-6');
 /** Cliente descartável para login: nunca reaproveitar o cliente de serviço para sessões de usuário. */
 const clienteAuth = () => createClient(cfg.supabaseUrl, cfg.serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
@@ -320,12 +317,8 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
       if (!pendentes.length) {
         ok(await db.from('sync_requests').insert({ empresa_id: id }), 'criar pedido');
       }
-      if (!dentroDaJanela(JANELA)) {
-        return responder(res, 200, {
-          mensagem: `Pedido registrado. As consultas à SEFAZ só acontecem das ${JANELA!.texto}; a empresa será sincronizada quando o horário abrir.`,
-        });
-      }
-      return responder(res, 200, { mensagem: 'Sincronização pedida. O coletor começa em até 1 minuto.' });
+      // Pedido manual vale a qualquer horário (a busca automática é que fica na janela da noite)
+      return responder(res, 200, { mensagem: 'Sincronização iniciada: a busca na SEFAZ começa em alguns segundos.' });
     }
     const { ativo } = await lerCorpo(req);
     ok(await db.from('empresas').update({ ativo: !!ativo }).eq('id', id), 'atualizar empresa');
