@@ -1579,3 +1579,9 @@ table.notas tr.bx-marcada td { background: var(--info-fundo); }
 .imp-recusados ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: var(--t-s); }
 .bx-rejeitadas { border-left: 4px solid var(--problema); gap: var(--esp-2); }
 .bx-motivos { margin: 0; padding-left: 18px; font-size: var(--t-s); display: flex; flex-direction: column; gap: 4px; }
+
+/* ---------- Apuração do Lucro Real (apuracao-real.js) ---------- */
+.ar-card { gap: var(--esp-3); }
+table.ar-tabela { min-width: 560px; }
+table.ar-tabela tr.ar-destaque td { font-weight: 600; background: var(--superficie-2); }
+.ar-fontes { margin: 0; padding-left: 18px; font-size: var(--t-s); color: var(--tinta-2); display: flex; flex-direction: column; gap: 2px; }

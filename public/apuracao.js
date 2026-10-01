@@ -91,10 +91,11 @@ if (typeof window !== 'undefined') {
     if (!empresaNotas) return;
     const id = empresaNotas.id; const mes = mesSelecionado();
     const alvo = $('ap-conteudo');
+    if ((empresaNotas.regime === 'real' || empresaNotas.regime === 'presumido') && window.arCarregar) { window.arCarregar(alvo); return; }
     if (empresaNotas.regime !== 'simples') {
       alvo.replaceChildren(h('div', { class: 'e360-breve' }, icone('calculator'), h('div', {},
         h('strong', { text: empresaNotas.regime === 'mei' ? 'MEI não tem apuração' : 'Apuração do Simples Nacional' }),
-        h('p', { text: empresaNotas.regime === 'mei' ? 'O DAS-MEI tem valor fixo: gere na aba Guias.' : empresaNotas.regime ? 'Esta apuração é do PGDAS-D (Simples Nacional). Lucro Presumido e Real ainda não estão no Appura.' : 'Informe o regime da empresa no cadastro.' }))));
+        h('p', { text: empresaNotas.regime === 'mei' ? 'O DAS-MEI tem valor fixo: gere na aba Guias.' : empresaNotas.regime ? 'Esta apuração é do PGDAS-D (Simples Nacional).' : 'Informe o regime da empresa no cadastro.' }))));
       return;
     }
     const chave = `${id}|${mes}`;

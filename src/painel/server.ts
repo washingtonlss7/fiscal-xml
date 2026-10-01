@@ -23,6 +23,7 @@ import { configIntegra, ErroIntegra, IntegraContador, transporteHttps } from '..
 import { ErroAcessorias, MAX_PDF, ServicoAcessorias, TIPOS_DOCUMENTO, TIPOS_UPLOAD } from '../integra/acessorias';
 import { ErroDocumento, ServicoDocumentosEntrega } from './documentosEntrega';
 import { listarVendasSemNota } from './rejeitadas';
+import { apuracaoReal } from './apuracaoReal';
 import { CAMPOS as CAMPOS_CADASTRO, editarCadastro, ErroCadastro, lerCadastro, REGIMES as REGIMES_CADASTRO } from './cadastroEmpresa';
 import { ErroOAuth, ServicoOAuth } from '../mcp/oauth';
 import { rotaMcp, OpcoesMcpHttp } from '../mcp/http';
@@ -67,6 +68,7 @@ const ARQUIVOS: Record<string, [string, string]> = {
   '/documentos.js': ['documentos.js', 'text/javascript; charset=utf-8'],
   '/busca-xml.js': ['busca-xml.js', 'text/javascript; charset=utf-8'],
   '/cadastro.js': ['cadastro.js', 'text/javascript; charset=utf-8'],
+  '/apuracao-real.js': ['apuracao-real.js', 'text/javascript; charset=utf-8'],
   '/guias.js': ['guias.js', 'text/javascript; charset=utf-8'],
   '/apuracao.js': ['apuracao.js', 'text/javascript; charset=utf-8'],
   '/sped-gerar.js': ['sped-gerar.js', 'text/javascript; charset=utf-8'],
@@ -311,6 +313,14 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
 
   // Cadastro da empresa (regime, IE, endereço, contador, captação): leitura livre; edição com permissão de cadastro
   // Vendas sem nota autorizada (XMLs importados que a SEFAZ rejeitou, sem nota boa no mesmo número)
+  // Apuração do Lucro Real/Presumido: ICMS e PIS/COFINS do SPED gerado pelo Appura × SPED enviado do mês
+  const apReal = rota.match(/^\/api\/empresas\/([0-9a-f-]{36})\/apuracao-real$/);
+  if (apReal && metodo === 'GET') {
+    const mes = url.searchParams.get('mes') ?? '';
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(mes)) throw new ErroHttp(400, 'Informe o mês no formato AAAA-MM.');
+    return responder(res, 200, await apuracaoReal(db, apReal[1], mes));
+  }
+
   const rejEmp = rota.match(/^\/api\/empresas\/([0-9a-f-]{36})\/rejeitadas$/);
   if (rejEmp && metodo === 'GET') {
     const de = url.searchParams.get('de') ?? ''; const ate = url.searchParams.get('ate') ?? '';
