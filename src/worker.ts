@@ -10,6 +10,7 @@ import { Agendador } from './agendador';
 import { carregarEmpresas, emAndamento, executarRodada, garantirSyncState, mapaClientes, novoContexto, sincronizarEmpresa } from './rodada';
 import { dentroDaJanela } from './util';
 import { registrarStatus } from './status';
+import type { ProgressoSync } from './sync';
 
 const cfg = configWorker();
 const db = criarDb(cfg.supabaseUrl, cfg.supabaseServiceKey);
@@ -102,10 +103,28 @@ async function atenderPedidosManuais() {
   if (!pedidos.length) return;
 
   const ids = pedidos.map((p) => p.id);
-  ok(await db.from('sync_requests').update({ status: 'processando' }).in('id', ids), 'marcar processando');
+  ok(await db.from('sync_requests').update({ status: 'processando', iniciado_em: new Date().toISOString(), progresso: null }).in('id', ids), 'marcar processando');
+
+  // Andamento por empresa e modelo, gravado no pedido no máximo a cada 1,5 s (a tela consulta a cada 2 s)
+  const porEmpresa = new Map<string, number[]>();
+  for (const p of pedidos) porEmpresa.set(p.empresa_id, [...(porEmpresa.get(p.empresa_id) ?? []), p.id]);
+  const estado = new Map<string, Record<string, ProgressoSync>>();
+  const ultimaGravacao = new Map<string, number>();
+  const gravarProgresso = (empresaId: string, forcar = false) => {
+    const agora = Date.now();
+    if (!forcar && agora - (ultimaGravacao.get(empresaId) ?? 0) < 1500) return;
+    ultimaGravacao.set(empresaId, agora);
+    const pIds = porEmpresa.get(empresaId); if (!pIds) return;
+    void db.from('sync_requests').update({ progresso: { modelos: estado.get(empresaId) ?? {}, atualizado_em: new Date().toISOString() } }).in('id', pIds)
+      .then((r) => { if (r.error) log.warn('progresso da sincronização não gravado', { erro: r.error.message }); });
+  };
+  const aoProgresso = (empresaId: string, p: ProgressoSync) => {
+    estado.set(empresaId, { ...(estado.get(empresaId) ?? {}), [p.modelo]: p });
+    gravarProgresso(empresaId, p.etapa === 'concluido' || p.etapa === 'erro' || p.etapa === 'aguardando');
+  };
 
   try {
-    const r = await executarRodada(db, cfg, arm, [...new Set(pedidos.map((p) => p.empresa_id))]);
+    const r = await executarRodada(db, cfg, arm, [...porEmpresa.keys()], aoProgresso);
     for (const p of pedidos) {
       const res = r[p.empresa_id];
       let status = 'concluido';
@@ -135,7 +154,8 @@ async function atenderPedidosManuais() {
           mensagem = `${docs} documento(s) recebido(s)${parcial ? '; o restante continua automaticamente' : ''}.`;
         }
       }
-      await db.from('sync_requests').update({ status, processado_em: new Date().toISOString(), mensagem }).eq('id', p.id);
+      await db.from('sync_requests').update({ status, processado_em: new Date().toISOString(), mensagem,
+        progresso: { modelos: estado.get(p.empresa_id) ?? {}, atualizado_em: new Date().toISOString() } }).eq('id', p.id);
     }
   } catch (e) {
     await db

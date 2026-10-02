@@ -1554,13 +1554,15 @@ table.notas tr.bx-marcada td { background: var(--info-fundo); }
 }
 
 /* Importação de XML continuando fora da empresa */
-.imp-flutuante { position: fixed; right: 16px; bottom: 16px; z-index: 40; width: min(360px, calc(100vw - 32px)); display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 1px solid var(--linha); border-radius: var(--raio); background: var(--superficie); box-shadow: var(--sombra); }
+.area-flutuante { position: fixed; right: 16px; bottom: 16px; z-index: 40; display: flex; flex-direction: column; gap: var(--esp-2); width: min(360px, calc(100vw - 32px)); pointer-events: none; }
+.area-flutuante > * { pointer-events: auto; }
+.imp-flutuante { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 1px solid var(--linha); border-radius: var(--raio); background: var(--superficie); box-shadow: var(--sombra); }
 .imp-flutuante[hidden] { display: none; }
 .imp-flutuante-topo { display: flex; justify-content: space-between; align-items: center; gap: var(--esp-2); }
 .imp-flutuante .barra { height: 6px; background: var(--neutro-fundo); border-radius: var(--raio-pilula); overflow: hidden; }
 .imp-flutuante .barra span { display: block; height: 100%; background: var(--destaque); transition: width .2s; }
 .imp-flutuante-link { font-size: var(--t-s); font-weight: 600; color: var(--primaria); }
-@media (max-width: 760px) { .imp-flutuante { bottom: calc(76px + env(safe-area-inset-bottom, 0px)); } }
+@media (max-width: 760px) { .area-flutuante { bottom: calc(76px + env(safe-area-inset-bottom, 0px)); } }
 
 /* ---------- Editar cadastro (cadastro.js) ---------- */
 .e360-dados-topo { display: flex; justify-content: space-between; align-items: center; gap: var(--esp-2); }
@@ -1585,3 +1587,12 @@ table.notas tr.bx-marcada td { background: var(--info-fundo); }
 table.ar-tabela { min-width: 560px; }
 table.ar-tabela tr.ar-destaque td { font-weight: 600; background: var(--superficie-2); }
 .ar-fontes { margin: 0; padding-left: 18px; font-size: var(--t-s); color: var(--tinta-2); display: flex; flex-direction: column; gap: 2px; }
+
+/* ---------- Barra de status da sincronização (sincronizacao.js) ---------- */
+.sc-titulo { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sc-linhas { display: flex; flex-direction: column; gap: 2px; }
+.imp-flutuante .barra span.indeterminada { animation: sc-vai 1.4s ease-in-out infinite; }
+.imp-flutuante[data-tom="ok"] .barra span { background: var(--ok); }
+.imp-flutuante[data-tom="problema"] .barra span { background: var(--problema); }
+@keyframes sc-vai { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .imp-flutuante .barra span.indeterminada { animation: none; } }

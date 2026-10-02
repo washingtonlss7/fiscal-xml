@@ -167,10 +167,11 @@ export async function executarRodada(
   cfg: ConfigWorker,
   arm: Armazenamento,
   ids: string[],
+  progresso?: ContextoSync['progresso'],
 ): Promise<Record<string, ResultadoEmpresa>> {
   const { empresas, certs } = await carregarEmpresas(db, ids);
   await garantirSyncState(db, empresas);
-  const ctx = novoContexto(db, cfg, arm, await mapaClientes(db), true);
+  const ctx = { ...novoContexto(db, cfg, arm, await mapaClientes(db), true), progresso };
   const saida: Record<string, ResultadoEmpresa> = {};
   await emParalelo(empresas, cfg.concorrencia, async (e) => {
     saida[e.id] = await sincronizarEmpresa(ctx, cfg, e, certs.get(e.id));

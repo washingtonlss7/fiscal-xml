@@ -69,6 +69,7 @@ const ARQUIVOS: Record<string, [string, string]> = {
   '/busca-xml.js': ['busca-xml.js', 'text/javascript; charset=utf-8'],
   '/cadastro.js': ['cadastro.js', 'text/javascript; charset=utf-8'],
   '/apuracao-real.js': ['apuracao-real.js', 'text/javascript; charset=utf-8'],
+  '/sincronizacao.js': ['sincronizacao.js', 'text/javascript; charset=utf-8'],
   '/guias.js': ['guias.js', 'text/javascript; charset=utf-8'],
   '/apuracao.js': ['apuracao.js', 'text/javascript; charset=utf-8'],
   '/sped-gerar.js': ['sped-gerar.js', 'text/javascript; charset=utf-8'],
@@ -336,6 +337,14 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
       if (e instanceof ErroCadastro) return responder(res, e.status, { erro: e.message, ...(e.codigo ? { codigo: e.codigo } : {}) });
       throw e;
     }
+  }
+
+  // Andamento do último pedido de sincronização (barra de status do botão "Sincronizar")
+  const sincSt = rota.match(/^\/api\/empresas\/([0-9a-f-]{36})\/sincronizacao$/);
+  if (sincSt && metodo === 'GET') {
+    const p = ok(await db.from('sync_requests').select('id,status,mensagem,solicitado_em,iniciado_em,processado_em,progresso')
+      .eq('empresa_id', sincSt[1]).order('solicitado_em', { ascending: false }).order('id', { ascending: false }).limit(1), 'pedido de sincronização') as any[];
+    return responder(res, 200, { pedido: p[0] ?? null });
   }
 
   const acao = rota.match(/^\/api\/empresas\/([0-9a-f-]{36})\/(sincronizar|ativo)$/);

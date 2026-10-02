@@ -926,6 +926,7 @@ async function sincronizar(e, botao) {
     e.sincronizacao_pedida = true;
     renderLista();
     avisar(r.mensagem, { tipo: 'ok' });
+    if (window.scAcompanhar) window.scAcompanhar(e);
   }, `sincronizar:${e.id}`);
 }
 
@@ -1107,6 +1108,7 @@ function abrirNotas(e, aba = 'visao') {
   $('notas-sub').textContent = `CNPJ ${formatarCnpj(e.cnpj)}`;
   $('importacao').hidden = !(importacaoAtual && importacaoAtual.empresaId === e.id);
   window.bxEmpresaResetar();
+  if (window.scVerificar) window.scVerificar(e);
   audDados = null;
   window.e360Chave = null;
   window.e360Resetar(e);
@@ -1188,6 +1190,13 @@ async function enviarArquivo(caminho, arquivo) {
   return dados;
 }
 
+/** Canto inferior direito onde ficam os avisos de tarefas em andamento (importação, sincronização), um sobre o outro. */
+function areaFlutuante() {
+  let a = document.getElementById('area-flutuante');
+  if (!a) { a = h('div', { id: 'area-flutuante', class: 'area-flutuante', 'aria-live': 'polite' }); document.body.append(a); }
+  return a;
+}
+
 /** Importação em andamento (só uma por vez). Continua se o usuário sair da empresa: o aviso flutuante mostra o progresso. */
 let importacaoAtual = null;
 window.addEventListener('beforeunload', (ev) => { if (importacaoAtual) { ev.preventDefault(); ev.returnValue = ''; } });
@@ -1219,7 +1228,7 @@ async function importarArquivos(lista, destino = null) {
     h('div', { class: 'imp-flutuante-topo' }, h('strong', { text: `Importando XMLs · ${emp.nome}` })),
     h('div', { class: 'barra' }, barraF), statusF,
     h('a', { href: `#/empresas/${emp.id}/notas`, class: 'imp-flutuante-link', text: 'Abrir a empresa' }));
-  document.body.append(flut);
+  areaFlutuante().append(flut);
   const naEmpresa = () => !!empresaNotas && empresaNotas.id === emp.id && !$('tela-notas').hidden;
 
   // XMLs soltos vão em lotes (um ZIP sem compressão com até 50 arquivos), 3 lotes por vez: milhares de XMLs em minutos

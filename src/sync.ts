@@ -28,6 +28,26 @@ export interface ContextoSync {
   podeConsultar?: () => boolean;
   /** CNPJ -> empresa cadastrada, para distribuir as notas recebidas pelo escritório (autXML). */
   clientes?: Map<string, { id: string; cnpj: string }>;
+  /** Andamento da sincronização (para a barra de status do painel no pedido manual). */
+  progresso?: (empresaId: string, p: ProgressoSync) => void;
+}
+
+/** O que o painel mostra enquanto a empresa sincroniza. NSU restantes ≈ documentos ainda por baixar na SEFAZ. */
+export interface ProgressoSync {
+  modelo: Modelo;
+  etapa: 'consultando' | 'processando' | 'lacunas' | 'aguardando' | 'concluido' | 'erro';
+  chamadas: number;
+  localizados: number;
+  baixados: number;
+  restantes: number | null;
+  mensagem?: string;
+}
+
+/** Quantos NSU faltam até o maxNSU (null quando a SEFAZ ainda não informou). */
+export function nsuRestantes(ultNSU: string, maxNSU: string | null | undefined): number | null {
+  if (!maxNSU) return null;
+  const r = Number(maxNSU) - Number(ultNSU);
+  return Number.isFinite(r) ? Math.max(0, r) : null;
 }
 
 export interface ResultadoSync {
@@ -335,8 +355,15 @@ export async function sincronizarModelo(
 ): Promise<ResultadoSync> {
   const { db } = ctx;
 
+  let localizados = 0; let chamadasP = 0; let maxNSU: string | null = null; let ultP = '0';
+  const avisar = (etapa: ProgressoSync['etapa'], mensagem?: string) => {
+    if (!ctx.progresso) return;
+    try { ctx.progresso(empresa.id, { modelo, etapa, chamadas: chamadasP, localizados, baixados: documentos, restantes: nsuRestantes(ultP, maxNSU), mensagem }); } catch { /* só tela */ }
+  };
   // Sobras de uma execução interrompida são processadas antes de qualquer consulta.
-  let documentos = await processarFila(ctx, empresa, modelo);
+  let documentos = 0;
+  avisar('processando');
+  documentos = await processarFila(ctx, empresa, modelo);
 
   const estado = ok(
     await db.from('sync_state').select('*').eq('empresa_id', empresa.id).eq('modelo', modelo).maybeSingle(),
@@ -346,15 +373,19 @@ export async function sincronizarModelo(
 
   const liberado = liberadoEm(estado, !!ctx.manual);
   if (liberado > Date.now()) {
+    avisar('aguardando', `A SEFAZ só libera nova consulta 1 hora depois da anterior (às ${new Date(liberado).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' })}).`);
     return { modelo, status: 'aguardando', chamadas: 0, documentos, mensagem: `liberado em ${new Date(liberado).toISOString()}` };
   }
 
   let ultNSU: string = estado.ult_nsu;
+  ultP = ultNSU; maxNSU = estado.max_nsu ?? null;
   let erros: number = estado.erros_consecutivos ?? 0;
   let chamadas = 0;
 
   const finalizar = async (status: ResultadoSync['status']) => {
     // Fila em dia: aproveita para recuperar NSUs que ficaram faltando.
+    ultP = ultNSU;
+    avisar('lacunas');
     documentos += await recuperarLacunas(ctx, empresa, modelo, agent, ultNSU, estado.lacunas_verificadas_em ?? null);
     // Se ainda faltam NSUs (outro sistema baixou notas deste CNPJ), volta em 1 hora para continuar a recuperação,
     // em vez de esperar o intervalo normal.
@@ -366,6 +397,8 @@ export async function sincronizarModelo(
       await ctx.db.from('sync_state').update({ proxima_consulta_em: daquiA(minutos(61)) })
         .eq('empresa_id', empresa.id).eq('modelo', modelo).gt('proxima_consulta_em', daquiA(minutos(61)));
     }
+    ultP = ultNSU;
+    avisar('concluido');
     return { modelo, status, chamadas, documentos };
   };
 
@@ -374,7 +407,8 @@ export async function sincronizarModelo(
       // Janela encerrada: para aqui; o NSU já está salvo e a empresa continua na próxima janela.
       return { modelo, status: chamadas ? 'parcial' : 'aguardando', chamadas, documentos, mensagem: 'fora do horário de consulta' };
     }
-    chamadas++;
+    chamadas++; chamadasP = chamadas;
+    avisar('consultando');
     const t0 = Date.now();
     let ret: RetornoDist;
     try {
@@ -390,8 +424,10 @@ export async function sincronizarModelo(
         proxima_consulta_em: daquiA(backoff(erros)),
       });
       log.error('falha na consulta', { cnpj: empresa.cnpj, modelo, erro: msg });
+      avisar('erro', msg);
       return { modelo, status: 'erro', chamadas, documentos, mensagem: msg };
     }
+    if (ret.maxNSU) maxNSU = ret.maxNSU;
 
     await registrarLog(db, {
       empresa_id: empresa.id,
@@ -414,8 +450,11 @@ export async function sincronizarModelo(
     if (ret.cStat === '138') {
       // 1) guarda o lote bruto, 2) salva o NSU devolvido, 3) processa. Nessa ordem, um reinício não quebra a sequência.
       await enfileirar(db, empresa, modelo, ret.docs);
+      localizados += ret.docs.length;
       const naoAvancou = ret.ultNSU <= ultNSU;
       if (!naoAvancou) ultNSU = ret.ultNSU;
+      ultP = ultNSU;
+      avisar('processando');
       erros = 0;
       const chegouAoFim = naoAvancou || ret.ultNSU >= ret.maxNSU;
       await atualizarEstado(db, empresa.id, modelo, {
@@ -427,6 +466,7 @@ export async function sincronizarModelo(
         proxima_consulta_em: chegouAoFim ? daquiA(intervalo(ctx)) : daquiA(minutos(3)),
       });
       documentos += await processarFila(ctx, empresa, modelo);
+      avisar('consultando');
       if (chegouAoFim) return finalizar('ok');
       await esperar(1500);
       continue;
