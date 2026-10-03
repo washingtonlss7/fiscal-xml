@@ -3,6 +3,7 @@
 //	appura-coletor.exe              abre o assistente de instalação (ou de configuração, se já instalado)
 //	appura-coletor.exe configurar   abre o assistente de configuração
 //	appura-coletor.exe rodar        o coletor em si (é o que a tarefa do Windows executa)
+//	appura-coletor.exe bandeja      o ícone ao lado do relógio, com o painel de atividades
 //	appura-coletor.exe desinstalar  remove a tarefa e o atalho (os dados ficam em ProgramData)
 //	appura-coletor.exe versao
 package main
@@ -28,6 +29,8 @@ func main() {
 		fmt.Println("Appura Coletor", Versao)
 	case "rodar":
 		os.Exit(modoRodar())
+	case "bandeja":
+		modoBandeja()
 	case "desinstalar":
 		if !ehAdministrador() {
 			if err := elevar([]string{"desinstalar"}); err != nil {
@@ -75,25 +78,27 @@ func abrirLog() *log.Logger {
 	return log.New(w, "", log.LstdFlags)
 }
 
+// falhaAoIniciar registra o problema no log e na situação pública (o ícone da bandeja mostra o motivo).
+func falhaAoIniciar(lg *log.Logger, msg string) int {
+	lg.Print(msg)
+	GravarStatus(&Status{Versao: Versao, Estado: "erro", UltimoErro: msg, IniciadoEm: time.Now()})
+	time.Sleep(time.Minute) // a tarefa do Windows reinicia o coletor; espera para não ficar num laço rápido
+	return 1
+}
+
 func modoRodar() int {
 	lg := abrirLog()
 	cfg, err := LerConfig()
 	if err != nil {
-		lg.Printf("sem configuração (%v): rode o assistente \"Appura Coletor - Configurar\"", err)
-		time.Sleep(time.Minute)
-		return 1
+		return falhaAoIniciar(lg, fmt.Sprintf("sem configuração (%v): rode o assistente \"Appura Coletor - Configurar\"", err))
 	}
 	token, err := cfg.Token()
 	if err != nil {
-		lg.Printf("token: %v", err)
-		time.Sleep(time.Minute)
-		return 1
+		return falhaAoIniciar(lg, fmt.Sprintf("não consegui ler o token protegido: %v. Rode o assistente e informe o token de novo.", err))
 	}
 	reg, err := AbrirRegistro(caminhoRegistro())
 	if err != nil {
-		lg.Printf("registro local: %v", err)
-		time.Sleep(time.Minute)
-		return 1
+		return falhaAoIniciar(lg, fmt.Sprintf("registro local: %v", err))
 	}
 	defer reg.Fechar()
 	if cfg.ReavaliarPeriodo {

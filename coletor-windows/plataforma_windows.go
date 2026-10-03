@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -223,7 +224,9 @@ func instalarPrograma() (string, error) {
 	}
 	destino := filepath.Join(destDir, "appura-coletor.exe")
 	if !strings.EqualFold(filepath.Clean(origem), filepath.Clean(destino)) {
-		_ = rodar("schtasks", "/End", "/TN", nomeTarefa) // atualização: para a versão antiga antes de copiar
+		// Atualização: para a versão antiga (coletor e ícone) antes de copiar, senão o Windows não deixa sobrescrever
+		_ = rodar("schtasks", "/End", "/TN", nomeTarefa)
+		pararOutrasInstancias()
 		b, err := os.ReadFile(origem)
 		if err != nil {
 			return "", err
@@ -238,6 +241,10 @@ func instalarPrograma() (string, error) {
 	}
 	if err := rodar("icacls", PastaDados(), "/inheritance:r", "/grant:r", "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F"); err != nil {
 		return "", err
+	}
+	// Só a situação (sem segredos) pode ser lida por qualquer usuário: é o que o ícone da bandeja mostra
+	if err := os.MkdirAll(pastaPublica(), 0o755); err == nil {
+		_ = rodar("icacls", pastaPublica(), "/grant", "*S-1-5-32-545:(OI)(CI)RX")
 	}
 	xmlPath := filepath.Join(PastaDados(), "tarefa.xml")
 	// O schtasks exige UTF-16 com BOM
@@ -254,6 +261,8 @@ func instalarPrograma() (string, error) {
 	}
 	os.Remove(xmlPath)
 	criarAtalho(destino)
+	// Ícone na bandeja ao entrar no Windows (todos os usuários deste computador)
+	_ = rodar("reg", "add", `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run`, "/v", nomeTarefa, "/t", "REG_SZ", "/d", `"`+destino+`" bandeja`, "/f")
 	return destino, nil
 }
 
@@ -267,6 +276,20 @@ func criarAtalho(exe string) {
 
 func iniciarServico() error { return rodar("schtasks", "/Run", "/TN", nomeTarefa) }
 
+// pararOutrasInstancias encerra o coletor e o ícone que estiverem rodando (menos este processo).
+func pararOutrasInstancias() {
+	_ = rodar("taskkill", "/F", "/FI", "IMAGENAME eq appura-coletor.exe", "/FI", fmt.Sprintf("PID ne %d", os.Getpid()))
+	time.Sleep(time.Second)
+}
+
+// iniciarBandeja abre o ícone ao lado do relógio para quem está usando o computador agora.
+func iniciarBandeja() {
+	exe := filepath.Join(pastaPrograma(), "appura-coletor.exe")
+	cmd := exec.Command(exe, "bandeja")
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	_ = cmd.Start()
+}
+
 func reiniciarServico() error {
 	_ = rodar("schtasks", "/End", "/TN", nomeTarefa)
 	return iniciarServico()
@@ -277,6 +300,8 @@ func servicoInstalado() bool { return rodar("schtasks", "/Query", "/TN", nomeTar
 func desinstalarPrograma() error {
 	_ = rodar("schtasks", "/End", "/TN", nomeTarefa)
 	err := rodar("schtasks", "/Delete", "/TN", nomeTarefa, "/F")
+	_ = rodar("reg", "delete", `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run`, "/v", nomeTarefa, "/f")
+	pararOutrasInstancias()
 	os.Remove(filepath.Join(os.Getenv("ProgramData"), `Microsoft\Windows\Start Menu\Programs\Appura Coletor - Configurar.lnk`))
 	return err
 }

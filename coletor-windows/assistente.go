@@ -417,5 +417,6 @@ func (s *sessaoAssistente) instalar(w http.ResponseWriter, r *http.Request) {
 		erroJSON(w, 500, "Configuração salva, mas não consegui iniciar o coletor: "+err.Error())
 		return
 	}
+	iniciarBandeja()
 	responderJSON(w, 200, map[string]any{"ok": true, "pastas": pastas, "historico": cfg.Historico})
 }

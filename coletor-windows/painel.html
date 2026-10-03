@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Appura Coletor · atividades</title>
+<style>
+  :root { --fundo:#f5f7fb; --sup:#fff; --sup2:#f8fafc; --tinta:#0f172a; --meta:#475569; --linha:#e2e8f0; --pri:#1d6af2;
+    --verde:#15803d; --verdef:#dcfce7; --amarelo:#b45309; --amarelof:#fef3c7; --vermelho:#b91c1c; --vermelhof:#fee2e2; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 "Segoe UI", system-ui, sans-serif; background:var(--fundo); color:var(--tinta); }
+  main { max-width:920px; margin:0 auto; padding:24px 16px 48px; }
+  header { display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
+  .logo { width:40px; height:40px; border-radius:10px; background:var(--pri); color:#fff; display:grid; place-items:center; font-weight:700; font-size:18px; }
+  header h1 { font-size:20px; margin:0; } header .meta { margin:0; }
+  header .acoes { margin-left:auto; display:flex; gap:8px; }
+  .meta { color:var(--meta); font-size:13px; }
+  .card { background:var(--sup); border:1px solid var(--linha); border-radius:10px; padding:18px; margin-bottom:14px; }
+  .card h2 { font-size:15px; margin:0 0 10px; }
+  .faixa { display:flex; gap:12px; align-items:center; padding:14px 16px; border-radius:10px; margin-bottom:14px; font-weight:600; }
+  .faixa .bola { width:14px; height:14px; border-radius:50%; flex:none; }
+  .faixa.verde { background:var(--verdef); color:var(--verde); } .faixa.verde .bola { background:var(--verde); }
+  .faixa.amarelo { background:var(--amarelof); color:var(--amarelo); } .faixa.amarelo .bola { background:var(--amarelo); }
+  .faixa.vermelho { background:var(--vermelhof); color:var(--vermelho); } .faixa.vermelho .bola { background:var(--vermelho); }
+  .grade { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px,1fr)); gap:10px; }
+  .grade div { background:var(--sup2); border:1px solid var(--linha); border-radius:8px; padding:10px 12px; }
+  .grade strong { display:block; font-size:20px; } .grade span { color:var(--meta); font-size:12px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--linha); }
+  th { color:var(--meta); font-weight:600; } td.n, th.n { text-align:right; font-variant-numeric:tabular-nums; }
+  .mono { font-family:Consolas, monospace; font-size:12.5px; overflow-wrap:anywhere; }
+  .selo { display:inline-block; padding:1px 8px; border-radius:999px; font-size:12px; font-weight:600; }
+  .selo.ok { background:var(--verdef); color:var(--verde); } .selo.er { background:var(--vermelhof); color:var(--vermelho); }
+  button, a.botao { font:inherit; font-size:14px; font-weight:600; padding:8px 14px; border-radius:8px; border:1px solid var(--linha); background:var(--sup); color:var(--tinta); cursor:pointer; text-decoration:none; }
+  button.pri { background:var(--pri); border-color:var(--pri); color:#fff; }
+  .erro { background:var(--vermelhof); color:var(--vermelho); padding:10px 12px; border-radius:8px; font-size:14px; overflow-wrap:anywhere; }
+  .vazio { color:var(--meta); font-size:14px; padding:6px 0; }
+  .rolagem { overflow-x:auto; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="logo">A</div>
+    <div><h1>Appura Coletor</h1><p class="meta" id="sub">Carregando…</p></div>
+    <div class="acoes"><a class="botao" id="abrirAppura" target="_blank" rel="noopener" hidden>Abrir no Appura</a><button id="configurar">Configurar</button></div>
+  </header>
+  <div class="faixa" id="faixa"><span class="bola"></span><span id="resumo"></span></div>
+  <div id="erro"></div>
+  <section class="card"><h2>Agora</h2><div class="grade" id="numeros"></div></section>
+  <section class="card"><h2>Pastas acompanhadas</h2><div id="pastas"></div></section>
+  <section class="card"><h2>Últimos envios</h2><div class="rolagem" id="lotes"></div></section>
+  <p class="meta" id="rodape"></p>
+</main>
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const n = (x) => Number(x || 0).toLocaleString('pt-BR');
+const zero = (iso) => !iso || iso.startsWith('0001-');
+const hora = (iso) => (zero(iso) ? '—' : new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+function ha(iso) {
+  if (zero(iso)) return 'nunca';
+  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return 'agora há pouco'; if (s < 3600) return `há ${Math.floor(s / 60)} min`; if (s < 172800) return `há ${Math.floor(s / 3600)} h`;
+  return `em ${new Date(iso).toLocaleDateString('pt-BR')}`;
+}
+const ESTADOS = { iniciando: 'Iniciando', varrendo: 'Lendo as pastas', enviando: 'Enviando', ok: 'Em dia', erro: 'Com erro', pausado: 'Pausado' };
+const cnpjF = (c) => String(c).replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+
+async function atualizar() {
+  let d;
+  try { d = await (await fetch('/api/status', { cache: 'no-store' })).json(); } catch { $('resumo').textContent = 'O painel perdeu a conexão com o ícone. Feche esta aba e abra de novo pelo ícone.'; $('faixa').className = 'faixa vermelho'; return; }
+  const s = d.status;
+  $('faixa').className = `faixa ${d.cor}`; $('resumo').textContent = d.resumo;
+  if (!s) { $('sub').textContent = 'Sem informações do coletor'; $('numeros').innerHTML = '<p class="vazio">O coletor ainda não publicou nada. Se acabou de instalar, aguarde um minuto.</p>'; return; }
+  $('sub').textContent = `${s.instalacao || '—'} · máquina "${s.maquina || '—'}" · versão ${s.versao}${(s.cnpjs || []).length ? ` · ${s.cnpjs.map(cnpjF).join(', ')}` : ''}`;
+  if (s.servidor) { $('abrirAppura').hidden = false; $('abrirAppura').href = `${s.servidor}/#/coletores`; }
+  $('erro').innerHTML = s.ultimoErro ? `<div class="erro" style="margin-bottom:14px"><strong>Último erro:</strong> ${esc(s.ultimoErro)}${zero(s.proximaTentativa) ? '' : ` · nova tentativa ${hora(s.proximaTentativa)}`}</div>` : '';
+  $('numeros').innerHTML = [
+    [ESTADOS[s.estado] || s.estado, `situação · atualizado ${ha(s.atualizadoEm)}`],
+    [n(s.pendentes), 'na fila para enviar'],
+    [n(s.novasHoje), 'notas novas hoje'],
+    [ha(s.ultimoEnvioEm), 'último envio'],
+    [n(s.enviados), 'arquivos já tratados'],
+    [n(s.recusados), 'recusados pelo Appura'],
+    [n(s.ignorados), 'ignorados (outro CNPJ, fora do período, não fiscal)'],
+    [ha(s.ultimoSinalEm), 'último contato com o Appura'],
+  ].map(([v, r]) => `<div><strong>${esc(v)}</strong><span>${esc(r)}</span></div>`).join('');
+  const pastas = s.pastas || [];
+  $('pastas').innerHTML = pastas.length ? `<table><thead><tr><th>Pasta</th><th>Tipo</th><th class="n">XMLs</th><th>Último arquivo</th><th></th></tr></thead><tbody>${pastas.map((p) => `<tr>
+      <td class="mono">${esc(p.caminho)}</td><td>${esc({ nfce: 'NFC-e', nfe: 'NF-e', ambos: 'NF-e e NFC-e' }[p.tipo] || '')}</td><td class="n">${n(p.arquivos)}</td>
+      <td>${p.ultimoArquivoEm ? hora(p.ultimoArquivoEm) : '—'}</td><td>${p.ok ? '<span class="selo ok">acessível</span>' : '<span class="selo er">inacessível</span>'}</td></tr>`).join('')}</tbody></table>` : '<p class="vazio">Ainda não leu as pastas.</p>';
+  const lotes = s.lotes || [];
+  $('lotes').innerHTML = lotes.length ? `<table><thead><tr><th>Quando</th><th class="n">Enviados</th><th class="n">Novas</th><th class="n">Repetidas</th><th class="n">Já estavam no Appura</th><th class="n">Rejeitadas SEFAZ</th><th class="n">Recusadas</th></tr></thead><tbody>${lotes.map((l) => `<tr>
+      <td>${hora(l.em)}</td><td class="n">${n(l.arquivos)}</td><td class="n">${n(l.novas)}</td><td class="n">${n(l.jaExistiam)}</td><td class="n">${n(l.puladosLocal)}</td><td class="n">${n(l.rejeitadasSefaz)}</td><td class="n">${n(l.recusadas)}</td></tr>`).join('')}</tbody></table>
+      <p class="meta">"Já estavam no Appura": notas que o Appura já tinha (por exemplo, importadas antes) e por isso nem precisaram subir. "Repetidas": subiram, mas o Appura já tinha a mesma chave.</p>` : '<p class="vazio">Nenhum envio ainda.</p>';
+  $('rodape').textContent = `Iniciado ${hora(s.iniciadoEm)} · última leitura das pastas ${hora(s.ultimaVarredura)} · esta página atualiza sozinha.`;
+}
+$('configurar').onclick = async () => {
+  try { await fetch('/api/configurar', { method: 'POST', headers: { 'X-Appura': '1' } }); } catch {}
+  $('configurar').textContent = 'Abrindo… (confirme a permissão do Windows)';
+  setTimeout(() => { $('configurar').textContent = 'Configurar'; }, 6000);
+};
+atualizar(); setInterval(atualizar, 5000);
+</script>
+</body>
+</html>

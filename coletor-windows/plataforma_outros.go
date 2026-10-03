@@ -62,3 +62,18 @@ func servicoInstalado() bool     { _, err := os.Stat(caminhoConfig()); return er
 func desinstalarPrograma() error { return nil }
 
 func avisarUsuario(texto string) { println(texto) }
+
+func pararOutrasInstancias() {}
+func iniciarBandeja()        {}
+
+// modoBandeja fora do Windows: só abre o painel local (para testes) e fica esperando.
+func modoBandeja() {
+	var p PainelLocal
+	url, err := p.Endereco()
+	if err != nil {
+		println(err.Error())
+		return
+	}
+	println("Painel do Appura Coletor:", url)
+	select {}
+}

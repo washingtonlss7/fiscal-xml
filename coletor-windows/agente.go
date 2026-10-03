@@ -33,6 +33,36 @@ type Agente struct {
 	intervaloSin time.Duration
 	pausaAte     time.Time
 	falhas       int
+	st           Status
+}
+
+// publicar grava a situação para o ícone da bandeja e o painel local (falha aqui nunca para o coletor).
+func (a *Agente) publicar(estado string) {
+	a.st.Versao, a.st.Servidor, a.st.Instalacao, a.st.Maquina, a.st.Cnpjs = Versao, a.Cfg.Servidor, a.Cfg.Instalacao, a.Cfg.Maquina, a.Cfg.Cnpjs
+	if estado != "" {
+		a.st.Estado = estado
+	}
+	a.st.Pendentes, a.st.Pastas = a.pendentes, a.estados
+	a.st.Enviados, a.st.Recusados, a.st.Ignorados = a.Reg.Total()
+	if err := GravarStatus(&a.st); err != nil && a.Log != nil {
+		a.Log.Printf("aviso: não consegui gravar a situação para o painel: %v", err)
+	}
+}
+
+func (a *Agente) registrarLote(l LoteResumo) {
+	l.Em = a.agora()
+	dia := l.Em.Format("2006-01-02")
+	if a.st.Dia != dia {
+		a.st.Dia, a.st.NovasHoje = dia, 0
+	}
+	a.st.NovasHoje += l.Novas
+	if l.Arquivos > 0 {
+		a.st.UltimoEnvioEm = l.Em
+	}
+	a.st.Lotes = append([]LoteResumo{l}, a.st.Lotes...)
+	if len(a.st.Lotes) > 30 {
+		a.st.Lotes = a.st.Lotes[:30]
+	}
 }
 
 func (a *Agente) agora() time.Time {
@@ -96,6 +126,7 @@ func (a *Agente) Ciclo(ctx context.Context) (int, error) {
 	}
 	baseTudo := a.Cfg.Historico == "agora" && !a.Cfg.BaseFeita
 	inicio := a.agora()
+	a.publicar("varrendo")
 	pend, estados := Varrer(a.Cfg.Pastas, a.Reg, Filtro{Cnpjs: a.cnpjs, Desde: a.Cfg.DesdeAAMM}, baseTudo)
 	a.estados = estados
 	if baseTudo {
@@ -108,6 +139,12 @@ func (a *Agente) Ciclo(ctx context.Context) (int, error) {
 	// Mais antigos primeiro (o Appura recebe na ordem em que as notas aconteceram)
 	sort.Slice(pend, func(i, j int) bool { return pend[i].Mtime < pend[j].Mtime })
 	a.pendentes = len(pend)
+	a.st.UltimaVarredura = a.agora()
+	if len(pend) > 0 {
+		a.publicar("enviando")
+	} else {
+		a.publicar("ok")
+	}
 	if d := a.agora().Sub(inicio); d > 10*time.Second || len(pend) > 0 {
 		a.Log.Printf("varredura: %d pendente(s) em %s", len(pend), d.Round(time.Second))
 	}
@@ -127,11 +164,14 @@ func (a *Agente) Ciclo(ctx context.Context) (int, error) {
 		if err != nil {
 			return resolvidos, err
 		}
+		a.publicar("enviando")
 		// Primeira carga grande: o painel continua vendo o andamento (fila diminuindo) durante o ciclo
 		if a.agora().Sub(a.ultimoSinal) >= time.Minute {
 			a.Sinal()
 		}
 	}
+	a.st.UltimoErro, a.st.ProximaTentativa = "", time.Time{}
+	a.publicar("ok")
 	return resolvidos, nil
 }
 
@@ -164,6 +204,7 @@ func (a *Agente) enviar(lote []Pendente) (int, error) {
 	}
 	var marcar []ItemRegistro
 	var mandar []Pendente
+	var ultimoLote *RespostaLote
 	for _, p := range lote {
 		if !p.Info.Evento && existe[p.Info.Chave] {
 			marcar = append(marcar, ItemRegistro{Caminho: p.Caminho, Tamanho: p.Tamanho, Mtime: p.Mtime, Chave: p.Info.Chave, Situacao: StEnviado, Detalhe: "ja_existia"})
@@ -181,6 +222,7 @@ func (a *Agente) enviar(lote []Pendente) (int, error) {
 			if err != nil {
 				return 0, err
 			}
+			ultimoLote = r
 			vistos := map[string]bool{}
 			for _, res := range r.Resultados {
 				p, ok := nomes[res.Arquivo]
@@ -203,6 +245,12 @@ func (a *Agente) enviar(lote []Pendente) (int, error) {
 				r.Arquivos, r.Importadas+r.CompletouResumo, r.JaExistiam, r.RejeitadasSefaz, r.Rejeitadas, r.ForaDaInstalacao)
 		}
 	}
+	resumo := LoteResumo{PuladosLocal: len(lote) - len(mandar)}
+	if ultimoLote != nil {
+		resumo.Arquivos, resumo.Novas, resumo.JaExistiam = ultimoLote.Arquivos, ultimoLote.Importadas+ultimoLote.CompletouResumo, ultimoLote.JaExistiam
+		resumo.RejeitadasSefaz, resumo.Recusadas = ultimoLote.RejeitadasSefaz, ultimoLote.Rejeitadas+ultimoLote.ForaDaInstalacao
+	}
+	a.registrarLote(resumo)
 	if len(marcar) > 0 {
 		if err := a.Reg.Marcar(marcar); err != nil {
 			return 0, fmt.Errorf("registro local: %w", err)
@@ -223,6 +271,7 @@ func (a *Agente) Sinal() {
 		return
 	}
 	a.ultimoSinal = a.agora()
+	a.st.UltimoSinalEm = a.ultimoSinal
 }
 
 // Rodar: laço até o contexto ser cancelado.
@@ -231,6 +280,8 @@ func (a *Agente) Rodar(ctx context.Context) {
 		a.Intervalo = time.Minute
 	}
 	a.Log.Printf("Appura Coletor %s iniciado · %d pasta(s) · servidor %s", Versao, len(a.Cfg.Pastas), a.Api.Base)
+	a.st = Status{IniciadoEm: a.agora()}
+	a.publicar("iniciando")
 	// Sinal de vida logo ao iniciar (antes da primeira varredura, que pode demorar)
 	a.Sinal()
 	ultimaConfig := time.Time{}
@@ -290,5 +341,9 @@ func (a *Agente) falhou(err error) {
 		a.cnpjs = nil // relê a configuração quando voltar
 	}
 	a.pausaAte = a.agora().Add(espera)
+	a.st.UltimoErro, a.st.ProximaTentativa = err.Error(), a.pausaAte
+	if a.Reg != nil {
+		a.publicar("erro")
+	}
 	a.Log.Printf("erro: %v · nova tentativa em %s", err, espera)
 }
