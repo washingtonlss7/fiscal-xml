@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	Versao         = "0.1.0"
+	Versao         = "0.1.1"
 	ServidorPadrao = "https://fiscal.contabilfarmatech.com.br"
 )
 

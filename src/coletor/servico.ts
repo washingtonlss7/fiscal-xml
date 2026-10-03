@@ -243,6 +243,8 @@ export class ServicoColetor {
   async existentes(ctx: ContextoColetor, corpo: any) {
     const chaves = [...new Set((Array.isArray(corpo?.chaves) ? corpo.chaves : []).map((c: unknown) => String(c ?? '')).filter((c: string) => /^\d{44}$/.test(c)))] as string[];
     if (chaves.length > EXISTENTES_MAX) throw new ErroColetor(413, `No máximo ${EXISTENTES_MAX} chaves por consulta.`);
+    // Conta como sinal de vida: na primeira carga o coletor passa muito tempo só perguntando o que já existe
+    await this.db.from('coletor_maquinas').update({ ultimo_contato_em: new Date().toISOString() }).eq('id', ctx.maquinaId);
     const ids = ctx.empresas.map((e) => e.id);
     const tem = new Set<string>();
     if (ids.length && chaves.length) {

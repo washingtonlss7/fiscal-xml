@@ -95,6 +95,7 @@ func (a *Agente) Ciclo(ctx context.Context) (int, error) {
 		}
 	}
 	baseTudo := a.Cfg.Historico == "agora" && !a.Cfg.BaseFeita
+	inicio := a.agora()
 	pend, estados := Varrer(a.Cfg.Pastas, a.Reg, Filtro{Cnpjs: a.cnpjs, Desde: a.Cfg.DesdeAAMM}, baseTudo)
 	a.estados = estados
 	if baseTudo {
@@ -107,6 +108,12 @@ func (a *Agente) Ciclo(ctx context.Context) (int, error) {
 	// Mais antigos primeiro (o Appura recebe na ordem em que as notas aconteceram)
 	sort.Slice(pend, func(i, j int) bool { return pend[i].Mtime < pend[j].Mtime })
 	a.pendentes = len(pend)
+	if d := a.agora().Sub(inicio); d > 10*time.Second || len(pend) > 0 {
+		a.Log.Printf("varredura: %d pendente(s) em %s", len(pend), d.Round(time.Second))
+	}
+	if a.agora().Sub(a.ultimoSinal) >= time.Minute {
+		a.Sinal()
+	}
 	resolvidos := 0
 	for len(pend) > 0 {
 		if ctx.Err() != nil {
@@ -119,6 +126,10 @@ func (a *Agente) Ciclo(ctx context.Context) (int, error) {
 		a.pendentes = len(pend) + (len(lote) - n)
 		if err != nil {
 			return resolvidos, err
+		}
+		// Primeira carga grande: o painel continua vendo o andamento (fila diminuindo) durante o ciclo
+		if a.agora().Sub(a.ultimoSinal) >= time.Minute {
+			a.Sinal()
 		}
 	}
 	return resolvidos, nil
@@ -220,6 +231,8 @@ func (a *Agente) Rodar(ctx context.Context) {
 		a.Intervalo = time.Minute
 	}
 	a.Log.Printf("Appura Coletor %s iniciado · %d pasta(s) · servidor %s", Versao, len(a.Cfg.Pastas), a.Api.Base)
+	// Sinal de vida logo ao iniciar (antes da primeira varredura, que pode demorar)
+	a.Sinal()
 	ultimaConfig := time.Time{}
 	for {
 		agora := a.agora()
