@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Appura Coletor</title>
+<style>
+  :root { --fundo:#f5f7fb; --sup:#fff; --sup2:#f8fafc; --tinta:#0f172a; --meta:#475569; --linha:#e2e8f0; --pri:#1d6af2; --pri2:#1557cc; --ok:#15803d; --okf:#dcfce7; --at:#b45309; --atf:#fef3c7; --er:#b91c1c; --erf:#fee2e2; --raio:10px; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 "Segoe UI", system-ui, sans-serif; background:var(--fundo); color:var(--tinta); }
+  main { max-width:860px; margin:0 auto; padding:24px 16px 48px; }
+  header { display:flex; align-items:center; gap:12px; margin-bottom:20px; }
+  header .logo { width:40px; height:40px; border-radius:10px; background:var(--pri); color:#fff; display:grid; place-items:center; font-weight:700; font-size:18px; }
+  header h1 { font-size:22px; margin:0; } header p { margin:0; color:var(--meta); font-size:13px; }
+  .card { background:var(--sup); border:1px solid var(--linha); border-radius:var(--raio); padding:20px; margin-bottom:16px; }
+  .card h2 { font-size:17px; margin:0 0 4px; display:flex; align-items:center; gap:10px; }
+  .num { width:26px; height:26px; border-radius:50%; background:var(--pri); color:#fff; display:inline-grid; place-items:center; font-size:13px; flex:none; }
+  .num.feito { background:var(--ok); }
+  .meta { color:var(--meta); font-size:13px; }
+  .desativado { opacity:.5; pointer-events:none; }
+  label.campo { display:flex; flex-direction:column; gap:4px; margin:12px 0; font-size:13px; font-weight:600; }
+  input[type=text], input[type=password], select { font:inherit; padding:9px 11px; border:1px solid var(--linha); border-radius:8px; background:var(--sup); color:inherit; width:100%; }
+  input:focus, select:focus, button:focus-visible { outline:2px solid var(--pri); outline-offset:1px; }
+  .linha { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .linha > input { flex:1 1 280px; width:auto; }
+  button { font:inherit; font-weight:600; padding:9px 16px; border-radius:8px; border:1px solid var(--linha); background:var(--sup); color:var(--tinta); cursor:pointer; }
+  button.pri { background:var(--pri); border-color:var(--pri); color:#fff; } button.pri:hover { background:var(--pri2); }
+  button.perigo { color:var(--er); border-color:#fecaca; }
+  button:disabled { opacity:.55; cursor:default; }
+  .aviso { padding:10px 12px; border-radius:8px; font-size:14px; margin-top:12px; }
+  .aviso.ok { background:var(--okf); color:var(--ok); } .aviso.er { background:var(--erf); color:var(--er); } .aviso.at { background:var(--atf); color:var(--at); }
+  ul.lista { list-style:none; margin:12px 0 0; padding:0; border:1px solid var(--linha); border-radius:8px; }
+  ul.lista li { padding:10px 12px; display:flex; gap:10px; align-items:flex-start; }
+  ul.lista li + li { border-top:1px solid var(--linha); }
+  ul.lista li .info { flex:1; min-width:0; } .mono { font-family:Consolas, monospace; font-size:13px; overflow-wrap:anywhere; }
+  ul.lista input[type=checkbox] { width:18px; height:18px; margin-top:3px; accent-color:var(--pri); }
+  ul.lista select { width:auto; padding:5px 8px; font-size:13px; }
+  .barra { height:6px; background:var(--linha); border-radius:3px; overflow:hidden; margin-top:10px; }
+  .barra span { display:block; height:100%; width:30%; background:var(--pri); animation:anda 1.2s infinite ease-in-out; }
+  @keyframes anda { 0%{margin-left:-30%} 100%{margin-left:100%} }
+  .opcao { display:flex; gap:10px; align-items:flex-start; padding:10px 12px; border:1px solid var(--linha); border-radius:8px; margin-top:8px; cursor:pointer; }
+  .opcao input { margin-top:4px; accent-color:var(--pri); }
+  .navegador { border:1px solid var(--linha); border-radius:8px; margin-top:10px; max-height:300px; overflow:auto; }
+  .navegador button { display:block; width:100%; text-align:left; border:0; border-bottom:1px solid var(--linha); border-radius:0; font-weight:400; }
+  .navegador button:hover { background:var(--sup2); }
+  pre { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:8px; font-size:12px; max-height:260px; overflow:auto; white-space:pre-wrap; }
+  .grade { display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:10px; margin-top:12px; }
+  .grade div { background:var(--sup2); border:1px solid var(--linha); border-radius:8px; padding:10px; } .grade strong { display:block; font-size:20px; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <header><div class="logo">A</div><div><h1>Appura Coletor</h1><p id="versao">Envia ao Appura os XMLs de NF-e e NFC-e deste computador.</p></div></header>
+
+  <section id="situacao" class="card" hidden></section>
+
+  <section id="passo1" class="card">
+    <h2><span class="num" id="n1">1</span>Token desta máquina</h2>
+    <p class="meta">Cole o token gerado no Appura em <strong>Captação → Appura Coletor</strong>. Cada máquina tem o seu.</p>
+    <div class="linha"><input id="token" type="password" placeholder="apc_…" autocomplete="off" spellcheck="false"><button class="pri" id="validar">Validar</button></div>
+    <details class="meta" style="margin-top:8px"><summary>Endereço do Appura (avançado)</summary><label class="campo">Endereço<input id="servidor" type="text"></label></details>
+    <div id="r1"></div>
+  </section>
+
+  <section id="passo2" class="card desativado">
+    <h2><span class="num" id="n2">2</span>Pastas onde o sistema grava os XMLs</h2>
+    <p class="meta">Procure automaticamente ou escolha a pasta. O coletor lê todas as subpastas (ano, mês, dia…).</p>
+    <div class="linha"><button class="pri" id="buscar">Procurar automaticamente</button><button id="abrirNav">Escolher pasta…</button></div>
+    <div id="progresso" hidden><div class="barra"><span></span></div><p class="meta" id="progTxt"></p></div>
+    <div id="sugestoes"></div>
+    <div id="nav" hidden>
+      <p class="meta" id="navCaminho" style="margin:10px 0 0"></p>
+      <div class="navegador" id="navLista"></div>
+      <div class="linha" style="margin-top:8px"><button id="navSubir">Voltar</button><button class="pri" id="navUsar">Usar esta pasta</button></div>
+    </div>
+    <div class="linha" style="margin-top:12px"><input id="manual" type="text" placeholder="Ou digite o caminho, ex.: D:\Sistema\XML"><button id="addManual">Adicionar</button></div>
+    <h3 style="font-size:14px;margin:16px 0 0">Pastas escolhidas</h3>
+    <ul class="lista" id="escolhidas"><li class="meta">Nenhuma ainda.</li></ul>
+    <div id="r2"></div>
+  </section>
+
+  <section id="passo3" class="card desativado">
+    <h2><span class="num" id="n3">3</span>O que enviar na primeira vez</h2>
+    <label class="opcao"><input type="radio" name="hist" value="3meses" checked><span><strong>Últimos 3 meses</strong> (recomendado)<br><span class="meta">O mês atual e os 3 anteriores. Notas que o Appura já tem são puladas.</span></span></label>
+    <label class="opcao"><input type="radio" name="hist" value="tudo"><span><strong>Tudo o que houver nas pastas</strong><br><span class="meta">Pode levar mais tempo na primeira vez.</span></span></label>
+    <label class="opcao"><input type="radio" name="hist" value="agora"><span><strong>Só daqui para frente</strong><br><span class="meta">Os arquivos que já existem são ignorados.</span></span></label>
+  </section>
+
+  <section id="passo4" class="card desativado">
+    <h2><span class="num" id="n4">4</span>Instalar</h2>
+    <p class="meta">O coletor passa a rodar sozinho sempre que o computador ligar, mesmo sem ninguém logado. Para mudar depois: menu Iniciar → <strong>Appura Coletor - Configurar</strong>.</p>
+    <button class="pri" id="instalar">Instalar e começar a enviar</button>
+    <div id="r4"></div>
+  </section>
+</main>
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const cnpjF = (c) => String(c).replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+const aamm = (s) => (s ? `${s.slice(2)}/20${s.slice(0, 2)}` : '?');
+const TIPOS = { nfce: 'NFC-e', nfe: 'NF-e', ambos: 'NF-e e NFC-e' };
+let estado = null; let escolhidas = []; let validado = false; let navAtual = '';
+
+async function api(caminho, corpo) {
+  const r = await fetch(caminho, corpo === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Appura': '1' }, body: JSON.stringify(corpo) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(d.erro || `Erro ${r.status}`); e.dados = d; e.status = r.status; throw e; }
+  return d;
+}
+const aviso = (alvo, tipo, html) => { $(alvo).innerHTML = html ? `<div class="aviso ${tipo}">${html}</div>` : ''; };
+const liberar = (id, sim) => $(id).classList.toggle('desativado', !sim);
+
+async function carregar() {
+  estado = await api('/api/estado');
+  $('versao').textContent = `Versão ${estado.versao} · envia ao Appura os XMLs de NF-e e NFC-e deste computador.`;
+  $('servidor').value = (estado.config && estado.config.servidor) || estado.servidorPadrao;
+  if (estado.instalado) {
+    mostrarSituacao();
+    escolhidas = (estado.config.pastas || []).map((p) => ({ ...p }));
+    renderEscolhidas();
+    const h = document.querySelector(`input[name=hist][value="${estado.config.historico || '3meses'}"]`); if (h) h.checked = true;
+    $('token').placeholder = `Token atual ${estado.config.tokenPrefixo || ''}… (só preencha para trocar)`;
+    liberarDepoisDoToken();
+    $('instalar').textContent = 'Salvar alterações';
+  }
+}
+
+function mostrarSituacao() {
+  const c = estado.config; const r = estado.registro || { enviados: 0, recusados: 0, ignorados: 0 };
+  $('situacao').hidden = false;
+  $('situacao').innerHTML = `<h2>Instalado ${estado.tarefa ? '<span class="aviso ok" style="margin:0;padding:2px 8px;font-size:12px">rodando como tarefa do Windows</span>' : '<span class="aviso at" style="margin:0;padding:2px 8px;font-size:12px">tarefa não encontrada</span>'}</h2>
+    <p class="meta">${esc(c.instalacao)} · máquina "${esc(c.maquina)}" · ${(c.cnpjs || []).map(cnpjF).join(', ')}</p>
+    <div class="grade"><div><strong>${r.enviados.toLocaleString('pt-BR')}</strong><span class="meta">arquivos enviados</span></div><div><strong>${r.recusados.toLocaleString('pt-BR')}</strong><span class="meta">recusados pelo Appura</span></div><div><strong>${r.ignorados.toLocaleString('pt-BR')}</strong><span class="meta">ignorados (outro CNPJ, fora do período…)</span></div></div>
+    <details style="margin-top:12px"><summary class="meta">Últimas linhas do registro</summary><pre>${esc((estado.log || []).join('\n')) || 'vazio'}</pre></details>
+    <div class="linha" style="margin-top:12px"><button id="fechar">Fechar</button><button class="perigo" id="desinstalar">Desinstalar</button></div>`;
+  $('fechar').onclick = sair;
+  $('desinstalar').onclick = async () => {
+    if (!confirm('Remover o Appura Coletor deste computador? O envio de XMLs para.')) return;
+    try { await api('/api/desinstalar', {}); alert('Removido. Os dados ficaram em ProgramData\\AppuraColetor.'); sair(); } catch (e) { alert(e.message); }
+  };
+}
+
+async function sair() { try { await api('/api/sair', {}); } catch {} document.body.innerHTML = '<main><div class="card"><h2>Pode fechar esta aba.</h2></div></main>'; }
+
+function liberarDepoisDoToken() { liberar('passo2', true); liberar('passo3', true); liberar('passo4', escolhidas.length > 0); }
+
+$('validar').onclick = async () => {
+  aviso('r1');
+  const b = $('validar'); b.disabled = true; b.textContent = 'Validando…';
+  try {
+    const d = await api('/api/token', { token: $('token').value, servidor: $('servidor').value });
+    validado = true; $('n1').classList.add('feito');
+    aviso('r1', 'ok', `<strong>${esc(d.instalacao.nome)}</strong> · máquina "${esc(d.maquina.nome)}"<br>${d.empresas.map((e) => `${esc(e.razaoSocial)} (${cnpjF(e.cnpj)})`).join('<br>')}`);
+    liberarDepoisDoToken();
+  } catch (e) { aviso('r1', 'er', esc(e.message)); }
+  b.disabled = false; b.textContent = 'Validar';
+};
+
+$('buscar').onclick = async () => {
+  try { await api('/api/buscar', {}); } catch (e) { aviso('r2', 'er', esc(e.message)); return; }
+  $('progresso').hidden = false; $('buscar').disabled = true; $('sugestoes').innerHTML = '';
+  const tique = async () => {
+    const p = await api('/api/buscar').catch(() => null);
+    if (!p) return setTimeout(tique, 1500);
+    $('progTxt').textContent = `${p.pastas.toLocaleString('pt-BR')} pastas e ${p.arquivos.toLocaleString('pt-BR')} XMLs olhados${p.atual ? ` · ${p.atual}` : ''}`;
+    if (!p.terminou) return setTimeout(tique, 1000);
+    $('progresso').hidden = true; $('buscar').disabled = false;
+    renderSugestoes(p.sugestoes || [], p.interrompeu);
+  };
+  tique();
+};
+
+function renderSugestoes(lista, interrompeu) {
+  if (!lista.length) { $('sugestoes').innerHTML = `<div class="aviso at">Não achei XMLs dos CNPJs desta instalação${interrompeu ? ' no tempo da busca' : ''}. Use "Escolher pasta…" ou digite o caminho.</div>`; return; }
+  $('sugestoes').innerHTML = `<p class="meta" style="margin:12px 0 0">Encontrei ${lista.length} pasta${lista.length === 1 ? '' : 's'}${interrompeu ? ' (busca parcial: o disco é grande)' : ''}. Marque as que o sistema de vendas usa:</p>
+    <ul class="lista">${lista.map((s, i) => `<li><input type="checkbox" data-i="${i}" ${escolhidas.some((e) => e.caminho.toLowerCase() === s.caminho.toLowerCase()) ? 'checked' : ''}><div class="info"><div class="mono"><strong>${esc(s.caminho)}</strong></div>
+      <div class="meta">${s.nfce ? `${s.nfce.toLocaleString('pt-BR')} NFC-e` : ''}${s.nfce && s.nfe ? ' · ' : ''}${s.nfe ? `${s.nfe.toLocaleString('pt-BR')} NF-e` : ''}${s.eventos ? ` · ${s.eventos} eventos` : ''} · de ${aamm(s.de)} a ${aamm(s.ate)}</div></div><span class="meta">${TIPOS[s.tipo]}</span></li>`).join('')}</ul>`;
+  for (const cb of $('sugestoes').querySelectorAll('input[type=checkbox]')) {
+    cb.onchange = () => {
+      const s = lista[Number(cb.dataset.i)];
+      if (cb.checked) adicionar({ caminho: s.caminho, tipo: s.tipo, resumo: `${(s.nfce + s.nfe).toLocaleString('pt-BR')} notas dos CNPJs · ${aamm(s.de)} a ${aamm(s.ate)}` });
+      else { escolhidas = escolhidas.filter((e) => e.caminho.toLowerCase() !== s.caminho.toLowerCase()); renderEscolhidas(); }
+    };
+  }
+}
+
+function adicionar(p) {
+  if (escolhidas.some((e) => e.caminho.toLowerCase() === p.caminho.toLowerCase())) return;
+  if (escolhidas.length >= 10) { aviso('r2', 'at', 'No máximo 10 pastas.'); return; }
+  escolhidas.push(p); renderEscolhidas();
+}
+
+function renderEscolhidas() {
+  liberar('passo4', escolhidas.length > 0 && (validado || (estado && estado.instalado)));
+  $('n2').classList.toggle('feito', escolhidas.length > 0);
+  if (!escolhidas.length) { $('escolhidas').innerHTML = '<li class="meta">Nenhuma ainda.</li>'; return; }
+  $('escolhidas').innerHTML = escolhidas.map((p, i) => `<li><div class="info"><div class="mono"><strong>${esc(p.caminho)}</strong></div><div class="meta">${esc(p.resumo || '')}</div></div>
+    <select data-i="${i}" aria-label="Tipo">${Object.entries(TIPOS).map(([v, t]) => `<option value="${v}" ${p.tipo === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
+    <button data-r="${i}" class="perigo">Tirar</button></li>`).join('');
+  for (const s of $('escolhidas').querySelectorAll('select')) s.onchange = () => { escolhidas[Number(s.dataset.i)].tipo = s.value; };
+  for (const b of $('escolhidas').querySelectorAll('button[data-r]')) b.onclick = () => { escolhidas.splice(Number(b.dataset.r), 1); renderEscolhidas(); };
+}
+
+async function analisarEAdicionar(caminho) {
+  aviso('r2', 'at', `Conferindo ${esc(caminho)}…`);
+  try {
+    const a = await api('/api/analisar', { caminho });
+    if (!a.existe) { aviso('r2', 'er', `A pasta ${esc(caminho)} não existe ou não pode ser aberta.`); return; }
+    const tipo = a.nfce && !a.nfe ? 'nfce' : a.nfe && !a.nfce ? 'nfe' : 'ambos';
+    const resumo = `${a.daInstalacao.toLocaleString('pt-BR')} XMLs dos CNPJs (${a.nfce.toLocaleString('pt-BR')} NFC-e, ${a.nfe.toLocaleString('pt-BR')} NF-e${a.eventos ? `, ${a.eventos} eventos` : ''})${a.de ? ` · ${aamm(a.de)} a ${aamm(a.ate)}` : ''}${a.outrosCnpjs ? ` · ${a.outrosCnpjs} de outros CNPJs (serão ignorados)` : ''}${a.incompleta ? ' · contagem parcial' : ''}`;
+    if (!a.daInstalacao) aviso('r2', 'at', `Atenção: ${esc(a.caminho)} não tem XML dos CNPJs desta instalação (${a.xml} XMLs no total). Confira se é a pasta certa.`);
+    else aviso('r2');
+    adicionar({ caminho: a.caminho, tipo, resumo });
+  } catch (e) { aviso('r2', 'er', esc(e.message)); }
+}
+
+$('addManual').onclick = () => { const c = $('manual').value.trim(); if (c) { analisarEAdicionar(c); $('manual').value = ''; } };
+$('abrirNav').onclick = () => { $('nav').hidden = false; navegar(''); };
+$('navSubir').onclick = () => navegar(navPai);
+$('navUsar').onclick = () => { if (navAtual) { analisarEAdicionar(navAtual); $('nav').hidden = true; } };
+let navPai = '';
+async function navegar(caminho) {
+  try {
+    const d = await api(`/api/pastas?caminho=${encodeURIComponent(caminho)}`);
+    navAtual = d.caminho; navPai = d.pai;
+    $('navCaminho').textContent = d.caminho ? `${d.caminho}${d.xmlAqui ? ` · ${d.xmlAqui} XMLs nesta pasta` : ''}` : 'Discos deste computador';
+    $('navUsar').disabled = !d.caminho; $('navSubir').disabled = !d.caminho;
+    $('navLista').innerHTML = d.pastas.length ? d.pastas.map((p, i) => `<button data-i="${i}">📁 ${esc(p.nome)}</button>`).join('') : '<p class="meta" style="padding:8px 12px;margin:0">Sem subpastas.</p>';
+    for (const b of $('navLista').querySelectorAll('button')) b.onclick = () => navegar(d.pastas[Number(b.dataset.i)].caminho);
+  } catch (e) { aviso('r2', 'er', esc(e.message)); }
+}
+
+async function instalar(confirmarVazia) {
+  const b = $('instalar'); b.disabled = true; const antes = b.textContent; b.textContent = 'Instalando…'; aviso('r4');
+  try {
+    const historico = document.querySelector('input[name=hist]:checked').value;
+    await api('/api/instalar', { pastas: escolhidas.map((p) => ({ caminho: p.caminho, tipo: p.tipo })), historico, confirmarVazia: !!confirmarVazia });
+    $('n3').classList.add('feito'); $('n4').classList.add('feito');
+    aviso('r4', 'ok', 'Pronto! O coletor está rodando e já começou a enviar. Acompanhe no Appura em Captação → Appura Coletor. Pode fechar esta aba.');
+    validado = false; $('token').value = ''; $('nav').hidden = true; aviso('r2'); aviso('r1');
+    await carregar();
+  } catch (e) {
+    if (e.status === 409 && e.dados && e.dados.vazia && confirm(`${e.message}\n\nInstalar mesmo assim?`)) { b.disabled = false; b.textContent = antes; return instalar(true); }
+    aviso('r4', 'er', esc(e.message));
+  }
+  b.disabled = false; b.textContent = antes;
+}
+$('instalar').onclick = () => instalar(false);
+carregar().catch((e) => aviso('r1', 'er', esc(e.message)));
+</script>
+</body>
+</html>
