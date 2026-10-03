@@ -1596,3 +1596,22 @@ table.ar-tabela tr.ar-destaque td { font-weight: 600; background: var(--superfic
 .imp-flutuante[data-tom="problema"] .barra span { background: var(--problema); }
 @keyframes sc-vai { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
 @media (prefers-reduced-motion: reduce) { .imp-flutuante .barra span.indeterminada { animation: none; } }
+
+/* ---------- Appura Coletor (#/coletores) ---------- */
+.cl-seletor { display: flex; flex-direction: column; gap: var(--esp-2); }
+.cl-rotulo { font-size: var(--t-s); font-weight: 600; color: var(--tinta); }
+.cl-busca { width: 100%; max-width: 560px; }
+.cl-empresas { list-style: none; margin: 0; padding: 0; max-height: 280px; overflow-y: auto; border: var(--borda); border-radius: var(--raio-m); background: var(--superficie-2); }
+.cl-empresas li + li { border-top: 1px solid var(--linha); }
+.cl-empresa { display: flex; gap: var(--esp-3); align-items: center; padding: 8px var(--esp-3); cursor: pointer; font-size: var(--t-m); }
+.cl-empresa input { width: 18px; height: 18px; flex: none; accent-color: var(--primaria); }
+.cl-empresa > span { display: flex; flex-direction: column; min-width: 0; }
+.cl-empresa strong { font-weight: 500; overflow-wrap: anywhere; }
+.cl-marcadas { display: flex; gap: var(--esp-2); align-items: center; flex-wrap: wrap; }
+.cl-marcadas .meta { flex: 1 1 240px; }
+.cl-qtd input { max-width: 120px; }
+.cl-nomes { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--esp-3); }
+.cl-token { flex: 1 1 100%; }
+.cl-maq-nome { min-width: 140px; }
+.cl-pastas { overflow-wrap: anywhere; }
+.cl-edicao { display: flex; flex-direction: column; gap: var(--esp-3); padding: var(--esp-3) 0; border-top: 1px solid var(--linha); }

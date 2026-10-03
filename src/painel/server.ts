@@ -32,6 +32,7 @@ import { usoMcp } from '../mcp/uso';
 import { ErroApontamento, resolverApontamento } from './apontamentos';
 import { ErroApuracao, ServicoApuracao } from './apuracao';
 import { ErroGerarSped, ServicoGerarSped } from './gerarSped';
+import { ErroColetor, LOTE_MAX_BYTES, ServicoColetor } from '../coletor/servico';
 import { authDoSupabase, ErroUsuario, GestaoUsuarios, PERFIS_INFO, PERMISSOES, permissaoDaRota } from './usuarios';
 
 function exigir(nome: string): string {
@@ -74,6 +75,7 @@ const ARQUIVOS: Record<string, [string, string]> = {
   '/apuracao.js': ['apuracao.js', 'text/javascript; charset=utf-8'],
   '/sped-gerar.js': ['sped-gerar.js', 'text/javascript; charset=utf-8'],
   '/ia.js': ['ia.js', 'text/javascript; charset=utf-8'],
+  '/coletores.js': ['coletores.js', 'text/javascript; charset=utf-8'],
   '/nucleo.js': ['nucleo.js', 'text/javascript; charset=utf-8'],
   '/app.css': ['app.css', 'text/css; charset=utf-8'],
   '/manifest.webmanifest': ['manifest.webmanifest', 'application/manifest+json; charset=utf-8'],
@@ -230,6 +232,21 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
     const email = data?.user?.email?.toLowerCase() ?? '';
     if (error || !(await autorizado(email))) throw new ErroHttp(401, 'Sessão expirada. Entre de novo.');
     return responder(res, 200, sessao(data.session, email));
+  }
+
+  // API do Appura Coletor (programa no PC do cliente): autenticada pelo token da máquina, não pelo login do painel
+  if (rota.startsWith('/api/coletor/v1/')) {
+    const ctx = await servicoColetor.autenticar(req.headers.authorization);
+    servicoColetor.limitar(ctx);
+    if (metodo === 'GET' && rota === '/api/coletor/v1/config') return responder(res, 200, await servicoColetor.configuracao(ctx));
+    if (metodo === 'POST' && rota === '/api/coletor/v1/existentes') return responder(res, 200, await servicoColetor.existentes(ctx, await lerCorpo(req, 200_000)));
+    if (metodo === 'POST' && rota === '/api/coletor/v1/sinal') return responder(res, 200, await servicoColetor.sinal(ctx, await lerCorpo(req, 50_000)));
+    if (metodo === 'POST' && rota === '/api/coletor/v1/xml') {
+      const corpo = await lerBruto(req, LOTE_MAX_BYTES);
+      if (!corpo.length) throw new ErroHttp(400, 'Lote vazio.');
+      return responder(res, 200, await servicoColetor.receber(ctx, (url.searchParams.get('nome') || 'lote.zip').slice(0, 200), corpo));
+    }
+    throw new ErroHttp(404, 'Rota do coletor não encontrada.');
   }
 
   // Daqui para baixo, só usuários autorizados.
@@ -399,6 +416,16 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
     await resolverApontamento(db, a, String(c.acao), c.observacao ? String(c.observacao) : null, c.valor ? String(c.valor) : null, email);
     return responder(res, 200, { ok: true });
   }
+
+  // Appura Coletor: instalações (cliente/grupo com seus CNPJs) e tokens por máquina
+  if (rota === '/api/coletores' && metodo === 'GET') return responder(res, 200, await servicoColetor.listar());
+  if (rota === '/api/coletores' && metodo === 'POST') return responder(res, 200, await servicoColetor.criarInstalacao(await lerCorpo(req, 50_000), email));
+  const colInst = rota.match(/^\/api\/coletores\/([0-9a-f-]{36})$/);
+  if (colInst && metodo === 'PATCH') return responder(res, 200, await servicoColetor.editarInstalacao(colInst[1], await lerCorpo(req, 50_000), email));
+  const colMaq = rota.match(/^\/api\/coletores\/([0-9a-f-]{36})\/maquinas$/);
+  if (colMaq && metodo === 'POST') return responder(res, 200, await servicoColetor.adicionarMaquinas(colMaq[1], await lerCorpo(req, 10_000), email));
+  const colRev = rota.match(/^\/api\/coletores\/maquinas\/([0-9a-f-]{36})\/revogar$/);
+  if (colRev && metodo === 'POST') return responder(res, 200, await servicoColetor.revogarMaquina(colRev[1], email));
 
   // Importação de XML/ZIP (NF-e e NFC-e de saída, ou qualquer nota que falte)
   const imp = rota.match(/^\/api\/empresas\/([0-9a-f-]{36})\/importar$/);
@@ -896,6 +923,7 @@ async function listarNotas(res: http.ServerResponse, id: string, f: FiltroNotas)
 const arm = new Armazenamento(db, configArmazenamento(cfg.masterKey, process.env.XML_BUCKET ?? 'xmls'));
 const lerXmlStorage = (caminho: string) => arm.ler(caminho);
 const servicoSped = new ServicoSped(db, arm);
+const servicoColetor = new ServicoColetor(db, arm);
 const cfgIntegra = configIntegra();
 // Chaves do SERPRO: as cadastradas no painel (cifradas no banco) têm prioridade; as variáveis do servidor são opcionais
 const servicoGuias = new ServicoGuias(db, arm, cfg.masterKey, (c, contratante, registrar) => new IntegraContador(c, contratante, transporteHttps, registrar), cfgIntegra);
@@ -1153,7 +1181,7 @@ const servidor = http.createServer(async (req, res) => {
     }
     if (e instanceof ErroIntegra) return responder(res, e.status, { erro: e.message, ...(e.codigo ? { codigo: e.codigo } : {}) });
     if (e instanceof ErroAcessorias) return responder(res, e.status, { erro: e.message });
-    if (e instanceof ErroOAuth) return responder(res, e.status, { erro: e.message });
+    if (e instanceof ErroOAuth || e instanceof ErroColetor) return responder(res, e.status, { erro: e.message });
     if (e instanceof ErroHttp || e instanceof ErroUsuario || e instanceof ErroSped || e instanceof ErroApontamento || e instanceof ErroApuracao || e instanceof ErroGerarSped || e instanceof ErroDocumento || e instanceof ErroBusca || e instanceof ErroCadastro) return responder(res, e.status, { erro: e.message });
     log.error('erro no painel', { rota: url.pathname, erro: (e as Error).message });
     responder(res, 500, { erro: 'Erro inesperado no servidor. Tente de novo.' });
