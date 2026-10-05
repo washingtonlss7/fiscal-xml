@@ -24,6 +24,7 @@ import { ErroAcessorias, MAX_PDF, ServicoAcessorias, TIPOS_DOCUMENTO, TIPOS_UPLO
 import { ErroDocumento, ServicoDocumentosEntrega } from './documentosEntrega';
 import { listarVendasSemNota } from './rejeitadas';
 import { apuracaoReal } from './apuracaoReal';
+import { historico as historicoCaptacao, importacoes as importacoesCaptacao, lacunas as lacunasCaptacao, lerPeriodo, monitor as monitorCaptacao } from './captacao';
 import { CAMPOS as CAMPOS_CADASTRO, editarCadastro, ErroCadastro, lerCadastro, REGIMES as REGIMES_CADASTRO } from './cadastroEmpresa';
 import { ErroOAuth, ServicoOAuth } from '../mcp/oauth';
 import { rotaMcp, OpcoesMcpHttp } from '../mcp/http';
@@ -76,6 +77,7 @@ const ARQUIVOS: Record<string, [string, string]> = {
   '/sped-gerar.js': ['sped-gerar.js', 'text/javascript; charset=utf-8'],
   '/ia.js': ['ia.js', 'text/javascript; charset=utf-8'],
   '/coletores.js': ['coletores.js', 'text/javascript; charset=utf-8'],
+  '/captacao.js': ['captacao.js', 'text/javascript; charset=utf-8'],
   '/nucleo.js': ['nucleo.js', 'text/javascript; charset=utf-8'],
   '/app.css': ['app.css', 'text/css; charset=utf-8'],
   '/manifest.webmanifest': ['manifest.webmanifest', 'application/manifest+json; charset=utf-8'],
@@ -415,6 +417,22 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
     if (!a) throw new ErroHttp(404, 'Apontamento não encontrado.');
     await resolverApontamento(db, a, String(c.acao), c.observacao ? String(c.observacao) : null, c.valor ? String(c.valor) : null, email);
     return responder(res, 200, { ok: true });
+  }
+
+  // Captação: Monitor, Lacunas/NSU, Importações e Histórico (só leitura)
+  if (metodo === 'GET' && rota === '/api/captacao/monitor') return responder(res, 200, await monitorCaptacao(db));
+  if (metodo === 'GET' && rota === '/api/captacao/lacunas') {
+    const mes = url.searchParams.get('mes') ?? '';
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(mes)) throw new ErroHttp(400, 'Informe o mês (AAAA-MM).');
+    return responder(res, 200, await lacunasCaptacao(db, mes));
+  }
+  if (metodo === 'GET' && rota === '/api/captacao/importacoes') {
+    const p = lerPeriodo(url); const origem = url.searchParams.get('origem');
+    return responder(res, 200, await importacoesCaptacao(db, { ...p, origem: origem === 'manual' || origem === 'coletor' ? origem : null }));
+  }
+  if (metodo === 'GET' && rota === '/api/captacao/historico') {
+    const p = lerPeriodo(url, 14);
+    return responder(res, 200, await historicoCaptacao(db, { ...p, soErros: url.searchParams.get('erros') === '1' }));
   }
 
   // Appura Coletor: instalações (cliente/grupo com seus CNPJs) e tokens por máquina

@@ -1615,3 +1615,32 @@ table.ar-tabela tr.ar-destaque td { font-weight: 600; background: var(--superfic
 .cl-maq-nome { min-width: 140px; }
 .cl-pastas { overflow-wrap: anywhere; }
 .cl-edicao { display: flex; flex-direction: column; gap: var(--esp-3); padding: var(--esp-3) 0; border-top: 1px solid var(--linha); }
+
+/* ---------- Captação (#/captacao/...) ---------- */
+.cp-numeros { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--esp-3); }
+.cp-numero { background: var(--superficie-2); border: 1px solid var(--linha); border-radius: var(--raio-m); padding: var(--esp-3); display: flex; flex-direction: column; gap: 2px; }
+.cp-numero strong { font-size: var(--t-l); font-variant-numeric: tabular-nums; }
+.cp-numero span { font-size: var(--t-xs); color: var(--tinta-2); }
+.cp-numero.problema strong { color: var(--problema); }
+.cp-numero.atencao strong { color: var(--atencao); }
+.cp-numero.info strong { color: var(--info); }
+.cp-filtros { display: flex; gap: var(--esp-2) var(--esp-3); flex-wrap: wrap; align-items: center; margin-bottom: var(--esp-3); }
+.cp-filtros select { max-width: 280px; }
+.cp-busca { flex: 1 1 220px; max-width: 360px; }
+.cp-check { display: inline-flex; gap: var(--esp-2); align-items: center; font-size: var(--t-s); cursor: pointer; }
+.cp-check input { accent-color: var(--primaria); width: 16px; height: 16px; }
+.cp-so-filtros .cp-filtros { margin-bottom: 0; }
+.cp-tabela td { vertical-align: top; }
+.cp-empresa { display: flex; flex-direction: column; color: inherit; text-decoration: none; min-width: 0; }
+.cp-empresa:hover strong { text-decoration: underline; }
+.cp-empresa strong { font-weight: 600; overflow-wrap: anywhere; }
+.cp-bloco { display: block; margin-top: 2px; font-size: var(--t-xs); overflow-wrap: anywhere; }
+.cp-motivos { margin: 4px 0 0; padding-left: 16px; font-size: var(--t-xs); color: var(--tinta-2); max-width: 360px; }
+.cp-motivos li + li { margin-top: 2px; }
+.cp-maq { display: flex; flex-direction: column; gap: 2px; }
+.cp-maq + .cp-maq { margin-top: var(--esp-2); }
+.cp-detalhes summary { cursor: pointer; }
+.cp-col-barra { width: 34%; min-width: 120px; }
+.cp-barra { height: 10px; background: var(--neutro-fundo); border-radius: var(--raio-pilula); overflow: hidden; margin-top: 4px; }
+.cp-barra-valor { display: block; height: 100%; width: 0; background: var(--primaria); border-radius: inherit; }
+a.aba-tela { text-decoration: none; }

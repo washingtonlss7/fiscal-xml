@@ -444,7 +444,9 @@ const NAV = [
   { id: 'visao-geral', rotulo: 'Visão Geral', icone: 'layout-dashboard', rota: '#/visao-geral' },
   { id: 'empresas', rotulo: 'Empresas', icone: 'building-2', rota: '#/empresas' },
   { id: 'captacao', rotulo: 'Captação', icone: 'cloud-download', filhos: [
-    { id: 'coletores', rotulo: 'Appura Coletor', rota: '#/coletores' }, { rotulo: 'Monitor' }, { rotulo: 'Lacunas / NSU' }, { rotulo: 'Importações' }, { rotulo: 'Histórico' },
+    { id: 'cp-monitor', rotulo: 'Monitor', rota: '#/captacao/monitor' }, { id: 'cp-lacunas', rotulo: 'Lacunas / NSU', rota: '#/captacao/lacunas' },
+    { id: 'cp-importacoes', rotulo: 'Importações', rota: '#/captacao/importacoes' }, { id: 'cp-historico', rotulo: 'Histórico', rota: '#/captacao/historico' },
+    { id: 'coletores', rotulo: 'Appura Coletor', rota: '#/coletores' },
   ] },
   { id: 'notas', rotulo: 'Notas Fiscais', icone: 'file-text', rota: '#/notas' },
   { id: 'auditoria', rotulo: 'Auditoria', icone: 'shield-check' },
@@ -648,7 +650,7 @@ async function aplicarRota() {
     return;
   }
   const esconderTudo = (menos) => {
-    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias', 'tela-escritorio', 'tela-ia', 'tela-xml', 'tela-coletores']) if (id !== menos) $(id).hidden = true;
+    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias', 'tela-escritorio', 'tela-ia', 'tela-xml', 'tela-coletores', 'tela-captacao']) if (id !== menos) $(id).hidden = true;
   };
   if (rota.tela !== 'empresa') { empresaNotas = null; fecharGavetaUsuario(); }
   if (rota.tela === 'fechamento') {
@@ -666,6 +668,9 @@ async function aplicarRota() {
   } else if (rota.tela === 'ia') {
     esconderTudo('tela-ia');
     window.iaMostrar();
+  } else if (rota.tela === 'captacao') {
+    esconderTudo('tela-captacao');
+    window.cpMostrar(rota.aba);
   } else if (rota.tela === 'coletores') {
     esconderTudo('tela-coletores');
     window.clMostrar();
