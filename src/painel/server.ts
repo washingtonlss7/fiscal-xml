@@ -34,6 +34,7 @@ import { ErroApontamento, resolverApontamento } from './apontamentos';
 import { ErroApuracao, ServicoApuracao } from './apuracao';
 import { ErroGerarSped, ServicoGerarSped } from './gerarSped';
 import { ErroColetor, LOTE_MAX_BYTES, ServicoColetor } from '../coletor/servico';
+import { ErroIntegracao, ServicoIntegracao } from '../integracao/servico';
 import { authDoSupabase, ErroUsuario, GestaoUsuarios, PERFIS_INFO, PERMISSOES, permissaoDaRota } from './usuarios';
 
 function exigir(nome: string): string {
@@ -78,6 +79,7 @@ const ARQUIVOS: Record<string, [string, string]> = {
   '/ia.js': ['ia.js', 'text/javascript; charset=utf-8'],
   '/coletores.js': ['coletores.js', 'text/javascript; charset=utf-8'],
   '/captacao.js': ['captacao.js', 'text/javascript; charset=utf-8'],
+  '/integracoes.js': ['integracoes.js', 'text/javascript; charset=utf-8'],
   '/nucleo.js': ['nucleo.js', 'text/javascript; charset=utf-8'],
   '/app.css': ['app.css', 'text/css; charset=utf-8'],
   '/manifest.webmanifest': ['manifest.webmanifest', 'application/manifest+json; charset=utf-8'],
@@ -249,6 +251,39 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
       return responder(res, 200, await servicoColetor.receber(ctx, (url.searchParams.get('nome') || 'lote.zip').slice(0, 200), corpo));
     }
     throw new ErroHttp(404, 'Rota do coletor não encontrada.');
+  }
+
+  // API de integração (ex.: OnnePharma): autenticada pelo token da integração, só leitura de NF-e e NFC-e
+  if (rota.startsWith('/api/integracao/v1/')) {
+    const ctx = await servicoIntegracao.autenticar(req.headers.authorization);
+    servicoIntegracao.limitar(ctx);
+    const reg = (status: number, itens: number | null) => servicoIntegracao.registrar(ctx, `${metodo} ${rota}`, status, itens, ipDe(req)).catch(() => {});
+    try {
+      const cnpj = url.searchParams.get('cnpj');
+      if (metodo === 'GET' && rota === '/api/integracao/v1/empresas') { const r = servicoIntegracao.empresas(ctx); await reg(200, r.empresas.length); return responder(res, 200, r); }
+      if (metodo === 'GET' && rota === '/api/integracao/v1/documentos') {
+        const r = await servicoIntegracao.documentos(ctx, { cursor: url.searchParams.get('cursor'), cnpj, modelo: url.searchParams.get('modelo'), direcao: url.searchParams.get('direcao'), limite: Number(url.searchParams.get('limite') ?? 100) });
+        await reg(200, r.documentos.length);
+        return responder(res, 200, r);
+      }
+      const ix = rota.match(/^\/api\/integracao\/v1\/documentos\/(\d{44})\/xml$/);
+      if (metodo === 'GET' && ix) {
+        const r = await servicoIntegracao.xml(ctx, ix[1], cnpj);
+        await reg(200, 1);
+        res.writeHead(200, { ...CABECALHOS_SEGURANCA, 'Content-Type': 'application/xml; charset=utf-8', 'Content-Disposition': `attachment; filename="${ix[1]}${r.completo ? '' : '-resumo'}.xml"`, 'X-Appura-Completo': String(r.completo), 'Cache-Control': 'no-store' });
+        return void res.end(r.xml);
+      }
+      if (metodo === 'POST' && rota === '/api/integracao/v1/xml/zip') {
+        const c = await lerCorpo(req, 100_000);
+        const n = await servicoIntegracao.zip(ctx, c.chaves, c.cnpj ?? cnpj, res, () => res.writeHead(200, { ...CABECALHOS_SEGURANCA, 'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename="xmls.zip"', 'Cache-Control': 'no-store' }));
+        await reg(200, n);
+        return void res.end();
+      }
+      throw new ErroHttp(404, 'Rota da API não encontrada.');
+    } catch (e) {
+      await reg((e as any).status ?? 500, null);
+      throw e;
+    }
   }
 
   // Daqui para baixo, só usuários autorizados.
@@ -434,6 +469,16 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
     const p = lerPeriodo(url, 14);
     return responder(res, 200, await historicoCaptacao(db, { ...p, soErros: url.searchParams.get('erros') === '1' }));
   }
+
+  // Integrações por API (ex.: OnnePharma): token, CNPJs liberados e webhook
+  if (rota === '/api/integracoes' && metodo === 'GET') return responder(res, 200, await servicoIntegracao.listar());
+  if (rota === '/api/integracoes' && metodo === 'POST') return responder(res, 200, await servicoIntegracao.criar(await lerCorpo(req, 50_000), email));
+  const integ = rota.match(/^\/api\/integracoes\/([0-9a-f-]{36})(?:\/(segredo|revogar|testar|reenviar))?$/);
+  if (integ && metodo === 'PATCH' && !integ[2]) return responder(res, 200, await servicoIntegracao.editar(integ[1], await lerCorpo(req, 50_000), email));
+  if (integ && metodo === 'POST' && integ[2] === 'segredo') return responder(res, 200, await servicoIntegracao.trocarSegredo(integ[1], email));
+  if (integ && metodo === 'POST' && integ[2] === 'revogar') return responder(res, 200, await servicoIntegracao.revogar(integ[1], email));
+  if (integ && metodo === 'POST' && integ[2] === 'testar') return responder(res, 200, await servicoIntegracao.testarWebhook(integ[1]));
+  if (integ && metodo === 'POST' && integ[2] === 'reenviar') return responder(res, 200, await servicoIntegracao.reenviarFalhas(integ[1]));
 
   // Appura Coletor: instalações (cliente/grupo com seus CNPJs) e tokens por máquina
   if (rota === '/api/coletores' && metodo === 'GET') return responder(res, 200, await servicoColetor.listar());
@@ -942,6 +987,14 @@ const arm = new Armazenamento(db, configArmazenamento(cfg.masterKey, process.env
 const lerXmlStorage = (caminho: string) => arm.ler(caminho);
 const servicoSped = new ServicoSped(db, arm);
 const servicoColetor = new ServicoColetor(db, arm);
+const servicoIntegracao = new ServicoIntegracao(db, arm, cfg.masterKey);
+// Webhook das integrações: a cada 15 s transforma as mudanças das notas em avisos e entrega os pendentes
+let webhookRodando = false;
+setInterval(async () => {
+  if (webhookRodando) return;
+  webhookRodando = true;
+  try { await servicoIntegracao.enfileirar(); await servicoIntegracao.entregar(); } catch (e) { log.warn('webhook: ciclo com erro', { erro: (e as Error).message }); } finally { webhookRodando = false; }
+}, 15_000).unref();
 const cfgIntegra = configIntegra();
 // Chaves do SERPRO: as cadastradas no painel (cifradas no banco) têm prioridade; as variáveis do servidor são opcionais
 const servicoGuias = new ServicoGuias(db, arm, cfg.masterKey, (c, contratante, registrar) => new IntegraContador(c, contratante, transporteHttps, registrar), cfgIntegra);
@@ -1199,7 +1252,7 @@ const servidor = http.createServer(async (req, res) => {
     }
     if (e instanceof ErroIntegra) return responder(res, e.status, { erro: e.message, ...(e.codigo ? { codigo: e.codigo } : {}) });
     if (e instanceof ErroAcessorias) return responder(res, e.status, { erro: e.message });
-    if (e instanceof ErroOAuth || e instanceof ErroColetor) return responder(res, e.status, { erro: e.message });
+    if (e instanceof ErroOAuth || e instanceof ErroColetor || e instanceof ErroIntegracao) return responder(res, e.status, { erro: e.message });
     if (e instanceof ErroHttp || e instanceof ErroUsuario || e instanceof ErroSped || e instanceof ErroApontamento || e instanceof ErroApuracao || e instanceof ErroGerarSped || e instanceof ErroDocumento || e instanceof ErroBusca || e instanceof ErroCadastro) return responder(res, e.status, { erro: e.message });
     log.error('erro no painel', { rota: url.pathname, erro: (e as Error).message });
     responder(res, 500, { erro: 'Erro inesperado no servidor. Tente de novo.' });

@@ -42,6 +42,7 @@ function resolverRota(hash, pode = () => true) {
   if (r === '#/guias') return { tela: 'guias', base: '#/guias' };
   if (r === '#/ia') return { tela: 'ia', base: '#/ia' };
   if (r === '#/coletores') return { tela: 'coletores', base: '#/coletores' };
+  if (r === '#/integracoes') return pode('configuracoes') ? { tela: 'integracoes', base: '#/integracoes' } : { redirecionar: '#/visao-geral', semPermissao: 'Integrações' };
   const cap = r.match(/^#\/captacao(?:\/(monitor|lacunas|importacoes|historico))?$/);
   if (cap) return cap[1] ? { tela: 'captacao', base: `#/captacao/${cap[1]}`, aba: cap[1] } : { redirecionar: '#/captacao/monitor' };
   if (/^#\/notas(\?.*)?$/.test(r)) return { tela: 'xml', base: '#/notas', consulta: consulta(r) };

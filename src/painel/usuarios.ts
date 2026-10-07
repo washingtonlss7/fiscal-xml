@@ -37,6 +37,8 @@ export function permissaoDaRota(metodo: string, rota: string): Permissao | null 
   // Conexões de IA: cada usuário gerencia só as próprias (o MCP respeita o perfil a cada chamada)
   if (rota === '/api/mcp/tokens' || rota.startsWith('/api/mcp/conexoes/')) return null;
   if (rota === '/api/empresas' || /^\/api\/empresas\/[^/]+\/(ativo|cadastro)$/.test(rota)) return 'certificados';
+  // Integrações por API (tokens com acesso a XMLs de clientes): só a administração
+  if (rota === '/api/integracoes' || rota.startsWith('/api/integracoes/')) return 'configuracoes';
   // Instalações e tokens do Appura Coletor: mesmo nível de quem cadastra empresas e certificados
   if (rota === '/api/coletores' || rota.startsWith('/api/coletores/')) return 'certificados';
   if (rota === '/api/st-es/tabela') return 'configuracoes';

@@ -1644,3 +1644,8 @@ table.ar-tabela tr.ar-destaque td { font-weight: 600; background: var(--superfic
 .cp-barra { height: 10px; background: var(--neutro-fundo); border-radius: var(--raio-pilula); overflow: hidden; margin-top: 4px; }
 .cp-barra-valor { display: block; height: 100%; width: 0; background: var(--primaria); border-radius: inherit; }
 a.aba-tela { text-decoration: none; }
+
+/* ---------- Integrações (API) ---------- */
+.it-segredo { display: flex; flex-direction: column; gap: var(--esp-1); }
+.it-url { display: flex; gap: var(--esp-2); flex-wrap: wrap; align-items: center; }
+.it-url input { flex: 1 1 320px; }

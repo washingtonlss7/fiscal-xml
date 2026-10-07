@@ -460,6 +460,7 @@ const NAV = [
     { id: 'usuarios', rotulo: 'Usuários', rota: '#/usuarios', permissao: 'usuarios' },
     { id: 'escritorio', rotulo: 'Escritório', rota: '#/escritorio', permissao: 'certificados' },
     { id: 'ia', rotulo: 'Conexões de IA', rota: '#/ia' },
+    { id: 'integracoes', rotulo: 'Integrações (API)', rota: '#/integracoes', permissao: 'configuracoes' },
     { rotulo: 'Certificados' }, { rotulo: 'Configurações' },
   ] },
 ];
@@ -650,7 +651,7 @@ async function aplicarRota() {
     return;
   }
   const esconderTudo = (menos) => {
-    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias', 'tela-escritorio', 'tela-ia', 'tela-xml', 'tela-coletores', 'tela-captacao']) if (id !== menos) $(id).hidden = true;
+    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias', 'tela-escritorio', 'tela-ia', 'tela-xml', 'tela-coletores', 'tela-captacao', 'tela-integracoes']) if (id !== menos) $(id).hidden = true;
   };
   if (rota.tela !== 'empresa') { empresaNotas = null; fecharGavetaUsuario(); }
   if (rota.tela === 'fechamento') {
@@ -668,6 +669,9 @@ async function aplicarRota() {
   } else if (rota.tela === 'ia') {
     esconderTudo('tela-ia');
     window.iaMostrar();
+  } else if (rota.tela === 'integracoes') {
+    esconderTudo('tela-integracoes');
+    window.itMostrar();
   } else if (rota.tela === 'captacao') {
     esconderTudo('tela-captacao');
     window.cpMostrar(rota.aba);

@@ -1,3 +1,4 @@
+import { registrarMudancas } from './integracao/mudancas';
 import https from 'https';
 import { Armazenamento } from './armazenamento';
 import { Db, ok } from './db';
@@ -154,6 +155,7 @@ export async function processarDoc(
           'marcar cancelada',
         );
       }
+      if (info.modelo === '55' || info.modelo === '65') await registrarMudancas(db, [{ empresa_id: alvo.id, chave: info.chave, tipo: canc?.length ? 'cancelado' : 'gravado' }]);
       // Itens, tributos e duplicatas. Se falhar aqui, o extrator em segundo plano tenta de novo.
       try {
         await gravarExtracao(db, alvo.id, info.chave, info.modelo, doc.xml);
@@ -168,6 +170,7 @@ export async function processarDoc(
           .upsert({ ...linha, xml_resumo_path: caminho }, { onConflict: 'empresa_id,chave', ignoreDuplicates: true }),
         'insert resumo',
       );
+      if (info.modelo === '55' || info.modelo === '65') await registrarMudancas(db, [{ empresa_id: alvo.id, chave: info.chave, tipo: 'gravado' }]);
     }
     return info.chave;
   }
@@ -200,6 +203,9 @@ export async function processarDoc(
           .eq('chave', info.chave),
         'aplicar cancelamento',
       );
+      // Avisa a API de integração para cada empresa que tem a nota (emitente e destinatário cadastrados)
+      const copias = (await db.from('documentos').select('empresa_id,modelo').eq('chave', info.chave)).data as { empresa_id: string; modelo: string }[] | null;
+      await registrarMudancas(db, (copias ?? []).filter((c) => c.modelo === '55' || c.modelo === '65').map((c) => ({ empresa_id: c.empresa_id, chave: info.chave, tipo: 'cancelado' as const })));
     }
     return info.chave;
   }
