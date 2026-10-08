@@ -15,6 +15,8 @@ Lista viva do que ficou em aberto, das divergências e dos erros conhecidos. A m
 - **Lista "Empresas da Acessórias"** (`GET /api/acessorias/empresas`): não é filtrada pelo escopo. Mostra o resumo de todas as empresas da Acessórias, para quem vê o fiscal.
 - **Atualizar entregas do mês** (`POST /api/acessorias/entregas/atualizar`): consulta todas as empresas, mesmo para quem tem escopo limitado. É só leitura na Acessórias, mas gasta chamadas.
 
+- **Conferência no painel publicado:** a nova versão subiu (reinício às 02:50 UTC de 08/10) e as telas novas foram conferidas fora do painel, com dados simulados. Falta alguém do escritório abrir Administração → Perfis de acesso e Responsáveis logado e criar um usuário de teste com escopo limitado.
+
 ### Divergências em relação ao combinado
 
 - **Relatórios:** a proposta citava "Relatórios" como algo que o perfil Consulta veria. Relatórios não virou um módulo: cada módulo cuida dos seus. No menu, "Relatórios" continua "Em breve" para quem vê algum módulo.
