@@ -73,6 +73,8 @@ interface Ajudantes {
   competencia: (c?: string) => string;
   envolver: <A>(nome: string, fn: (a: A) => Promise<unknown>) => (a: A) => Promise<any>;
   cnpjFmt: (c: string) => string;
+  /** Empresas do escopo do usuário (undefined = todas). */
+  escopo?: string[];
 }
 
 const INSTRUCAO = 'NADA foi alterado ainda. Mostre este resumo ao usuário e peça confirmação explícita. Só se ele confirmar, chame esta ferramenta de novo com os MESMOS argumentos e confirmacao igual ao código abaixo (vale 10 minutos, uma vez).';
@@ -237,6 +239,10 @@ export function registrarAcoes(server: McpServer, deps: DepsAcoes, aj: Ajudantes
     const oque = a.o_que ?? 'tudo';
     let filtro: string[] | undefined;
     if (a.empresas && a.empresas.length) { filtro = []; for (const t of a.empresas) filtro.push((await aj.resolverEmpresa(t)).id); }
+    else if (aj.escopo) {
+      if (!aj.escopo.length) throw new ErroAcao('Nenhuma empresa no seu acesso.');
+      filtro = aj.escopo;
+    }
     const p = oque === 'documentos' ? { guias: [], jaEnviadas: 0 } : await deps.acessorias.pendentes(comp, filtro);
     const pd = oque === 'guias' ? { documentos: [], jaEnviados: 0 } : await deps.acessorias.documentosPendentes(comp, filtro);
     if (!p.guias.length && !pd.documentos.length) {

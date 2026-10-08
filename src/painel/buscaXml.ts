@@ -75,12 +75,14 @@ export function lerFiltro(p: Record<string, unknown>, empresaFixa?: string | nul
 }
 
 /** Parâmetro da função busca_xml. */
-export function parametroBusca(f: FiltroBusca, extra: { limite?: number; offset?: number; caminhos?: boolean } = {}) {
+export function parametroBusca(f: FiltroBusca, extra: { limite?: number; offset?: number; caminhos?: boolean; escopo?: string[] } = {}) {
   const p: Record<string, unknown> = {
     de: `${f.de}T00:00:00-03:00`, ate: `${proximoDia(f.ate)}T00:00:00-03:00`,
     limite: extra.limite ?? POR_PAGINA, offset: extra.offset ?? 0,
   };
   if (f.empresa) p.empresa = f.empresa;
+  // Escopo de empresas do usuário (carteira/lista); sem escopo = todas
+  if (extra.escopo) p.empresas = extra.escopo;
   if (f.modelo) p.modelo = f.modelo;
   if (f.direcao) p.direcao = f.direcao;
   if (f.situacao) p.situacao = f.situacao;
@@ -108,31 +110,31 @@ export interface NotaBusca {
   tem_xml: boolean; xml_path?: string | null;
 }
 
-export async function buscar(db: Db, f: FiltroBusca, pagina = 1) {
+export async function buscar(db: Db, f: FiltroBusca, pagina = 1, escopo?: string[]) {
   const pg = Math.max(1, Math.min(10000, Math.floor(pagina) || 1));
-  const r = ok(await db.rpc('busca_xml', { p: parametroBusca(f, { offset: (pg - 1) * POR_PAGINA }) }), 'busca de XML') as { total: number; resumo: any; notas: NotaBusca[] };
+  const r = ok(await db.rpc('busca_xml_escopo', { p: parametroBusca(f, { offset: (pg - 1) * POR_PAGINA, escopo }) }), 'busca de XML') as { total: number; resumo: any; notas: NotaBusca[] };
   const notas = (r.notas ?? []).map((n) => { const { xml_path: _x, ...resto } = n; return { ...resto, uf_emitente: UF_DA_CHAVE[n.chave.slice(0, 2)] ?? null }; });
   return { total: r.total, pagina: pg, porPagina: POR_PAGINA, paginas: Math.max(1, Math.ceil(r.total / POR_PAGINA)), resumo: r.resumo, notas };
 }
 
 /** Notas para o ZIP: as chaves marcadas (dentro da empresa, se fixa) ou tudo o que o filtro achar. Até 5.000. */
-export async function notasParaZip(db: Db, f: FiltroBusca, chaves?: string[]) {
+export async function notasParaZip(db: Db, f: FiltroBusca, chaves?: string[], escopo?: string[]) {
   const filtro: FiltroBusca = chaves && chaves.length
     ? { ...f, de: '2000-01-01', ate: '2099-12-31', modelo: null, direcao: null, situacao: null, uf: null, por: 'chave', termo: chaves.join(' ') }
     : f;
-  const p = parametroBusca(filtro, { limite: MAX_ZIP + 1, caminhos: true });
+  const p = parametroBusca(filtro, { limite: MAX_ZIP + 1, caminhos: true, escopo });
   if (chaves && chaves.length) { p.de = '2000-01-01T00:00:00-03:00'; p.ate = '2100-01-01T00:00:00-03:00'; }
-  const r = ok(await db.rpc('busca_xml', { p }), 'notas do ZIP') as { total: number; notas: NotaBusca[] };
+  const r = ok(await db.rpc('busca_xml_escopo', { p }), 'notas do ZIP') as { total: number; notas: NotaBusca[] };
   if (r.total > MAX_ZIP) throw new ErroBusca(413, `A busca achou ${r.total.toLocaleString('pt-BR')} notas: o ZIP tem limite de ${MAX_ZIP.toLocaleString('pt-BR')} XMLs. Diminua o período ou use mais filtros.`);
   return { total: r.total, notas: r.notas ?? [] };
 }
 
 /** Notas para o Excel (até 20.000 linhas). */
-export async function notasParaExcel(db: Db, f: FiltroBusca, chaves?: string[]) {
+export async function notasParaExcel(db: Db, f: FiltroBusca, chaves?: string[], escopo?: string[]) {
   const filtro: FiltroBusca = chaves && chaves.length ? { ...f, modelo: null, direcao: null, situacao: null, uf: null, por: 'chave', termo: chaves.join(' ') } : f;
-  const p = parametroBusca(filtro, { limite: MAX_EXCEL + 1 });
+  const p = parametroBusca(filtro, { limite: MAX_EXCEL + 1, escopo });
   if (chaves && chaves.length) { p.de = '2000-01-01T00:00:00-03:00'; p.ate = '2100-01-01T00:00:00-03:00'; }
-  const r = ok(await db.rpc('busca_xml', { p }), 'notas do Excel') as { total: number; notas: NotaBusca[] };
+  const r = ok(await db.rpc('busca_xml_escopo', { p }), 'notas do Excel') as { total: number; notas: NotaBusca[] };
   if (r.total > MAX_EXCEL) throw new ErroBusca(413, `A busca achou ${r.total.toLocaleString('pt-BR')} notas: a planilha tem limite de ${MAX_EXCEL.toLocaleString('pt-BR')} linhas. Diminua o período.`);
   return r.notas ?? [];
 }

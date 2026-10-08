@@ -73,7 +73,7 @@ if (typeof window !== 'undefined') {
     clRender();
   }
 
-  const clPodeEditar = () => typeof pode === 'function' && pode('certificados');
+  const clPodeEditar = () => typeof pode === 'function' && pode('administracao.empresas');
 
   async function clCopiar(texto, botao) {
     try {

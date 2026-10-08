@@ -30,7 +30,7 @@ if (typeof module !== 'undefined') module.exports = { itNomesModelos, itNomesDir
 if (typeof window !== 'undefined') {
   const it = { f: {}, dados: null, erro: null, novo: null, form: false, marcados: new Set(), busca: '', confirmar: null, editandoUrl: null };
   const base = () => location.origin;
-  const podeEditar = () => typeof pode === 'function' && pode('configuracoes');
+  const podeEditar = () => typeof pode === 'function' && pode('administracao.configuracoes');
 
   function itMostrar() {
     $('tela-integracoes').hidden = false; window.scrollTo(0, 0);

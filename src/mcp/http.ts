@@ -6,6 +6,7 @@
  *   /mcp                                           servidor MCP (Streamable HTTP, sem estado)
  */
 import http from 'http';
+import type { Acesso } from '../painel/acesso';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { log } from '../log';
 import { ESCOPOS, ErroOAuth, PedidoAutorizacao, redirectLocal, ServicoOAuth, temAcoes } from './oauth';
@@ -18,9 +19,8 @@ export interface OpcoesMcpHttp {
   base: (req: http.IncomingMessage) => string;
   /** Confere e-mail e senha do Appura; devolve o e-mail autorizado ou lança erro com mensagem para a tela. */
   entrar: (email: string, senha: string, ip: string) => Promise<string>;
-  perfilDe: (email: string) => Promise<string | null>;
-  /** O perfil pode executar ações (permissão 'operar')? */
-  podeOperar: (perfil: string) => boolean;
+  /** Acesso do usuário (permissões e escopo de empresas), ou null se não tem mais acesso. */
+  acessoDe: (email: string) => Promise<Acesso | null>;
   registrar: RegistroFerramenta;
   lerTexto: (req: http.IncomingMessage, limite: number) => Promise<string>;
   ip: (req: http.IncomingMessage) => string;
@@ -213,8 +213,8 @@ async function servirMcp(req: http.IncomingMessage, res: http.ServerResponse, o:
       { 'WWW-Authenticate': desafio(token ? 'invalid_token' : undefined) });
     return;
   }
-  const perfil = await o.perfilDe(acesso.email);
-  if (!perfil) { json(res, 403, { error: 'forbidden', error_description: 'Este usuário não tem mais acesso ao Appura.' }); return; }
+  const usuario = await o.acessoDe(acesso.email);
+  if (!usuario) { json(res, 403, { error: 'forbidden', error_description: 'Este usuário não tem mais acesso ao Appura.' }); return; }
   if (!limitarMcp(acesso.email)) { json(res, 429, { error: 'rate_limited', error_description: 'Limite de 120 chamadas por minuto.' }, { 'Retry-After': '60' }); return; }
   const metodo = req.method ?? 'GET';
   if (metodo !== 'POST') {
@@ -227,8 +227,8 @@ async function servirMcp(req: http.IncomingMessage, res: http.ServerResponse, o:
     json(res, 400, { jsonrpc: '2.0', error: { code: -32700, message: 'JSON inválido.' }, id: null });
     return;
   }
-  const acoes = temAcoes(acesso.scope) && o.podeOperar(perfil);
-  const server = criarServidorMcp(o.deps, { email: acesso.email, perfil, clientId: acesso.clientId, acoes }, o.registrar);
+  const acoes = temAcoes(acesso.scope) && usuario.permissoes.has('fiscal.operar');
+  const server = criarServidorMcp(o.deps, { email: acesso.email, perfil: usuario.perfilId, clientId: acesso.clientId, acoes, acesso: usuario }, o.registrar);
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   res.on('close', () => { transport.close().catch(() => {}); server.close().catch(() => {}); });
   for (const [k, v] of Object.entries(CORS)) res.setHeader(k, v);

@@ -32,30 +32,36 @@ const ABA_DO_ENDERECO = { notas: 'notas', auditoria: 'auditoria', 'icms-st': 'st
 /**
  * Traduz o endereço (#/...) na tela a abrir. Endereço desconhecido ou sem permissão volta para a Visão Geral,
  * nunca abre página em branco.
- *   #/visao-geral · #/fechamento?filtros · #/empresas · #/empresas/<id>[/aba] · #/usuarios · #/sped?cadastro=<id>
+ *   #/visao-geral · #/fechamento?filtros · #/empresas · #/empresas/<id>[/aba] · #/usuarios · #/perfis · #/responsaveis · #/sped?cadastro=<id>
  */
 function resolverRota(hash, pode = () => true) {
   const r = hash || '#/visao-geral';
   const consulta = (x) => (x.includes('?') ? x.slice(x.indexOf('?') + 1) : '');
-  if (/^#\/fechamento(\?.*)?$/.test(r)) return { tela: 'fechamento', base: '#/fechamento', consulta: consulta(r) };
-  if (/^#\/sped(\?.*)?$/.test(r)) return { tela: 'sped', base: '#/sped', consulta: consulta(r) };
-  if (r === '#/guias') return { tela: 'guias', base: '#/guias' };
+  // Tela inicial: a primeira que o perfil abre (Visão Geral é do fiscal)
+  const inicio = pode('fiscal.ver') ? '#/visao-geral' : pode('algum.ver') ? '#/empresas' : pode('administracao.usuarios') ? '#/usuarios' : '#/ia';
+  const so = (perm, tela, nome) => (pode(perm) ? tela : { redirecionar: inicio, semPermissao: nome });
+  if (/^#\/fechamento(\?.*)?$/.test(r)) return so('fiscal.ver', { tela: 'fechamento', base: '#/fechamento', consulta: consulta(r) }, 'Fechamento');
+  if (/^#\/sped(\?.*)?$/.test(r)) return so('fiscal.ver', { tela: 'sped', base: '#/sped', consulta: consulta(r) }, 'SPED');
+  if (r === '#/guias') return so('fiscal.ver', { tela: 'guias', base: '#/guias' }, 'Guias');
   if (r === '#/ia') return { tela: 'ia', base: '#/ia' };
-  if (r === '#/coletores') return { tela: 'coletores', base: '#/coletores' };
-  if (r === '#/integracoes') return pode('configuracoes') ? { tela: 'integracoes', base: '#/integracoes' } : { redirecionar: '#/visao-geral', semPermissao: 'Integrações' };
+  if (r === '#/coletores') return so('captacao.ver', { tela: 'coletores', base: '#/coletores' }, 'Appura Coletor');
+  if (r === '#/integracoes') return so('administracao.configuracoes', { tela: 'integracoes', base: '#/integracoes' }, 'Integrações');
   const cap = r.match(/^#\/captacao(?:\/(monitor|lacunas|importacoes|historico))?$/);
-  if (cap) return cap[1] ? { tela: 'captacao', base: `#/captacao/${cap[1]}`, aba: cap[1] } : { redirecionar: '#/captacao/monitor' };
-  if (/^#\/notas(\?.*)?$/.test(r)) return { tela: 'xml', base: '#/notas', consulta: consulta(r) };
-  if (r === '#/escritorio') return pode('certificados') ? { tela: 'escritorio', base: '#/escritorio' } : { redirecionar: '#/visao-geral', semPermissao: 'Escritório' };
-  if (r === '#/visao-geral') return { tela: 'visao', base: '#/visao-geral' };
-  if (r === '#/usuarios') return pode('usuarios') ? { tela: 'usuarios', base: '#/usuarios' } : { redirecionar: '#/visao-geral', semPermissao: 'Usuários' };
-  if (r === '#/empresas') return { tela: 'empresas', base: '#/empresas' };
+  if (cap) return !pode('captacao.ver') ? { redirecionar: inicio, semPermissao: 'Captação' } : cap[1] ? { tela: 'captacao', base: `#/captacao/${cap[1]}`, aba: cap[1] } : { redirecionar: '#/captacao/monitor' };
+  if (/^#\/notas(\?.*)?$/.test(r)) return so('captacao.ver', { tela: 'xml', base: '#/notas', consulta: consulta(r) }, 'Notas Fiscais');
+  if (r === '#/escritorio') return so('administracao.empresas', { tela: 'escritorio', base: '#/escritorio' }, 'Escritório');
+  if (r === '#/visao-geral') return pode('fiscal.ver') ? { tela: 'visao', base: '#/visao-geral' } : { redirecionar: inicio };
+  if (r === '#/usuarios') return so('administracao.usuarios', { tela: 'usuarios', base: '#/usuarios' }, 'Usuários');
+  if (r === '#/perfis') return so('administracao.usuarios', { tela: 'perfis', base: '#/perfis' }, 'Perfis de acesso');
+  if (r === '#/responsaveis') return so('administracao.usuarios', { tela: 'responsaveis', base: '#/responsaveis' }, 'Responsáveis');
+  if (r === '#/empresas') return so('algum.ver', { tela: 'empresas', base: '#/empresas' }, 'Empresas');
   const emp = r.match(/^#\/empresas\/([0-9a-f-]{36})(?:\/([a-z-]+))?$/);
   if (emp) {
+    if (!pode('algum.ver')) return { redirecionar: inicio, semPermissao: 'Empresas' };
     if (emp[2] && !ABA_DO_ENDERECO[emp[2]]) return { redirecionar: `#/empresas/${emp[1]}` };
     return { tela: 'empresa', base: '#/empresas', id: emp[1], aba: ABA_DO_ENDERECO[emp[2]] || 'visao' };
   }
-  return { redirecionar: '#/visao-geral' };
+  return { redirecionar: inicio };
 }
 
 /** Endereço de uma aba da empresa (o inverso de resolverRota). */

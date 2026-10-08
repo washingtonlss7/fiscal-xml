@@ -5,7 +5,7 @@
  */
 import assert from 'assert';
 import { caminhoNoZip, faixasNumeros, lerFiltro, listaChaves, MAX_ZIP, notasParaZip, parametroBusca, registrarDownload } from '../src/painel/buscaXml';
-import { permissaoDaRota } from '../src/painel/usuarios';
+import { exigenciaDaRota } from '../src/painel/acesso';
 import { vendasSemNota } from '../src/painel/rejeitadas';
 import { bancoFalso } from './banco-falso';
 
@@ -67,9 +67,9 @@ const CH = '32260955885998000140550010000012341000012340';
   const { db: db3, t } = bancoFalso(['downloads_xml']);
   await registrarDownload(db3, { email: 'a@x.com', tipo: 'zip', empresaId: null, filtros: { de: '2026-09-01' }, quantidade: 12 });
   assert.deepEqual([t.downloads_xml[0].email, t.downloads_xml[0].tipo, t.downloads_xml[0].quantidade], ['a@x.com', 'zip', 12]);
-  assert.equal(permissaoDaRota('POST', '/api/xml/zip'), null, 'Consulta também baixa');
-  assert.equal(permissaoDaRota('POST', '/api/xml/excel'), null);
-  assert.equal(permissaoDaRota('GET', '/api/xml/busca'), null);
+  assert.equal(exigenciaDaRota('POST', '/api/xml/zip'), 'captacao.ver', 'Consulta também baixa (é leitura)');
+  assert.equal(exigenciaDaRota('POST', '/api/xml/excel'), 'captacao.ver');
+  assert.equal(exigenciaDaRota('GET', '/api/xml/busca'), 'captacao.ver');
   console.log('ok  ZIP: limite de 5.000, chaves marcadas, registro do download e permissão de leitura');
   console.log('\nTestes da busca de XML passaram.');
 })().catch((e) => { console.error(e); process.exit(1); });

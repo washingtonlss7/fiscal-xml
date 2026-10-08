@@ -9,6 +9,7 @@
 import path from 'path';
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { Acesso, idsDoEscopo, noEscopo, podeEmpresa } from '../painel/acesso';
 import { Db, ok } from '../db';
 import type { ServicoSped } from '../painel/sped';
 import type { ServicoGuias } from '../painel/guias';
@@ -27,7 +28,7 @@ import { TIPOS_DOCUMENTO } from '../integra/acessorias';
 
 export interface DepsMcp { db: Db; sped: ServicoSped; guias: ServicoGuias; acessorias?: ServicoAcessorias; confirmacoes?: Confirmacoes; apuracao?: ServicoApuracao; gerarSped?: ServicoGerarSped; documentos?: ServicoDocumentosEntrega }
 /** `acoes`: a conexão tem o escopo appura.acoes E o perfil do usuário pode operar. */
-export interface ContextoMcp { email: string; perfil: string; clientId: string | null; acoes?: boolean }
+export interface ContextoMcp { email: string; perfil: string; clientId: string | null; acoes?: boolean; acesso?: Acesso }
 export type RegistroFerramenta = (r: { email: string; clientId: string | null; ferramenta: string; argumentos: unknown; sucesso: boolean; duracaoMs: number }) => Promise<void>;
 
 export const VERSAO_MCP = '1.0.0';
@@ -90,6 +91,15 @@ export function criarServidorMcp(deps: DepsMcp, ctx: ContextoMcp, registrar: Reg
       return erro(mensagemDeServico(e) ?? 'Não foi possível concluir no Appura agora. Tente de novo.');
     }
   };
+  // Permissões e escopo de empresas do usuário (sem acesso informado = tudo, só em testes)
+  const ac = ctx.acesso;
+  const exigir = (p: string) => { if (ac && !ac.permissoes.has(p)) throw new ErroFerramenta('Seu perfil no Appura não dá acesso a esta informação.'); };
+  const naEmpresa = async (termo: string) => {
+    const e = await resolverEmpresa(db, termo);
+    if (ac && !podeEmpresa(ac, e.id)) throw new ErroFerramenta('Esta empresa não está no seu acesso no Appura.');
+    return e;
+  };
+  const doEscopo = <T>(lista: T[], id: (x: T) => string) => (ac ? noEscopo(ac, lista, id) : lista);
   const leitura = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
   server.registerTool('appura_listar_empresas', {
@@ -106,6 +116,8 @@ export function criarServidorMcp(deps: DepsMcp, ctx: ContextoMcp, registrar: Reg
     let q = db.from('vw_painel_empresas').select('id,cnpj,razao_social,uf,regime,ativo,status,certificado_valido_ate,ultima_sync_ok_em,escritorio').order('razao_social');
     if (a.situacao !== 'todas') q = q.eq('ativo', a.situacao === 'ativas');
     if (a.regime) q = q.eq('regime', a.regime);
+    const ids = ac ? idsDoEscopo(ac) : undefined;
+    if (ids) { if (!ids.length) return { empresas: [], mais_resultados: false }; q = q.in('id', ids); }
     if (a.busca) {
       const d = a.busca.replace(/\D/g, '');
       q = d.length >= 4 && d.length === a.busca.replace(/[\s./-]/g, '').length ? q.like('cnpj', `%${d}%`) : q.ilike('razao_social', `%${a.busca.replace(/[%_]/g, ' ')}%`);
@@ -132,10 +144,11 @@ export function criarServidorMcp(deps: DepsMcp, ctx: ContextoMcp, registrar: Reg
     },
     annotations: { title: 'Central de Fechamento', ...leitura },
   }, envolver('appura_central_fechamento', async (a: { competencia?: string; filtro: string; regime?: string; limite: number }) => {
+    exigir('fiscal.ver');
     const comp = a.competencia ?? mesAtualSP();
     const { data, error } = await db.rpc('painel_visao_geral', { p_competencia: `${comp}-01` });
     if (error) throw new Error(error.message);
-    const todas = (data.empresas as any[]).filter((e) => !a.regime || e.regime === a.regime);
+    const todas = doEscopo(data.empresas as any[], (e) => e.id).filter((e) => !a.regime || e.regime === a.regime);
     const status = { com_pendencias: 'pendencias', bloqueadas: 'bloqueado', em_andamento: 'andamento', concluidas: 'concluido' } as Record<string, string>;
     const lista = vg.fcOrdenar(vg.fcFiltrar(todas, { status: status[a.filtro] ?? '' }), 'criticidade') as any[];
     return {
@@ -158,7 +171,7 @@ export function criarServidorMcp(deps: DepsMcp, ctx: ContextoMcp, registrar: Reg
     inputSchema: { empresa: empresaSchema, competencia: competenciaSchema },
     annotations: { title: 'Resumo da empresa', ...leitura },
   }, envolver('appura_resumo_empresa', async (a: { empresa: string; competencia?: string }) => {
-    const emp = await resolverEmpresa(db, a.empresa);
+    const emp = await naEmpresa(a.empresa);
     const comp = a.competencia ?? mesAtualSP();
     const { data: d, error } = await db.rpc('painel_empresa_360', { p_empresa: emp.id, p_competencia: `${comp}-01` });
     if (error) throw new Error(error.message);
@@ -193,7 +206,7 @@ export function criarServidorMcp(deps: DepsMcp, ctx: ContextoMcp, registrar: Reg
     },
     annotations: { title: 'Divergências', ...leitura },
   }, envolver('appura_divergencias', async (a: { empresa: string; competencia?: string; arquivo: string; situacao: string; limite: number }) => {
-    const emp = await resolverEmpresa(db, a.empresa);
+    exigir('fiscal.ver'); const emp = await naEmpresa(a.empresa);
     const comp = a.competencia ?? mesAtualSP();
     const tipo = { sped_fiscal: 'efd_icms_ipi', sped_contribuicoes: 'efd_contribuicoes', sintegra: 'sintegra' }[a.arquivo]!;
     const arq = await deps.sped.vigente(emp.id, `${comp}-01`, tipo);
@@ -227,7 +240,7 @@ export function criarServidorMcp(deps: DepsMcp, ctx: ContextoMcp, registrar: Reg
     },
     annotations: { title: 'Apontamentos da auditoria', ...leitura },
   }, envolver('appura_apontamentos_auditoria', async (a: { empresa: string; competencia?: string; status: string; severidade?: string; limite: number }) => {
-    const emp = await resolverEmpresa(db, a.empresa);
+    exigir('fiscal.ver'); const emp = await naEmpresa(a.empresa);
     const comp = a.competencia ?? mesAtualSP();
     let q = db.from('apontamentos').select('id,regra,severidade,chave,n_item,mensagem,sugestao,quantidade,status,observacao,resolvido_por,resolvido_em').eq('empresa_id', emp.id).eq('competencia', `${comp}-01`);
     if (a.status !== 'todos') q = q.eq('status', a.status);
@@ -251,7 +264,7 @@ export function criarServidorMcp(deps: DepsMcp, ctx: ContextoMcp, registrar: Reg
     },
     annotations: { title: 'Notas fiscais', ...leitura },
   }, envolver('appura_notas_fiscais', async (a: { empresa: string; competencia?: string; direcao?: string; modelo?: string; busca?: string; limite: number }) => {
-    const emp = await resolverEmpresa(db, a.empresa);
+    exigir('captacao.ver'); const emp = await naEmpresa(a.empresa);
     const comp = a.competencia ?? mesAtualSP();
     const [ano, mes] = comp.split('-').map(Number);
     const prox = mes === 12 ? `${ano + 1}-01` : `${ano}-${String(mes + 1).padStart(2, '0')}`;
@@ -290,9 +303,10 @@ export function criarServidorMcp(deps: DepsMcp, ctx: ContextoMcp, registrar: Reg
     },
     annotations: { title: 'Guias', ...leitura },
   }, envolver('appura_guias', async (a: { competencia?: string; filtro: string; limite: number }) => {
+    exigir('fiscal.ver');
     const comp = a.competencia ?? mesAtualSP();
     const p = await deps.guias.painel(comp);
-    const das = (p.empresas as any[]).filter((e) => e.regime === 'simples' || e.regime === 'mei');
+    const das = doEscopo(p.empresas as any[], (e) => e.id).filter((e) => e.regime === 'simples' || e.regime === 'mei');
     const f = {
       todas: () => true,
       sem_procuracao: (e: any) => !e.procuracao || e.procuracao.situacao !== 'ativa',
@@ -326,7 +340,7 @@ export function criarServidorMcp(deps: DepsMcp, ctx: ContextoMcp, registrar: Reg
       inputSchema: { empresa: empresaSchema, competencia: competenciaSchema },
       annotations: { title: 'Apuração do Simples', ...leitura },
     }, envolver('appura_apuracao_simples', async (a: { empresa: string; competencia?: string }) => {
-      const emp = await resolverEmpresa(db, a.empresa);
+      exigir('fiscal.ver'); const emp = await naEmpresa(a.empresa);
       const p = await apuracao.previa(emp.id, a.competencia ?? mesAtualSP()) as any;
       const ult = (p.apuracoes as any[]).find((x) => x.status === 'simulada' || x.status === 'transmitida') ?? null;
       return {
@@ -349,7 +363,7 @@ export function criarServidorMcp(deps: DepsMcp, ctx: ContextoMcp, registrar: Reg
       inputSchema: { empresa: empresaSchema, competencia: competenciaSchema },
       annotations: { title: 'SPED gerado', ...leitura },
     }, envolver('appura_sped_gerado', async (a: { empresa: string; competencia?: string }) => {
-      const emp = await resolverEmpresa(db, a.empresa);
+      exigir('fiscal.ver'); const emp = await naEmpresa(a.empresa);
       const l = await gerarSped.listar(emp.id, a.competencia ?? mesAtualSP()) as any;
       const fmt = (g: any) => g ? {
         versao: g.versao, gerado_em: g.gerado_em, gerado_por: g.gerado_por, pronto_para_o_pva: g.erros === 0, erros: g.erros, alertas: g.alertas, auditado: !!g.auditado_arquivo_id,
@@ -372,7 +386,7 @@ export function criarServidorMcp(deps: DepsMcp, ctx: ContextoMcp, registrar: Reg
       const sit = await ac.situacao();
       if (!sit.configurado) return { configurado: false, mensagem: 'A integração com a Acessórias não está configurada (Administração › Escritório).' };
       if (a.empresa) {
-        const emp = await resolverEmpresa(db, a.empresa);
+        exigir('fiscal.ver'); const emp = await naEmpresa(a.empresa);
         let [ent] = await ac.entregasDoMes(comp, [emp.id]);
         if (a.atualizar || !ent) { await ac.atualizarEntregas(emp.id, comp, ctx.email); [ent] = await ac.entregasDoMes(comp, [emp.id]); }
         const cad = await ac.obrigacoesDaEmpresa(emp.cnpj);
@@ -430,7 +444,7 @@ export function criarServidorMcp(deps: DepsMcp, ctx: ContextoMcp, registrar: Reg
 
   if (acoes) {
     registrarAcoes(server, { db, sped: deps.sped, guias: deps.guias, acessorias: deps.acessorias!, confirmacoes: deps.confirmacoes! }, {
-      email: ctx.email, resolverEmpresa: (t) => resolverEmpresa(db, t), competencia: (c) => c ?? mesAtualSP(), envolver, cnpjFmt,
+      email: ctx.email, resolverEmpresa: naEmpresa, escopo: ac ? idsDoEscopo(ac) : undefined, competencia: (c) => c ?? mesAtualSP(), envolver, cnpjFmt,
     });
   }
 

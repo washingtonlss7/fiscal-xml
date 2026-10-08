@@ -1649,3 +1649,30 @@ a.aba-tela { text-decoration: none; }
 .it-segredo { display: flex; flex-direction: column; gap: var(--esp-1); }
 .it-url { display: flex; gap: var(--esp-2); flex-wrap: wrap; align-items: center; }
 .it-url input { flex: 1 1 320px; }
+
+/* ---------- Acesso: perfis, exceções por usuário e responsáveis ---------- */
+.ac-grade { width: 100%; border-collapse: collapse; font-size: var(--t-m); }
+.ac-grade th, .ac-grade td { padding: 10px var(--esp-3); border-top: 1px solid var(--linha); text-align: left; vertical-align: top; }
+.ac-grade tr:first-child th, .ac-grade tr:first-child td { border-top: 0; }
+.ac-grade th { width: 42%; font-weight: 400; }
+.ac-grade th strong { font-weight: 600; }
+.ac-grade th .meta { display: block; margin-top: 2px; }
+.ac-grade tr.ac-desligado { opacity: 0.55; }
+.ac-acoes { display: flex; flex-wrap: wrap; gap: var(--esp-2) var(--esp-3); }
+.ac-acao { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: var(--raio-m); border: 1px solid transparent; cursor: pointer; }
+.ac-acao input { width: 18px; height: 18px; accent-color: var(--primaria); }
+.ac-acao.ac-excecao { border-color: var(--destaque); background: var(--destaque-suave); }
+.ac-escopo { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--esp-2); }
+.ac-escopo legend { font-weight: 600; margin-bottom: var(--esp-2); padding: 0; }
+.ac-escopo .marcar { align-items: flex-start; }
+.ac-escopo .marcar input { margin-top: 3px; }
+.ac-excecoes summary { cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: var(--esp-2); padding: var(--esp-2) 0; }
+.ac-excecoes[open] summary { margin-bottom: var(--esp-2); }
+.ac-resumo { margin: 0; color: var(--tinta-2); font-size: var(--t-m); }
+.ac-pessoas { display: flex; flex-wrap: wrap; gap: var(--esp-2) var(--esp-4); }
+.ac-filtros { display: flex; flex-wrap: wrap; gap: var(--esp-3); align-items: center; margin-bottom: var(--esp-3); }
+.ac-filtros .cl-busca { flex: 1 1 260px; }
+@media (max-width: 760px) {
+  .ac-grade th { width: auto; display: block; border-top: 1px solid var(--linha); }
+  .ac-grade td { display: block; border-top: 0; padding-top: 0; }
+}

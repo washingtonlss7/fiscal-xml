@@ -5,7 +5,7 @@
  */
 import assert from 'assert';
 import { diferencas, editarCadastro, normalizar } from '../src/painel/cadastroEmpresa';
-import { permissaoDaRota } from '../src/painel/usuarios';
+import { exigenciaDaRota } from '../src/painel/acesso';
 import { bancoFalso } from './banco-falso';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { cdAlterados, cdParaTela, cdTextoAlteracao } = require('../public/cadastro.js');
@@ -44,8 +44,8 @@ console.log('ok  validação: CEP, IE (ou ISENTO), telefone, e-mail, IBGE, vazio
   assert.equal(t.empresa_alteracoes[0].por, 'sup@x.com');
   const nada = await editarCadastro(db, ID, { campos: { ie: '084.358.580' } }, 'sup@x.com');
   assert.equal(nada.alteracoes.length, 0); assert.equal(t.empresa_alteracoes.length, 1, 'sem mudança, sem registro');
-  assert.equal(permissaoDaRota('PATCH', `/api/empresas/${ID}/cadastro`), 'certificados', 'só supervisor e administrador editam');
-  assert.equal(permissaoDaRota('GET', `/api/empresas/${ID}/cadastro`), null);
+  assert.equal(exigenciaDaRota('PATCH', `/api/empresas/${ID}/cadastro`), 'administracao.empresas', 'só quem cadastra empresas edita');
+  assert.equal(exigenciaDaRota('GET', `/api/empresas/${ID}/cadastro`), 'algum.ver');
   console.log('ok  edição: campos fixos recusados, regime só com confirmação, registro de antes/depois, nada mudou = nada gravado');
 
   // 2) Tela

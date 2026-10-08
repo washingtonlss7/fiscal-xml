@@ -7,7 +7,7 @@
  */
 // __VERSAO__ é trocado pelo servidor pelo hash dos arquivos: toda publicação gera um cache novo
 const VERSAO = 'appura-casca-__VERSAO__';
-const CASCA = ['/', '/app.js', '/visao-geral.js', '/empresa-360.js', '/sped.js', '/guias.js', '/apuracao.js', '/sped-gerar.js', '/documentos.js', '/busca-xml.js', '/cadastro.js', '/apuracao-real.js', '/sincronizacao.js', '/ia.js', '/coletores.js', '/captacao.js', '/integracoes.js', '/nucleo.js', '/app.css', '/logo.png', '/favicon.png', '/manifest.webmanifest', '/icone-192.png', '/icone-512.png', '/icones.svg', '/fonts/inter.woff2', '/fonts/poppins-500.woff2', '/fonts/poppins-600.woff2'];
+const CASCA = ['/', '/app.js', '/visao-geral.js', '/empresa-360.js', '/sped.js', '/guias.js', '/apuracao.js', '/sped-gerar.js', '/documentos.js', '/busca-xml.js', '/cadastro.js', '/apuracao-real.js', '/sincronizacao.js', '/ia.js', '/coletores.js', '/captacao.js', '/integracoes.js', '/acesso.js', '/nucleo.js', '/app.css', '/logo.png', '/favicon.png', '/manifest.webmanifest', '/icone-192.png', '/icone-512.png', '/icones.svg', '/fonts/inter.woff2', '/fonts/poppins-500.woff2', '/fonts/poppins-600.woff2'];
 
 self.addEventListener('install', (ev) => {
   ev.waitUntil(caches.open(VERSAO).then((c) => c.addAll(CASCA)).then(() => self.skipWaiting()));

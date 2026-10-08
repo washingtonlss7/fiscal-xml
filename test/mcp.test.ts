@@ -144,8 +144,7 @@ async function testeHttp() {
     const lido = await rotaMcp(req, res, url, {
       oauth, deps: { db, sped: {} as any, guias: {} as any }, base: () => base,
       entrar: async (email, senha) => { if (email === 'ana@x.com' && senha === 'senha-certa') return email; throw new Error('E-mail ou senha incorretos.'); },
-      perfilDe: async (e) => (e === 'ana@x.com' ? 'consulta' : null),
-      podeOperar: (p) => p !== 'consulta',
+      acessoDe: async (e) => (e === 'ana@x.com' ? { email: e, nome: 'Ana', perfilId: 'consulta', perfilNome: 'Consulta', fixo: false, escopo: 'todas' as const, empresas: null, permissoes: new Set(['captacao.ver', 'fiscal.ver']) } : null),
       registrar: async (r) => { chamadas.push(r); },
       lerTexto: (r) => new Promise((ok) => { let s = ''; r.on('data', (d) => (s += d)); r.on('end', () => ok(s)); }),
       ip: () => '1.1.1.1',

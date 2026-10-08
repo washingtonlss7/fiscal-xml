@@ -381,7 +381,7 @@ if (typeof window !== 'undefined') {
     $('e360-atencao').replaceChildren(...(at.length ? at.map((a) => {
       const corpo = [h('span', { class: `vg-atencao-icone ${a.tom}` }, icone(a.icone)), h('span', { class: 'vg-atencao-texto', text: a.texto })];
       const destino = a.aba ? () => { if (a.filtroSituacao) window.bxEmpresaSituacao(a.filtroSituacao); if (a.spedAba) e3.spedAba = a.spedAba; trocarAba(a.aba); }
-        : a.acao === 'certificado' && pode('certificados') ? () => abrirGaveta(empresaNotas)
+        : a.acao === 'certificado' && pode('administracao.empresas') ? () => abrirGaveta(empresaNotas)
           : a.acao === 'cadastro' ? () => irPara(`#/sped?cadastro=${d.sugestao.id}`) : null;
       return h('li', {}, destino
         ? h('button', { type: 'button', class: 'vg-atencao-item', onclick: destino }, ...corpo, icone('chevron-right', 'icone-svg vg-seta'))
@@ -418,7 +418,7 @@ if (typeof window !== 'undefined') {
         h('li', {}, h('span', { text: 'Situação' }), h('span', { class: `selo ${cert.tom}`, text: cert.texto })),
         cert.dias !== null ? h('li', {}, h('span', { text: cert.dias >= 0 ? 'Dias restantes' : 'Vencido há' }), h('strong', { text: `${e3Num(Math.abs(cert.dias))} dia${Math.abs(cert.dias) === 1 ? '' : 's'}` })) : null,
         d.certificado ? h('li', {}, h('span', { text: 'Titular' }), h('strong', { class: 'e360-texto-longo', text: d.certificado.titular || '—' })) : null),
-      pode('certificados') ? h('button', { type: 'button', class: 'botao pequeno', onclick: () => abrirGaveta(empresaNotas) }, d.certificado ? 'Trocar certificado' : 'Enviar certificado') : null));
+      pode('administracao.empresas') ? h('button', { type: 'button', class: 'botao pequeno', onclick: () => abrirGaveta(empresaNotas) }, d.certificado ? 'Trocar certificado' : 'Enviar certificado') : null));
     $('e360-cards').replaceChildren(...cards);
     // Atividade recente
     const hist = e360Historico(d).slice(0, 6);
@@ -439,7 +439,7 @@ if (typeof window !== 'undefined') {
           h('span', { class: 'meta', text: `O arquivo de ${textoCompetencia(String(d.sugestao.competencia).slice(0, 7))} traz dados diferentes do cadastro.` }),
           h('a', { class: 'botao pequeno', href: `#/sped?cadastro=${d.sugestao.id}` }, 'Conferir e aprovar'))) : null,
       h('div', { class: 'e360-dados-topo' }, h('h2', { class: 'vg-card-titulo', text: 'Dados da empresa' }),
-        pode('certificados') ? h('button', { type: 'button', class: 'botao pequeno', onclick: () => window.cdAbrir(e, (c) => {
+        pode('administracao.empresas') ? h('button', { type: 'button', class: 'botao pequeno', onclick: () => window.cdAbrir(e, (c) => {
           // O regime e a captação mudam abas e cálculos: atualiza a empresa aberta e recarrega
           for (const x of [empresaNotas, ...(typeof empresas !== 'undefined' ? empresas.filter((y) => y.id === e.id) : [])]) if (x && x.id === e.id) Object.assign(x, { regime: c.regime, codigo_erp: c.codigo_erp });
           window.e360Chave = null; recarregarAba();
@@ -666,8 +666,8 @@ if (typeof window !== 'undefined') {
 
   function spedRender() {
     const alvo = $('sped-resultado');
-    $('sped-enviar').hidden = !pode('operar');
-    $('sped-sem-permissao').hidden = pode('operar');
+    $('sped-enviar').hidden = !pode('fiscal.operar');
+    $('sped-sem-permissao').hidden = pode('fiscal.operar');
     const est = e3.sped;
     const sintegra = spedAjustarAba();
     if (!est || !empresaNotas || est.id !== empresaNotas.id) { alvo.replaceChildren(); return; }
@@ -720,7 +720,7 @@ if (typeof window !== 'undefined') {
     blocos.push(h('div', { class: 'sped-envio-info' },
       h('span', { class: 'meta', text: `Enviado ${e3Quando(arq.enviadoEm)} por ${arq.enviadoPor}${arq.processadoEm && arq.processadoEm !== arq.enviadoEm ? ` · comparação refeita ${e3Quando(arq.processadoEm)}` : ''}` }),
       h('div', { class: 'sped-envio-acoes' },
-        pode('operar') ? h('button', { type: 'button', id: 'sped-refazer', class: 'botao pequeno', title: dicaRefazer, onclick: spedRefazer }, icone('refresh-cw'), h('span', { text: 'Refazer comparação' })) : null,
+        pode('fiscal.operar') ? h('button', { type: 'button', id: 'sped-refazer', class: 'botao pequeno', title: dicaRefazer, onclick: spedRefazer }, icone('refresh-cw'), h('span', { text: 'Refazer comparação' })) : null,
         h('a', { class: 'botao pequeno', href: '#', onclick: (ev) => { ev.preventDefault(); spedBaixar(r.id, arq.nome); } }, icone('file-text'), 'Baixar arquivo'))));
     const sug = e3.sped && e3.sped.sugestao;
     if (sug) {
@@ -781,7 +781,7 @@ if (typeof window !== 'undefined') {
     const filtro = est.filtro && contagem[est.filtro] ? est.filtro : '';
     const lista = porSit.filter((d) => !filtro || d.tipo === filtro);
     const abertas = lista.filter((d) => !d.justificativa);
-    const podeJ = pode('operar');
+    const podeJ = pode('fiscal.operar');
     const chip = (ativo, texto, fn) => h('button', { type: 'button', class: `vg-chip-f${ativo ? ' ativo' : ''}`, 'aria-pressed': String(ativo), onclick: fn }, texto);
     const blocos = [];
     const barra = [];
@@ -952,7 +952,7 @@ if (typeof window !== 'undefined') {
   function spedMonofasico(c) {
     const m = c && c.monofasico;
     const fmt = (v) => moeda(v);
-    const importar = pode('operar') ? h('button', { type: 'button', class: 'botao pequeno sped-importar', onclick: () => $('notas-importar-arquivos').click() }, icone('cloud-download'), 'Importar XMLs de saída') : null;
+    const importar = pode('captacao.operar') ? h('button', { type: 'button', class: 'botao pequeno sped-importar', onclick: () => $('notas-importar-arquivos').click() }, icone('cloud-download'), 'Importar XMLs de saída') : null;
     if (!m || !m.notasComXml) {
       return h('div', { class: 'e360-breve pequeno' }, icone('calculator'), h('div', {}, h('strong', { text: 'Monofásico × tributado pelo NCM' }),
         h('p', { text: m && m.notasSaida
@@ -1140,12 +1140,12 @@ if (typeof window !== 'undefined') {
     const e = empresaNotas;
     if (!e) return [];
     const lista = [];
-    if (pode('operar')) {
+    if (pode('captacao.operar')) {
       lista.push({ id: 'sincronizar', texto: e.sincronizacao_pedida ? 'Sincronização já pedida' : 'Sincronizar XML', icone: 'refresh-cw', desabilitado: !e.ativo || e.sincronizacao_pedida || !e.certificado_valido_ate, fn: (b) => sincronizar(e, b).then(e360AtualizarAcoes), celular: true });
       lista.push({ id: 'importar', texto: 'Importar arquivos', icone: 'cloud-download', fn: () => $('notas-importar-arquivos').click(), celular: true });
     }
     lista.push({ id: 'zip', texto: 'Baixar XMLs do mês (ZIP)', icone: 'file-text', fn: (b) => baixarZip(b), menu: true, celular: true });
-    if (pode('certificados')) {
+    if (pode('administracao.empresas')) {
       lista.push({ id: 'certificado', texto: 'Trocar certificado', icone: 'key-round', fn: () => abrirGaveta(e), menu: true, celular: true });
       lista.push({ id: 'pausar', texto: e3.confirmarPausa ? (e.ativo ? 'Confirmar pausa' : 'Confirmar reativação') : (e.ativo ? 'Pausar empresa' : 'Reativar empresa'), icone: 'clock-alert', perigo: e.ativo, menu: true, manterAberto: !e3.confirmarPausa, fn: e360Pausar });
     }
@@ -1205,7 +1205,7 @@ if (typeof window !== 'undefined') {
     const painel = $('painel-sped');
     painel.addEventListener('dragover', (ev) => { ev.preventDefault(); painel.classList.add('arrastando'); });
     painel.addEventListener('dragleave', () => painel.classList.remove('arrastando'));
-    painel.addEventListener('drop', (ev) => { ev.preventDefault(); painel.classList.remove('arrastando'); if (pode('operar')) spedEnviar(ev.dataTransfer.files[0]); });
+    painel.addEventListener('drop', (ev) => { ev.preventDefault(); painel.classList.remove('arrastando'); if (pode('fiscal.operar')) spedEnviar(ev.dataTransfer.files[0]); });
     $('gj-form').addEventListener('submit', spedSalvarJustificativa);
     $('gj-fechar').addEventListener('click', spedFecharJustificar);
     $('gj-cancelar').addEventListener('click', spedFecharJustificar);

@@ -64,7 +64,7 @@ if (typeof window !== 'undefined') {
   function cdTecla(ev) { if (ev.key === 'Escape') cdFechar(); }
 
   async function cdAbrir(empresa, aoSalvar) {
-    if (!pode('certificados')) { avisar('Seu perfil não pode editar o cadastro. Fale com um supervisor.', { tipo: 'erro' }); return; }
+    if (!pode('administracao.empresas')) { avisar('Seu perfil não pode editar o cadastro. Fale com um supervisor.', { tipo: 'erro' }); return; }
     let d;
     try { d = await chamar(`/api/empresas/${empresa.id}/cadastro`); } catch (e) { avisar(e.message, { tipo: 'erro' }); return; }
     const atual = d.cadastro; const campos = d.campos;

@@ -156,7 +156,7 @@ if (typeof window !== 'undefined') {
   function apCardReceita(d, sit) {
     const { estado, simulada, transmitida } = apEstadoReceita(d.apuracoes);
     const bloqueado = sit.tom === 'problema';
-    const podeOperar = pode('operar'); const podeTransmitir = pode('transmitir');
+    const podeOperar = pode('fiscal.operar'); const podeTransmitir = pode('fiscal.transmitir');
     const calcular = (retificar) => h('button', { type: 'button', class: `botao ${retificar ? '' : 'primario'}`, disabled: bloqueado || !podeOperar, onclick: (ev) => comOcupado(ev.currentTarget, 'Calculando na Receita…', async () => {
       try { await chamar(`/api/empresas/${empresaNotas.id}/apuracao/simular`, { method: 'POST', body: { mes: d.competencia, retificar } }); }
       catch (e) { avisar(e.message, { tipo: 'erro' }); return; }
@@ -255,7 +255,7 @@ if (typeof window !== 'undefined') {
   function apCardAjustes(d) {
     const varios = d.estabelecimentos.length > 1;
     const lista = d.estabelecimentos.flatMap((e) => (e.ajustes || []).map((a) => ({ ...a, estab: e })));
-    const podeOperar = pode('operar');
+    const podeOperar = pode('fiscal.operar');
     const linha = (a) => {
       const g = AP_GRUPOS.find((x) => x.atividade === a.atividade && x.st === !!a.st && x.monofasico === !!a.monofasico);
       const acoes = !podeOperar ? null : ap.removendo === a.id

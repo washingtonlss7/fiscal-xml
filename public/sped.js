@@ -50,9 +50,9 @@ if (typeof window !== 'undefined') {
     sp.foco = q.get('cadastro') ? Number(q.get('cadastro')) : null;
     for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-guias', 'tela-escritorio', 'tela-ia', 'tela-xml']) $(id).hidden = true;
     $('tela-sped').hidden = false;
-    $('sp-enviar').hidden = !pode('operar');
-    $('sp-sem-permissao').hidden = pode('operar');
-    $('sp-cad-permissao').hidden = pode('certificados');
+    $('sp-enviar').hidden = !pode('fiscal.operar');
+    $('sp-sem-permissao').hidden = pode('fiscal.operar');
+    $('sp-cad-permissao').hidden = pode('administracao.empresas');
     window.scrollTo(0, 0);
     spCarregar();
   }
@@ -95,7 +95,7 @@ if (typeof window !== 'undefined') {
   function spCartao(s) {
     if (!sp.marcados.has(s.id)) sp.marcados.set(s.id, new Set(spPadraoMarcados(s.diferencas, s.clienteNovo)));
     const marcados = sp.marcados.get(s.id);
-    const podeAprovar = pode('certificados');
+    const podeAprovar = pode('administracao.empresas');
     const ocupado = sp.ocupado.has(s.id);
     const nome = s.empresa ? s.empresa.razao_social : s.dados.razao_social || formatarCnpj(s.cnpj);
     const comp = s.competencia ? textoCompetencia(String(s.competencia).slice(0, 7)) : '—';
@@ -193,7 +193,7 @@ if (typeof window !== 'undefined') {
    */
   async function spEnviarDaHome(arquivos) {
     const lista = [...arquivos].filter((f) => f.size);
-    if (!lista.length || !pode('operar')) return;
+    if (!lista.length || !pode('fiscal.operar')) return;
     if (lista.length > 1) {
       irPara('#/sped');
       spEnviar(lista);
@@ -228,7 +228,7 @@ if (typeof window !== 'undefined') {
     $('vg-enviar-sped').addEventListener('click', () => $('vg-sped-arquivos').click());
     $('vg-sped-arquivos').addEventListener('change', (ev) => spEnviarDaHome(ev.target.files));
     const home = $('tela-visao');
-    home.addEventListener('dragover', (ev) => { if (pode('operar') && ev.dataTransfer && [...ev.dataTransfer.types].includes('Files')) { ev.preventDefault(); home.classList.add('arrastando'); } });
+    home.addEventListener('dragover', (ev) => { if (pode('fiscal.operar') && ev.dataTransfer && [...ev.dataTransfer.types].includes('Files')) { ev.preventDefault(); home.classList.add('arrastando'); } });
     home.addEventListener('dragleave', (ev) => { if (ev.target === home) home.classList.remove('arrastando'); });
     home.addEventListener('drop', (ev) => { if (!ev.dataTransfer || !ev.dataTransfer.files.length) return; ev.preventDefault(); home.classList.remove('arrastando'); spEnviarDaHome(ev.dataTransfer.files); });
     $('sp-enviar').addEventListener('click', () => $('sp-arquivos').click());
@@ -236,7 +236,7 @@ if (typeof window !== 'undefined') {
     const tela = $('tela-sped');
     tela.addEventListener('dragover', (ev) => { ev.preventDefault(); tela.classList.add('arrastando'); });
     tela.addEventListener('dragleave', (ev) => { if (ev.target === tela) tela.classList.remove('arrastando'); });
-    tela.addEventListener('drop', (ev) => { ev.preventDefault(); tela.classList.remove('arrastando'); if (pode('operar')) spEnviar(ev.dataTransfer.files); });
+    tela.addEventListener('drop', (ev) => { ev.preventDefault(); tela.classList.remove('arrastando'); if (pode('fiscal.operar')) spEnviar(ev.dataTransfer.files); });
   }
   spLigar();
   window.spMostrar = spMostrar;

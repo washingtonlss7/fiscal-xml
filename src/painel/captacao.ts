@@ -47,9 +47,10 @@ export function avaliarEmpresa(e: {
   return { tom: prob.length ? 'problema' : at.length ? 'atencao' : 'ok', motivos: [...prob, ...at] };
 }
 
-export async function monitor(db: Db, agora = Date.now()) {
-  const empresas = ok(await db.from('empresas').select('id,cnpj,razao_social,uf,ativo').eq('ativo', true).order('razao_social').limit(5000), 'empresas') as
+export async function monitor(db: Db, agora = Date.now(), escopo: Set<string> | null = null) {
+  const todasEmpresas = ok(await db.from('empresas').select('id,cnpj,razao_social,uf,ativo').eq('ativo', true).order('razao_social').limit(5000), 'empresas') as
     { id: string; cnpj: string; razao_social: string; uf: string }[];
+  const empresas = escopo ? todasEmpresas.filter((e) => escopo.has(e.id)) : todasEmpresas;
   const [estados, certs, ultimas, maqs, vinc, pedidos, status] = await Promise.all([
     db.from('sync_state').select('*').limit(20000),
     db.from('certificados').select('empresa_id,valido_ate').eq('ativo', true).limit(10000),
@@ -62,14 +63,17 @@ export async function monitor(db: Db, agora = Date.now()) {
   const est = ok(estados, 'sync_state') as any[];
   const cert = new Map((ok(certs, 'certificados') as any[]).map((c) => [c.empresa_id, c.valido_ate as string]));
   const ult = new Map((ok(ultimas, 'últimas capturas') as any[]).map((u) => [u.empresa_id, u]));
-  const maquinas = ok(maqs, 'coletores') as any[];
+  const vinculos = ok(vinc, 'instalações') as any[];
+  // Com escopo, só as máquinas de instalações que atendem alguma empresa do escopo
+  const instNoEscopo = escopo ? new Set(vinculos.filter((v) => escopo.has(v.empresa_id)).map((v) => v.instalacao_id)) : null;
+  const maquinas = (ok(maqs, 'coletores') as any[]).filter((m) => !instNoEscopo || instNoEscopo.has(m.instalacao_id));
   const porInst = new Map<string, any[]>();
   for (const m of maquinas) { const l = porInst.get(m.instalacao_id) ?? []; l.push(m); porInst.set(m.instalacao_id, l); }
   const maqDaEmpresa = new Map<string, any[]>();
-  for (const v of ok(vinc, 'instalações') as any[]) {
+  for (const v of vinculos) {
     const l = maqDaEmpresa.get(v.empresa_id) ?? []; l.push(...(porInst.get(v.instalacao_id) ?? [])); maqDaEmpresa.set(v.empresa_id, l);
   }
-  const pend = new Map((ok(pedidos, 'pedidos') as any[]).map((p) => [p.empresa_id, p]));
+  const pend = new Map((ok(pedidos, 'pedidos') as any[]).filter((p) => !escopo || escopo.has(p.empresa_id)).map((p) => [p.empresa_id, p]));
 
   const linhas = empresas.map((e) => {
     const sefaz: EstadoSefaz[] = est.filter((s) => s.empresa_id === e.id).sort((a, b) => a.modelo.localeCompare(b.modelo)).reverse().map((s) => {
@@ -86,7 +90,7 @@ export async function monitor(db: Db, agora = Date.now()) {
     };
   });
   const st = ok(status, 'status') as { chave: string; valor: any; atualizado_em: string }[];
-  const consultaMaisRecente = est.reduce((m, s) => (s.ultima_consulta_em && s.ultima_consulta_em > m ? s.ultima_consulta_em : m), '');
+  const consultaMaisRecente = (escopo ? est.filter((s) => escopo.has(s.empresa_id)) : est).reduce((m, s) => (s.ultima_consulta_em && s.ultima_consulta_em > m ? s.ultima_consulta_em : m), '');
   return {
     agora: new Date(agora).toISOString(),
     resumo: {
@@ -114,14 +118,14 @@ export function limitesMes(mes: string): { inicio: string; fim: string } {
   return { inicio: ini.toISOString(), fim: fim.toISOString() };
 }
 
-export async function lacunas(db: Db, mes: string) {
+export async function lacunas(db: Db, mes: string, escopo: Set<string> | null = null) {
   const { inicio, fim } = limitesMes(mes);
   const [emps, nsu, numer] = await Promise.all([
     db.from('empresas').select('id,cnpj,razao_social').eq('ativo', true).limit(5000),
     db.rpc('captacao_lacunas_nsu'),
     db.rpc('captacao_numeracao', { p_inicio: inicio, p_fim: fim }),
   ]);
-  const porId = new Map((ok(emps, 'empresas') as any[]).map((e) => [e.id, e]));
+  const porId = new Map((ok(emps, 'empresas') as any[]).filter((e) => !escopo || escopo.has(e.id)).map((e) => [e.id, e]));
   const nome = (id: string) => porId.get(id) ?? null;
   const sefaz = (ok(nsu, 'lacunas de NSU') as any[]).filter((l) => nome(l.empresa_id)).map((l) => ({
     empresaId: l.empresa_id, cnpj: nome(l.empresa_id).cnpj, razaoSocial: nome(l.empresa_id).razao_social, modelo: l.modelo,
@@ -149,14 +153,15 @@ export function lerPeriodo(url: URL, padraoDias = 30) {
 }
 
 /** Importações manuais (tela da empresa) e lotes do Appura Coletor, juntos e do mais novo para o mais antigo. */
-export async function importacoes(db: Db, f: { desde: string; empresa: string | null; origem: string | null }) {
-  const emps = ok(await db.from('empresas').select('id,cnpj,razao_social').limit(5000), 'empresas') as any[];
+export async function importacoes(db: Db, f: { desde: string; empresa: string | null; origem: string | null }, escopo: Set<string> | null = null) {
+  const emps = (ok(await db.from('empresas').select('id,cnpj,razao_social').limit(5000), 'empresas') as any[]).filter((e) => !escopo || escopo.has(e.id));
   const porId = new Map(emps.map((e) => [e.id, e]));
   const itens: any[] = [];
   if (f.origem !== 'coletor') {
     let q = db.from('importacoes_xml').select('id,empresa_id,email,arquivo,arquivos,importadas,completou_resumo,ja_existiam,rejeitadas,motivos,erro,duracao_ms,em').gte('em', f.desde).order('em', { ascending: false }).limit(1000);
     if (f.empresa) q = q.eq('empresa_id', f.empresa);
     for (const i of ok(await q, 'importações') as any[]) {
+      if (escopo && !escopo.has(i.empresa_id)) continue;
       const e = porId.get(i.empresa_id);
       itens.push({ origem: 'manual', em: i.em, empresas: e ? [{ id: e.id, cnpj: e.cnpj, razaoSocial: e.razao_social }] : [], quem: i.email, arquivo: i.arquivo,
         arquivos: i.arquivos, novas: i.importadas + i.completou_resumo, jaExistiam: i.ja_existiam, rejeitadas: i.rejeitadas, rejeitadasSefaz: null, foraDaInstalacao: null,
@@ -168,6 +173,10 @@ export async function importacoes(db: Db, f: { desde: string; empresa: string | 
     const insts = ok(await db.from('coletor_instalacoes').select('id,nome').limit(5000), 'instalações') as any[];
     const vinc = ok(await db.from('coletor_instalacao_empresas').select('instalacao_id,empresa_id').limit(20000), 'vínculos') as any[];
     let ids = maqs.map((m) => m.id);
+    if (escopo) {
+      const instNoEscopo = new Set(vinc.filter((v) => escopo.has(v.empresa_id)).map((v) => v.instalacao_id));
+      ids = maqs.filter((m) => instNoEscopo.has(m.instalacao_id)).map((m) => m.id);
+    }
     if (f.empresa) {
       const instDaEmp = new Set(vinc.filter((v) => v.empresa_id === f.empresa).map((v) => v.instalacao_id));
       ids = maqs.filter((m) => instDaEmp.has(m.instalacao_id)).map((m) => m.id);
@@ -194,10 +203,10 @@ export async function importacoes(db: Db, f: { desde: string; empresa: string | 
 }
 
 /** Histórico: documentos capturados por dia e origem, e as consultas feitas à SEFAZ (com filtro de só erros). */
-export async function historico(db: Db, f: { desde: string; empresa: string | null; soErros: boolean }) {
+export async function historico(db: Db, f: { desde: string; empresa: string | null; soErros: boolean }, escopo: Set<string> | null = null) {
   const emps = ok(await db.from('empresas').select('id,cnpj,razao_social').limit(5000), 'empresas') as any[];
   const porId = new Map(emps.map((e) => [e.id, e]));
-  const porDia = ok(await db.rpc('captacao_por_dia', { p_desde: f.desde }), 'capturas por dia') as { dia: string; recebido_via: string; modelo: string; qtd: number }[];
+  const porDia = ok(await (escopo ? db.rpc('captacao_por_dia_escopo', { p_desde: f.desde, p_empresas: [...escopo] }) : db.rpc('captacao_por_dia', { p_desde: f.desde })), 'capturas por dia') as { dia: string; recebido_via: string; modelo: string; qtd: number }[];
   const dias = new Map<string, { dia: string; sefaz: number; importacao: number; autxml: number; nfe: number; nfce: number; cte: number; total: number }>();
   for (const l of porDia) {
     const d = dias.get(l.dia) ?? { dia: l.dia, sefaz: 0, importacao: 0, autxml: 0, nfe: 0, nfce: 0, cte: 0, total: 0 };
@@ -210,7 +219,7 @@ export async function historico(db: Db, f: { desde: string; empresa: string | nu
   let q = db.from('logs_sefaz').select('id,empresa_id,modelo,cstat,motivo,ult_nsu_enviado,ult_nsu_retornado,max_nsu,qtd_docs,duracao_ms,erro,criado_em').gte('criado_em', f.desde).order('criado_em', { ascending: false }).limit(500);
   if (f.empresa) q = q.eq('empresa_id', f.empresa);
   if (f.soErros) q = q.or('erro.not.is.null,cstat.not.in.(137,138)');
-  const consultas = (ok(await q, 'consultas') as any[]).map((c) => {
+  const consultas = (ok(await q, 'consultas') as any[]).filter((c) => !escopo || escopo.has(c.empresa_id)).map((c) => {
     const e = porId.get(c.empresa_id);
     const okCstat = c.cstat === '137' || c.cstat === '138';
     return { id: c.id, em: c.criado_em, empresaId: c.empresa_id, cnpj: e?.cnpj ?? null, razaoSocial: e?.razao_social ?? '—', modelo: c.modelo, cstat: c.cstat, motivo: c.motivo,
@@ -219,7 +228,7 @@ export async function historico(db: Db, f: { desde: string; empresa: string | nu
   });
   let pq = db.from('sync_requests').select('id,empresa_id,status,solicitado_em,iniciado_em,processado_em,mensagem').gte('solicitado_em', f.desde).order('solicitado_em', { ascending: false }).limit(200);
   if (f.empresa) pq = pq.eq('empresa_id', f.empresa);
-  const manuais = (ok(await pq, 'sincronizações manuais') as any[]).map((p) => ({ ...p, razaoSocial: porId.get(p.empresa_id)?.razao_social ?? '—' }));
+  const manuais = (ok(await pq, 'sincronizações manuais') as any[]).filter((p) => !escopo || escopo.has(p.empresa_id)).map((p) => ({ ...p, razaoSocial: porId.get(p.empresa_id)?.razao_social ?? '—' }));
   const lista = [...dias.values()].sort((a, b) => (a.dia < b.dia ? 1 : -1));
   return {
     dias: lista, consultas, manuais,

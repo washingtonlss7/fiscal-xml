@@ -217,6 +217,8 @@ function sair(mensagem) {
   fecharGavetaUsuario();
   perfilAtual = null;
   permissoes = [];
+  modulosEu = [];
+  euAcesso = null;
   if (mensagem) {
     $('login-erro').textContent = mensagem;
     $('login-erro').hidden = false;
@@ -226,7 +228,10 @@ function sair(mensagem) {
 /* ---------- usuários ---------- */
 let perfilAtual = null;
 let permissoes = [];
-const pode = (p) => permissoes.includes(p);
+/** Permissão "<módulo>.<ação>" (ex.: fiscal.operar). 'algum.ver' = vê algum módulo. O servidor confere de novo. */
+const pode = (p) => (p === 'algum.ver' ? permissoes.some((x) => x.endsWith('.ver')) : permissoes.includes(p));
+let modulosEu = [];
+let euAcesso = null;
 let perfis = [];
 let usuarios = [];
 let usuarioEmEdicao = null;
@@ -239,7 +244,7 @@ const ACOES_USUARIO = {
   criar: 'cadastrou', editar: 'editou', desativar: 'desativou', reativar: 'reativou',
   redefinir_senha: 'redefiniu a senha de', excluir: 'excluiu',
 };
-const nomePerfil = (id) => (perfis.find((p) => p.id === id) || {}).nome || id;
+let modulosCatalogo = [];
 
 function abrirUsuarios() {
   pararAtualizacao();
@@ -263,6 +268,7 @@ async function carregarUsuarios() {
     const r = await chamar('/api/usuarios');
     usuarios = r.usuarios;
     perfis = r.perfis;
+    modulosCatalogo = r.modulos || [];
     renderUsuarios();
     renderHistorico(r.historico);
   } catch (e) {
@@ -277,14 +283,17 @@ function renderUsuarios() {
     return h('tr', { class: u.situacao === 'desativado' ? 'desativado' : '' },
       h('td', {}, h('strong', { text: u.nome || u.email }), u.email === eu ? h('span', { class: 'selo-mini', text: 'você' }) : null,
         u.nome ? h('span', { class: 'sub', text: u.email }) : null),
-      h('td', {}, nomePerfil(u.perfil), u.fixo ? h('span', { class: 'sub', text: 'Fixo no servidor' }) : null),
+      h('td', {}, u.perfilNome, u.fixo ? h('span', { class: 'sub', text: 'Fixo no servidor' }) : null,
+        (u.permissoesExtra || []).length + (u.permissoesRemovidas || []).length
+          ? h('span', { class: 'sub', text: `${(u.permissoesExtra || []).length + (u.permissoesRemovidas || []).length} exceç${(u.permissoesExtra || []).length + (u.permissoesRemovidas || []).length === 1 ? 'ão' : 'ões'} no perfil` }) : null),
+      h('td', {}, window.acResumoEscopo ? window.acResumoEscopo(u) : ''),
       h('td', {}, h('span', { class: `selo ${sit.tom}`, text: sit.texto })),
       h('td', {}, u.ultimoAcesso ? quandoRelativo(u.ultimoAcesso) : '—'),
       h('td', { class: 'acoes-u' }, u.fixo ? null : h('button', { type: 'button', class: 'botao pequeno', onclick: () => abrirGavetaUsuario(u), text: 'Editar' })),
     );
   });
   $('usuarios-lista').replaceChildren(h('table', { class: 'usuarios' },
-    h('thead', {}, h('tr', {}, ...['Usuário', 'Perfil', 'Situação', 'Último acesso', ''].map((t) => h('th', { scope: 'col', text: t })))),
+    h('thead', {}, h('tr', {}, ...['Usuário', 'Perfil', 'Empresas', 'Situação', 'Último acesso', ''].map((t) => h('th', { scope: 'col', text: t })))),
     h('tbody', {}, ...linhas)));
 }
 
@@ -298,15 +307,6 @@ function renderHistorico(hist) {
   $('usuarios-historico').replaceChildren(...(itens.length ? itens : [h('li', { class: 'vazio-hist', text: 'Nenhuma alteração registrada ainda.' })]));
 }
 
-function preencherPerfis(atual) {
-  $('gu-perfil').replaceChildren(...perfis.map((p) => h('option', { value: p.id, text: p.nome, selected: p.id === atual })));
-  mostrarDicaPerfil();
-}
-function mostrarDicaPerfil() {
-  const p = perfis.find((x) => x.id === $('gu-perfil').value);
-  $('gu-perfil-dica').textContent = p ? p.descricao : '';
-}
-
 function abrirGavetaUsuario(u) {
   usuarioEmEdicao = u;
   const eu = (sessao && sessao.email) || '';
@@ -315,14 +315,13 @@ function abrirGavetaUsuario(u) {
   $('gu-nome').value = u ? (u.nome || '') : '';
   $('gu-email').value = u ? u.email : '';
   $('gu-email').disabled = !!u;
-  preencherPerfis(u ? u.perfil : 'analista');
-  $('gu-perfil').disabled = proprio;
+  window.acGavetaMontar(u, perfis, modulosCatalogo);
   $('gu-ativo-campo').hidden = !u;
   $('gu-ativo').checked = u ? u.ativo : true;
   $('gu-ativo').disabled = proprio;
   $('gu-situacao').hidden = !(u && (proprio || u.situacao === 'aguardando'));
   $('gu-situacao').textContent = proprio
-    ? 'Este é o seu usuário: você pode mudar o nome, mas perfil e acesso só outro administrador altera.'
+    ? 'Este é o seu usuário: você pode mudar o nome, mas perfil, empresas e permissões só outro administrador altera.'
     : 'Esta pessoa ainda não criou a senha. Peça para ela abrir o painel e usar "Primeiro acesso" com este e-mail.';
   $('gu-perigo').hidden = !u || proprio;
   $('gu-redefinir').disabled = !!u && u.situacao === 'aguardando';
@@ -392,16 +391,17 @@ function salvarUsuario(ev) {
   ev.preventDefault();
   const nome = $('gu-nome').value.trim();
   const email = $('gu-email').value.trim().toLowerCase();
-  const perfil = $('gu-perfil').value;
+  const acesso = window.acGavetaLer();
   if (nome.length < 2) return erroUsuario('Informe o nome da pessoa.');
+  if (acesso && acesso.escopo === 'lista' && !(acesso.empresas || []).length) return erroUsuario('Marque ao menos uma empresa ou escolha outro escopo.');
   const u = usuarioEmEdicao;
   if (!u) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return erroUsuario('Informe um e-mail válido.');
-    return acaoUsuario($('gu-salvar'), () => chamar('/api/usuarios', { method: 'POST', body: { nome, email, perfil } }),
+    return acaoUsuario($('gu-salvar'), () => chamar('/api/usuarios', { method: 'POST', body: { nome, email, ...acesso } }),
       `${nome} cadastrado. Peça para usar "Primeiro acesso" com ${email}.`);
   }
   const corpo = { nome };
-  if (!$('gu-perfil').disabled) corpo.perfil = perfil;
+  if (acesso) Object.assign(corpo, acesso);
   if (!$('gu-ativo').disabled) corpo.ativo = $('gu-ativo').checked;
   return acaoUsuario($('gu-salvar'), () => chamar(`/api/usuarios/${encodeURIComponent(u.email)}`, { method: 'PATCH', body: corpo }), 'Usuário atualizado.');
 }
@@ -441,36 +441,43 @@ function trocarIcone(svg, nome) { svg.querySelector('use').setAttribute('href', 
  * "permissao" esconde o item de quem não pode usar (o servidor confere de novo em cada chamada).
  */
 const NAV = [
-  { id: 'visao-geral', rotulo: 'Visão Geral', icone: 'layout-dashboard', rota: '#/visao-geral' },
-  { id: 'empresas', rotulo: 'Empresas', icone: 'building-2', rota: '#/empresas' },
+  { id: 'visao-geral', rotulo: 'Visão Geral', icone: 'layout-dashboard', rota: '#/visao-geral', permissao: 'fiscal.ver' },
+  { id: 'empresas', rotulo: 'Empresas', icone: 'building-2', rota: '#/empresas', permissao: 'algum.ver' },
   { id: 'captacao', rotulo: 'Captação', icone: 'cloud-download', filhos: [
-    { id: 'cp-monitor', rotulo: 'Monitor', rota: '#/captacao/monitor' }, { id: 'cp-lacunas', rotulo: 'Lacunas / NSU', rota: '#/captacao/lacunas' },
-    { id: 'cp-importacoes', rotulo: 'Importações', rota: '#/captacao/importacoes' }, { id: 'cp-historico', rotulo: 'Histórico', rota: '#/captacao/historico' },
-    { id: 'coletores', rotulo: 'Appura Coletor', rota: '#/coletores' },
+    { id: 'cp-monitor', rotulo: 'Monitor', rota: '#/captacao/monitor', permissao: 'captacao.ver' }, { id: 'cp-lacunas', rotulo: 'Lacunas / NSU', rota: '#/captacao/lacunas', permissao: 'captacao.ver' },
+    { id: 'cp-importacoes', rotulo: 'Importações', rota: '#/captacao/importacoes', permissao: 'captacao.ver' }, { id: 'cp-historico', rotulo: 'Histórico', rota: '#/captacao/historico', permissao: 'captacao.ver' },
+    { id: 'coletores', rotulo: 'Appura Coletor', rota: '#/coletores', permissao: 'captacao.ver' },
   ] },
-  { id: 'notas', rotulo: 'Notas Fiscais', icone: 'file-text', rota: '#/notas' },
-  { id: 'auditoria', rotulo: 'Auditoria', icone: 'shield-check' },
-  { id: 'icms-st', rotulo: 'ICMS-ST', icone: 'calculator' },
-  { id: 'sped', rotulo: 'SPED e cadastro', icone: 'file-spreadsheet', rota: '#/sped' },
-  { id: 'guias', rotulo: 'Guias', icone: 'receipt', rota: '#/guias' },
-  { id: 'fechamento', rotulo: 'Fechamento', icone: 'clipboard-check', rota: '#/fechamento' },
+  { id: 'notas', rotulo: 'Notas Fiscais', icone: 'file-text', rota: '#/notas', permissao: 'captacao.ver' },
+  { id: 'auditoria', rotulo: 'Auditoria', icone: 'shield-check', permissao: 'fiscal.ver' },
+  { id: 'icms-st', rotulo: 'ICMS-ST', icone: 'calculator', permissao: 'fiscal.ver' },
+  { id: 'sped', rotulo: 'SPED e cadastro', icone: 'file-spreadsheet', rota: '#/sped', permissao: 'fiscal.ver' },
+  { id: 'guias', rotulo: 'Guias', icone: 'receipt', rota: '#/guias', permissao: 'fiscal.ver' },
+  { id: 'fechamento', rotulo: 'Fechamento', icone: 'clipboard-check', rota: '#/fechamento', permissao: 'fiscal.ver' },
+  // Módulos ainda em construção: "Em breve" para quem terá acesso (e só se o escritório tiver o módulo ligado)
+  { id: 'contabil', rotulo: 'Contábil', icone: 'book-open', permissao: 'contabil.ver', modulo: 'contabil' },
+  { id: 'folha', rotulo: 'Folha', icone: 'wallet', permissao: 'folha.ver', modulo: 'folha' },
+  { id: 'societario', rotulo: 'Societário', icone: 'landmark', permissao: 'societario.ver', modulo: 'societario' },
+  { id: 'financeiro', rotulo: 'Financeiro', icone: 'briefcase', permissao: 'financeiro.ver', modulo: 'financeiro' },
   { id: 'atendimento', rotulo: 'Atendimento', icone: 'message-circle' },
-  { id: 'relatorios', rotulo: 'Relatórios', icone: 'chart-column' },
+  { id: 'relatorios', rotulo: 'Relatórios', icone: 'chart-column', permissao: 'algum.ver' },
   { id: 'administracao', rotulo: 'Administração', icone: 'settings', filhos: [
-    { id: 'usuarios', rotulo: 'Usuários', rota: '#/usuarios', permissao: 'usuarios' },
-    { id: 'escritorio', rotulo: 'Escritório', rota: '#/escritorio', permissao: 'certificados' },
+    { id: 'usuarios', rotulo: 'Usuários', rota: '#/usuarios', permissao: 'administracao.usuarios' },
+    { id: 'perfis', rotulo: 'Perfis de acesso', rota: '#/perfis', permissao: 'administracao.usuarios' },
+    { id: 'responsaveis', rotulo: 'Responsáveis', rota: '#/responsaveis', permissao: 'administracao.usuarios' },
+    { id: 'escritorio', rotulo: 'Escritório', rota: '#/escritorio', permissao: 'administracao.empresas' },
     { id: 'ia', rotulo: 'Conexões de IA', rota: '#/ia' },
-    { id: 'integracoes', rotulo: 'Integrações (API)', rota: '#/integracoes', permissao: 'configuracoes' },
-    { rotulo: 'Certificados' }, { rotulo: 'Configurações' },
+    { id: 'integracoes', rotulo: 'Integrações (API)', rota: '#/integracoes', permissao: 'administracao.configuracoes' },
+    { rotulo: 'Certificados', permissao: 'administracao.empresas' }, { rotulo: 'Configurações', permissao: 'administracao.configuracoes' },
   ] },
 ];
 const NAV_RODAPE = [{ id: 'ajuda', rotulo: 'Ajuda', icone: 'circle-help' }];
-const PERFIL_NOME = { admin: 'Administrador', supervisor: 'Supervisor', analista: 'Analista', consulta: 'Consulta' };
 
 let gruposAbertos = new Set(['administracao']);
 try { gruposAbertos = new Set(JSON.parse(localStorage.getItem('appura-grupos') || '["administracao"]')); } catch { /* sem armazenamento */ }
 /** Item com permissão só para quem pode; grupo com itens restritos só aparece se algum deles estiver liberado. */
-const visivel = (item) => (!item.permissao || pode(item.permissao))
+const moduloLigado = (m) => !m || !modulosEu.length || modulosEu.some((x) => x.id === m && x.ativo);
+const visivel = (item) => (!item.permissao || pode(item.permissao)) && moduloLigado(item.modulo)
   && (!item.filhos || !item.filhos.some((f) => f.permissao) || item.filhos.some((f) => f.rota && visivel(f)));
 const ehCelular = () => window.matchMedia('(max-width: 760px)').matches;
 
@@ -632,7 +639,7 @@ function preencherUsuario(eu) {
   const iniciais = ((partes[0] || '?')[0] + (partes.length > 1 ? partes[partes.length - 1][0] : (partes[0] || '')[1] || '')).toUpperCase();
   $('usuario-avatar').textContent = iniciais;
   $('usuario-nome').textContent = eu && eu.nome ? eu.nome : nome.replace(/@.*/, '');
-  $('usuario-perfil').textContent = PERFIL_NOME[perfilAtual] || '';
+  $('usuario-perfil').textContent = eu ? `${eu.perfilNome || ''}${eu.empresasNoEscopo != null ? ` · ${eu.empresasNoEscopo} empresa${eu.empresasNoEscopo === 1 ? '' : 's'}` : ''}` : '';
   $('usuario-email').textContent = (sessao && sessao.email) || '';
 }
 
@@ -651,7 +658,7 @@ async function aplicarRota() {
     return;
   }
   const esconderTudo = (menos) => {
-    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias', 'tela-escritorio', 'tela-ia', 'tela-xml', 'tela-coletores', 'tela-captacao', 'tela-integracoes']) if (id !== menos) $(id).hidden = true;
+    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias', 'tela-escritorio', 'tela-ia', 'tela-xml', 'tela-coletores', 'tela-captacao', 'tela-integracoes', 'tela-perfis', 'tela-responsaveis']) if (id !== menos) $(id).hidden = true;
   };
   if (rota.tela !== 'empresa') { empresaNotas = null; fecharGavetaUsuario(); }
   if (rota.tela === 'fechamento') {
@@ -672,6 +679,12 @@ async function aplicarRota() {
   } else if (rota.tela === 'integracoes') {
     esconderTudo('tela-integracoes');
     window.itMostrar();
+  } else if (rota.tela === 'perfis') {
+    esconderTudo('tela-perfis');
+    window.acPerfisMostrar();
+  } else if (rota.tela === 'responsaveis') {
+    esconderTudo('tela-responsaveis');
+    window.acRespMostrar();
   } else if (rota.tela === 'captacao') {
     esconderTudo('tela-captacao');
     window.cpMostrar(rota.aba);
@@ -800,12 +813,12 @@ function linhaEmpresa(e) {
       h('span', { class: 'meta', text: `${e.documentos_30d} nota${Number(e.documentos_30d) === 1 ? '' : 's'} em 30 dias` })),
     h('div', { class: 'acoes' },
       h('button', { type: 'button', class: 'botao pequeno primario', onclick: () => irPara(`#/empresas/${e.id}`) }, 'Abrir'),
-      pode('operar') ? h('button', {
+      pode('captacao.operar') ? h('button', {
         type: 'button', class: 'botao pequeno', disabled: !e.ativo || e.sincronizacao_pedida || !e.certificado_valido_ate,
         onclick: (ev) => sincronizar(e, ev.currentTarget),
       }, 'Sincronizar') : null,
-      pode('certificados') ? h('button', { type: 'button', class: 'botao fantasma pequeno', onclick: () => abrirGaveta(e) }, 'Trocar certificado') : null,
-      pode('certificados') ? botaoPausa : null,
+      pode('administracao.empresas') ? h('button', { type: 'button', class: 'botao fantasma pequeno', onclick: () => abrirGaveta(e) }, 'Trocar certificado') : null,
+      pode('administracao.empresas') ? botaoPausa : null,
     ),
   );
 }
@@ -1535,14 +1548,14 @@ function grupoRegra(regra, lista, info) {
   const temSugestao = abertos.some((a) => a.sugestao);
   const total = lista.reduce((t, a) => t + (a.quantidade || 1), 0);
   const acoes = [];
-  if (pode('operar') && abertos.length && regra !== 'CFOP_ENTRADA_INDEFINIDO') {
+  if (pode('fiscal.operar') && abertos.length && regra !== 'CFOP_ENTRADA_INDEFINIDO') {
     const chaveR = `${regra}:resolver`;
     acoes.push(h('button', {
       type: 'button', class: `botao pequeno${confirmandoLote.has(chaveR) ? ' perigo' : ''}`,
       onclick: () => loteConfirmar(chaveR, regra, 'resolver'),
     }, confirmandoLote.has(chaveR) ? `Confirmar (${abertos.length})` : temSugestao ? `Aplicar sugestão em todos (${abertos.length})` : `Marcar todos como tratados (${abertos.length})`));
   }
-  if (pode('operar') && abertos.length) {
+  if (pode('fiscal.operar') && abertos.length) {
     const chaveI = `${regra}:ignorar`;
     acoes.push(h('button', {
       type: 'button', class: `botao fantasma pequeno${confirmandoLote.has(chaveI) ? ' perigo' : ''}`,
@@ -1581,7 +1594,7 @@ function linhaApontamento(a) {
       h('button', { type: 'button', class: 'botao fantasma pequeno', onclick: (ev) => resolver(a, 'ignorar', null, ev.currentTarget) }, 'Ignorar'),
     ];
   }
-  if (!pode('operar')) acoes = [];
+  if (!pode('fiscal.operar')) acoes = [];
   const decisao = resolvido
     ? `${a.status === 'ajustado' ? 'Tratado' : 'Ignorado'} por ${a.resolvido_por || '—'} em ${dataCurta(a.resolvido_em)}${a.observacao ? ` · ${a.observacao}` : ''}`
     : null;
@@ -1641,18 +1654,20 @@ async function abrirApp() {
     eu = await chamar('/api/eu');
     perfilAtual = eu.perfil;
     permissoes = eu.permissoes || [];
-  } catch { perfilAtual = null; permissoes = []; }
+    modulosEu = eu.modulos || [];
+    euAcesso = eu;
+  } catch { perfilAtual = null; permissoes = []; modulosEu = []; euAcesso = null; }
   preencherUsuario(eu);
   renderNav();
   atualizarBotaoLateral();
   let comp = null;
   try { comp = sessionStorage.getItem('appura-competencia'); } catch { /* ok */ }
   definirCompetencia(comp || mesAtual(), false);
-  $('botao-adicionar').hidden = !pode('certificados');
-  $('notas-importar').hidden = !pode('operar');
-  $('aud-refazer').hidden = !pode('operar');
-  $('st-tabela-enviar').hidden = !pode('configuracoes');
-  await carregarEmpresas();
+  $('botao-adicionar').hidden = !pode('administracao.empresas');
+  $('notas-importar').hidden = !pode('captacao.operar');
+  $('aud-refazer').hidden = !pode('fiscal.operar');
+  $('st-tabela-enviar').hidden = !pode('fiscal.configurar');
+  if (pode('algum.ver')) await carregarEmpresas();
   if (!location.hash) history.replaceState(null, '', '#/visao-geral');
   aplicarRota();
 }
@@ -1677,7 +1692,6 @@ function ligarEventos() {
   $('gu-cancelar').addEventListener('click', fecharGavetaUsuario);
   $('gu-fundo').addEventListener('click', fecharGavetaUsuario);
   $('gu-form').addEventListener('submit', salvarUsuario);
-  $('gu-perfil').addEventListener('change', mostrarDicaPerfil);
   $('gu-redefinir').addEventListener('click', redefinirSenhaUsuario);
   $('gu-excluir').addEventListener('click', () => { $('gu-confirmar').hidden = false; $('gu-confirmacao').focus(); });
   $('gu-excluir-cancelar').addEventListener('click', () => { $('gu-confirmar').hidden = true; $('gu-confirmacao').value = ''; });

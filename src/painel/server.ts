@@ -35,7 +35,8 @@ import { ErroApuracao, ServicoApuracao } from './apuracao';
 import { ErroGerarSped, ServicoGerarSped } from './gerarSped';
 import { ErroColetor, LOTE_MAX_BYTES, ServicoColetor } from '../coletor/servico';
 import { ErroIntegracao, ServicoIntegracao } from '../integracao/servico';
-import { authDoSupabase, ErroUsuario, GestaoUsuarios, PERFIS_INFO, PERMISSOES, permissaoDaRota } from './usuarios';
+import { authDoSupabase, ErroUsuario, GestaoUsuarios } from './usuarios';
+import { Acesso, algumVer, empresaDaRota, exigenciaDaRota, idsDoEscopo, MODULOS, noEscopo, pode, podeEmpresa } from './acesso';
 
 function exigir(nome: string): string {
   const v = process.env[nome]?.trim();
@@ -80,6 +81,7 @@ const ARQUIVOS: Record<string, [string, string]> = {
   '/coletores.js': ['coletores.js', 'text/javascript; charset=utf-8'],
   '/captacao.js': ['captacao.js', 'text/javascript; charset=utf-8'],
   '/integracoes.js': ['integracoes.js', 'text/javascript; charset=utf-8'],
+  '/acesso.js': ['acesso.js', 'text/javascript; charset=utf-8'],
   '/nucleo.js': ['nucleo.js', 'text/javascript; charset=utf-8'],
   '/app.css': ['app.css', 'text/css; charset=utf-8'],
   '/manifest.webmanifest': ['manifest.webmanifest', 'application/manifest+json; charset=utf-8'],
@@ -177,7 +179,32 @@ const cacheTokens = new Map<string, { email: string; ate: number }>();
 const usuarios = new GestaoUsuarios(db, authDoSupabase(db), cfg.emails, (email) => {
   for (const [t, c] of cacheTokens) if (c.email === email) cacheTokens.delete(t);
 });
-const autorizado = async (email: string) => (await usuarios.perfilDe(email)) !== null;
+const autorizado = async (email: string) => (await usuarios.acessoDe(email)) !== null;
+
+/** A empresa (ou o registro de uma empresa) que a rota acessa está no escopo do usuário? */
+async function conferirEscopo(acesso: Acesso, rota: string) {
+  if (acesso.empresas === null) return;
+  const alvo = empresaDaRota(rota);
+  if (!alvo) return;
+  let empresa: string | null = null;
+  if ('empresa' in alvo) empresa = alvo.empresa;
+  else {
+    const r = ok(await db.from(alvo.tabela).select('empresa_id').eq('id', alvo.id).maybeSingle(), 'empresa do registro') as { empresa_id: string | null } | null;
+    empresa = r?.empresa_id ?? null;
+  }
+  if (empresa && !podeEmpresa(acesso, empresa)) throw new ErroHttp(403, 'Esta empresa não está no seu acesso. Fale com um administrador.');
+}
+
+/**
+ * Empresas para uma ação em lote: as pedidas (ou todas, se nenhuma) dentro do escopo do usuário.
+ * undefined = sem restrição (todas). Com escopo e nada sobrando, recusa (lista vazia significaria "todas").
+ */
+function idsPermitidos(acesso: Acesso, pedidas?: string[]): string[] | undefined {
+  if (acesso.empresas === null) return pedidas && pedidas.length ? pedidas : undefined;
+  const r = (pedidas && pedidas.length ? pedidas : [...acesso.empresas]).filter((id) => acesso.empresas!.has(id));
+  if (!r.length) throw new ErroHttp(403, 'Nenhuma das empresas está no seu acesso.');
+  return r;
+}
 
 async function usuarioAutenticado(req: http.IncomingMessage): Promise<string> {
   const token = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
@@ -288,20 +315,34 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
 
   // Daqui para baixo, só usuários autorizados.
   const email = await usuarioAutenticado(req);
-  const perfil = (await usuarios.perfilDe(email)) ?? 'consulta';
-  const exigida = permissaoDaRota(metodo, rota);
-  if (exigida && !PERMISSOES[perfil].includes(exigida)) {
+  const acesso = await usuarios.acessoDe(email);
+  if (!acesso) throw new ErroHttp(403, 'Este e-mail não tem acesso ao painel.');
+  const exigida = exigenciaDaRota(metodo, rota);
+  if (exigida === 'algum.ver' ? !algumVer(acesso) : exigida !== null && !pode(acesso, exigida)) {
     throw new ErroHttp(403, 'Seu perfil não permite esta ação. Fale com um administrador.');
+  }
+  await conferirEscopo(acesso, rota);
+  const escopo = idsDoEscopo(acesso);
+  const escopoSet = acesso.empresas;
+  // Filtro de empresa na consulta (?empresa=) também precisa estar no escopo
+  const empresaPedida = url.searchParams.get('empresa');
+  if (empresaPedida && /^[0-9a-f-]{36}$/.test(empresaPedida) && !podeEmpresa(acesso, empresaPedida)) {
+    throw new ErroHttp(403, 'Esta empresa não está no seu acesso. Fale com um administrador.');
   }
 
   if (metodo === 'GET' && rota === '/api/eu') {
-    return responder(res, 200, { email, nome: await usuarios.nomeDe(email), perfil, permissoes: PERMISSOES[perfil] });
+    const ativos = await usuarios.modulosAtivos();
+    return responder(res, 200, {
+      email, nome: acesso.nome, perfil: acesso.perfilId, perfilNome: acesso.perfilNome, fixo: acesso.fixo,
+      permissoes: [...acesso.permissoes].sort(), escopo: acesso.escopo, empresasNoEscopo: acesso.empresas ? acesso.empresas.size : null,
+      modulos: MODULOS.map((m) => ({ id: m.id, nome: m.nome, disponivel: m.disponivel, ativo: ativos.has(m.id) })),
+    });
   }
 
-  // Gestão de usuários (as regras de permissão ficam em GestaoUsuarios)
+  // Gestão de usuários e do acesso (as regras ficam em GestaoUsuarios)
   if (rota === '/api/usuarios') {
     if (metodo === 'GET') {
-      return responder(res, 200, { usuarios: await usuarios.listar(), historico: await usuarios.historico(30), perfis: PERFIS_INFO });
+      return responder(res, 200, { usuarios: await usuarios.listar(), historico: await usuarios.historico(30), perfis: await usuarios.perfis(), modulos: await usuarios.modulos() });
     }
     if (metodo === 'POST') {
       await usuarios.criar(email, await lerCorpo(req));
@@ -325,6 +366,23 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
     }
   }
 
+  // Perfis, módulos contratados e responsáveis por empresa (carteira)
+  if (rota.startsWith('/api/acesso/')) {
+    if (rota === '/api/acesso/perfis' && metodo === 'GET') return responder(res, 200, { perfis: await usuarios.perfis(), modulos: await usuarios.modulos() });
+    if (rota === '/api/acesso/perfis' && metodo === 'POST') return responder(res, 200, await usuarios.salvarPerfil(email, await lerCorpo(req, 50_000)));
+    const pf = rota.match(/^\/api\/acesso\/perfis\/([a-z][a-z0-9_]{1,40})$/);
+    if (pf && metodo === 'PATCH') return responder(res, 200, await usuarios.salvarPerfil(email, { ...(await lerCorpo(req, 50_000)), id: pf[1] }));
+    if (pf && metodo === 'DELETE') { await usuarios.excluirPerfil(email, pf[1]); return responder(res, 200, { ok: true }); }
+    const md = rota.match(/^\/api\/acesso\/modulos\/([a-z]{2,20})$/);
+    if (rota === '/api/acesso/modulos' && metodo === 'GET') return responder(res, 200, { modulos: await usuarios.modulos() });
+    if (md && metodo === 'PATCH') { await usuarios.definirModulo(email, md[1], (await lerCorpo(req)).ativo === true); return responder(res, 200, { ok: true }); }
+    if (rota === '/api/acesso/responsaveis' && metodo === 'GET') return responder(res, 200, await usuarios.responsaveis());
+    if (rota === '/api/acesso/responsaveis' && metodo === 'POST') return responder(res, 200, await usuarios.definirResponsaveis(email, await lerCorpo(req, 500_000)));
+    if (rota === '/api/acesso/sugestoes-acessorias' && metodo === 'GET') return responder(res, 200, await usuarios.sugestoesAcessorias());
+    if (rota === '/api/acesso/sugestoes-acessorias' && metodo === 'POST') return responder(res, 200, await usuarios.aplicarSugestoes(email, (await lerCorpo(req, 2_000_000)).itens));
+    throw new ErroHttp(404, 'Rota não encontrada.');
+  }
+
   // Avisos em tempo real para a tela (stream de texto). O navegador recarrega a lista quando chega "mudou".
   if (metodo === 'GET' && rota === '/api/eventos') return abrirEventos(req, res);
 
@@ -334,6 +392,11 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(mes)) throw new ErroHttp(400, 'Competência inválida. Use AAAA-MM.');
     const { data, error } = await db.rpc('painel_visao_geral', { p_competencia: `${mes}-01` });
     if (error) throw new Error(`visão geral: ${error.message}`);
+    if (escopoSet && data) {
+      data.empresas = noEscopo(acesso, data.empresas ?? [], (e: any) => e.id);
+      data.captacao = noEscopo(acesso, data.captacao ?? [], (e: any) => e.empresa_id);
+      data.auditoria = noEscopo(acesso, data.auditoria ?? [], (e: any) => e.empresa_id);
+    }
     return responder(res, 200, data);
   }
 
@@ -342,7 +405,7 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
       (de, ate) => db.from('vw_painel_empresas').select('*').order('razao_social').range(de, ate),
       'listar empresas',
     );
-    return responder(res, 200, { empresas: linhas, atualizadoEm: new Date().toISOString() });
+    return responder(res, 200, { empresas: noEscopo(acesso, linhas, (e: any) => e.id), atualizadoEm: new Date().toISOString() });
   }
 
   if (metodo === 'POST' && rota === '/api/empresas') {
@@ -455,19 +518,19 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
   }
 
   // Captação: Monitor, Lacunas/NSU, Importações e Histórico (só leitura)
-  if (metodo === 'GET' && rota === '/api/captacao/monitor') return responder(res, 200, await monitorCaptacao(db));
+  if (metodo === 'GET' && rota === '/api/captacao/monitor') return responder(res, 200, await monitorCaptacao(db, Date.now(), escopoSet));
   if (metodo === 'GET' && rota === '/api/captacao/lacunas') {
     const mes = url.searchParams.get('mes') ?? '';
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(mes)) throw new ErroHttp(400, 'Informe o mês (AAAA-MM).');
-    return responder(res, 200, await lacunasCaptacao(db, mes));
+    return responder(res, 200, await lacunasCaptacao(db, mes, escopoSet));
   }
   if (metodo === 'GET' && rota === '/api/captacao/importacoes') {
     const p = lerPeriodo(url); const origem = url.searchParams.get('origem');
-    return responder(res, 200, await importacoesCaptacao(db, { ...p, origem: origem === 'manual' || origem === 'coletor' ? origem : null }));
+    return responder(res, 200, await importacoesCaptacao(db, { ...p, origem: origem === 'manual' || origem === 'coletor' ? origem : null }, escopoSet));
   }
   if (metodo === 'GET' && rota === '/api/captacao/historico') {
     const p = lerPeriodo(url, 14);
-    return responder(res, 200, await historicoCaptacao(db, { ...p, soErros: url.searchParams.get('erros') === '1' }));
+    return responder(res, 200, await historicoCaptacao(db, { ...p, soErros: url.searchParams.get('erros') === '1' }, escopoSet));
   }
 
   // Integrações por API (ex.: OnnePharma): token, CNPJs liberados e webhook
@@ -481,7 +544,11 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
   if (integ && metodo === 'POST' && integ[2] === 'reenviar') return responder(res, 200, await servicoIntegracao.reenviarFalhas(integ[1]));
 
   // Appura Coletor: instalações (cliente/grupo com seus CNPJs) e tokens por máquina
-  if (rota === '/api/coletores' && metodo === 'GET') return responder(res, 200, await servicoColetor.listar());
+  if (rota === '/api/coletores' && metodo === 'GET') {
+    const r = await servicoColetor.listar();
+    if (escopoSet) r.instalacoes = (r.instalacoes as any[]).filter((i) => (i.empresas ?? []).some((e: any) => escopoSet.has(e.id)));
+    return responder(res, 200, r);
+  }
   if (rota === '/api/coletores' && metodo === 'POST') return responder(res, 200, await servicoColetor.criarInstalacao(await lerCorpo(req, 50_000), email));
   const colInst = rota.match(/^\/api\/coletores\/([0-9a-f-]{36})$/);
   if (colInst && metodo === 'PATCH') return responder(res, 200, await servicoColetor.editarInstalacao(colInst[1], await lerCorpo(req, 50_000), email));
@@ -543,6 +610,8 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
     });
   }
   if ((metodo === 'POST' && sped) || (metodo === 'POST' && rota === '/api/sped')) {
+    // Envio sem empresa (o Appura acha pelo CNPJ do arquivo): só para quem vê todas as empresas
+    if (!sped && escopoSet) throw new ErroHttp(403, 'Envie o SPED pela tela da empresa (seu acesso é limitado a algumas empresas).');
     let esperada: { id: string; cnpj: string } | undefined;
     if (sped) {
       esperada = ok(await db.from('empresas').select('id,cnpj').eq('id', sped[1]).maybeSingle(), 'ler empresa') as { id: string; cnpj: string } | undefined;
@@ -583,7 +652,11 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
   }
 
   // Pré-cadastro pelo SPED: o escritório confere e aprova
-  if (metodo === 'GET' && rota === '/api/cadastros') return responder(res, 200, await servicoSped.listarSugestoes());
+  if (metodo === 'GET' && rota === '/api/cadastros') {
+    const r: any = await servicoSped.listarSugestoes();
+    if (escopoSet) for (const k of Object.keys(r)) if (Array.isArray(r[k])) r[k] = r[k].filter((x: any) => x?.empresa_id ? escopoSet.has(x.empresa_id) : pode(acesso, 'administracao.empresas'));
+    return responder(res, 200, r);
+  }
   const cad = rota.match(/^\/api\/cadastros\/(\d+)\/(aprovar|rejeitar)$/);
   if (metodo === 'POST' && cad) {
     const id = Number(cad[1]);
@@ -719,7 +792,7 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
   if (rota === '/api/mcp/tokens' && metodo === 'POST') {
     const c = await lerCorpo(req, 10_000);
     const querAcoes = c.acoes === true;
-    if (querAcoes && !PERMISSOES[perfil].includes('operar')) throw new ErroHttp(403, 'Seu perfil é de consulta: o token só pode ser de leitura.');
+    if (querAcoes && !pode(acesso, 'fiscal.operar')) throw new ErroHttp(403, 'Seu perfil não opera o fiscal: o token só pode ser de leitura.');
     const r = await servicoOAuth.criarPessoal(email, String(c.nome ?? ''), Number(c.dias), `${urlPublica(req)}/mcp`, querAcoes);
     log.info('MCP: token pessoal criado', { email, nome: r.nome, acoes: querAcoes });
     return responder(res, 200, r);
@@ -786,19 +859,20 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
     if (metodo === 'POST' && rota === '/api/acessorias/documentos/enviar') {
       const c = await lerCorpo(req);
       const comp = /^\d{4}-\d{2}$/.test(String(c.mes)) ? String(c.mes) : mesAc;
-      const ids = Array.isArray(c.empresas) ? c.empresas.map(String).filter((x: string) => /^[0-9a-f-]{36}$/.test(x)) : undefined;
+      const ids = idsPermitidos(acesso, Array.isArray(c.empresas) ? c.empresas.map(String).filter((x: string) => /^[0-9a-f-]{36}$/.test(x)) : undefined);
       const p = await servicoAcessorias.documentosPendentes(comp, ids);
       return responder(res, 200, { resultados: await servicoAcessorias.enviarDocumentos(p.documentos.map((d) => d.id), email), jaEnviados: p.jaEnviados });
     }
     if (metodo === 'GET' && rota === '/api/acessorias/empresas') return responder(res, 200, await servicoAcessorias.resumoEmpresas());
     if (metodo === 'POST' && rota === '/api/acessorias/empresas/sincronizar') return responder(res, 200, await servicoAcessorias.sincronizarEmpresas(email));
     if (metodo === 'GET' && rota === '/api/acessorias/entregas') {
-      const lista = await servicoAcessorias.entregasDoMes(mesAc);
+      const lista = noEscopo(acesso, await servicoAcessorias.entregasDoMes(mesAc), (l) => l.empresaId);
       const nomes = new Map((ok(await db.from('empresas').select('id,cnpj,razao_social').limit(100000), 'empresas') as any[]).map((e) => [e.id, e]));
       const empresas = lista.map((l) => ({ ...l, razao_social: nomes.get(l.empresaId)?.razao_social ?? null, cnpj: nomes.get(l.empresaId)?.cnpj ?? null, entregas: l.entregas.filter((x) => x.situacao === 'atrasada' || x.situacao === 'pendente') }))
         .filter((l) => l.contagem.atrasada || l.contagem.pendente || l.erro)
         .sort((a, b) => b.contagem.atrasada - a.contagem.atrasada || b.contagem.pendente - a.contagem.pendente);
-      const docs = await servicoAcessorias.documentosPendentes(mesAc).catch(() => ({ documentos: [], jaEnviados: 0 }));
+      // Escopo vazio = nenhuma empresa (lista vazia no serviço significaria "todas")
+      const docs = escopo && !escopo.length ? { documentos: [], jaEnviados: 0 } : await servicoAcessorias.documentosPendentes(mesAc, escopo).catch(() => ({ documentos: [], jaEnviados: 0 }));
       return responder(res, 200, {
         competencia: mesAc, progresso: servicoAcessorias.progressoEntregas(), consultadas: lista.length,
         totais: lista.reduce((t, l) => ({ entregue: t.entregue + l.contagem.entregue, atrasada: t.atrasada + l.contagem.atrasada, pendente: t.pendente + l.contagem.pendente }), { entregue: 0, atrasada: 0, pendente: 0 }),
@@ -817,14 +891,17 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
     // Mês é opcional aqui (situação, chaves, teste e PDF não dependem dele): sem mês válido, vale o mês corrente
     const mesUrl = url.searchParams.get('mes') ?? '';
     const mes = /^\d{4}-(0[1-9]|1[0-2])$/.test(mesUrl) ? mesUrl : new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }).slice(0, 7);
-    if (metodo === 'GET' && rota === '/api/guias') return responder(res, 200, await servicoGuias.painel(mes));
+    if (metodo === 'GET' && rota === '/api/guias') {
+      const p = await servicoGuias.painel(mes);
+      return responder(res, 200, { ...p, empresas: noEscopo(acesso, p.empresas, (e) => e.id) });
+    }
     if (metodo === 'GET' && rota === '/api/guias/situacao') return responder(res, 200, await servicoGuias.situacao());
     if (metodo === 'POST' && rota === '/api/guias/testar') return responder(res, 200, await servicoGuias.testarConexao(email));
     if (metodo === 'POST' && rota === '/api/guias/chaves') return responder(res, 200, await servicoGuias.salvarChaves(await lerCorpo(req, 10_000), email));
     if (metodo === 'DELETE' && rota === '/api/guias/chaves') return responder(res, 200, await servicoGuias.removerChaves(email));
     if (metodo === 'POST' && rota === '/api/guias/enviar-pendentes') {
       const c = await lerCorpo(req);
-      const ids = Array.isArray(c.ids) ? c.ids.map(String).filter((x: string) => /^[0-9a-f-]{36}$/.test(x)) : undefined;
+      const ids = idsPermitidos(acesso, Array.isArray(c.ids) ? c.ids.map(String).filter((x: string) => /^[0-9a-f-]{36}$/.test(x)) : undefined);
       return responder(res, 200, await servicoAcessorias.enviarPendentes(/^\d{4}-\d{2}$/.test(String(c.mes)) ? String(c.mes) : mes, email, ids));
     }
     const envio = rota.match(/^\/api\/guias\/(\d+)\/enviar$/);
@@ -836,8 +913,9 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
       const c = await lerCorpo(req);
       const acao = c.acao === 'das' ? 'das' : c.acao === 'procuracao' ? 'procuracao' : null;
       if (!acao) throw new ErroHttp(400, 'Ação inválida.');
-      const ids = Array.isArray(c.ids) ? c.ids.map(String).filter((x: string) => /^[0-9a-f-]{36}$/.test(x)) : [];
-      if (!ids.length) throw new ErroHttp(400, 'Selecione ao menos uma empresa.');
+      const pedidas = Array.isArray(c.ids) ? c.ids.map(String).filter((x: string) => /^[0-9a-f-]{36}$/.test(x)) : [];
+      if (!pedidas.length) throw new ErroHttp(400, 'Selecione ao menos uma empresa.');
+      const ids = idsPermitidos(acesso, pedidas) ?? pedidas;
       return responder(res, 200, await servicoGuias.lote(acao, ids, /^\d{4}-\d{2}$/.test(String(c.mes)) ? String(c.mes) : mes, email));
     }
     const pdf = rota.match(/^\/api\/guias\/(\d+)\/pdf$/);
@@ -871,15 +949,16 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
   // Busca de XML (escritório inteiro ou uma empresa): lista paginada, ZIP (até 5.000) e Excel
   if (metodo === 'GET' && rota === '/api/xml/busca') {
     const q = Object.fromEntries(url.searchParams.entries());
-    return responder(res, 200, await buscarXml(db, lerFiltroBusca(q), Number(q.pagina) || 1));
+    return responder(res, 200, await buscarXml(db, lerFiltroBusca(q), Number(q.pagina) || 1, escopo));
   }
   if (metodo === 'POST' && (rota === '/api/xml/zip' || rota === '/api/xml/excel')) {
     const c = await lerCorpo(req, 400_000);
     const f = lerFiltroBusca(c.filtros && typeof c.filtros === 'object' ? c.filtros : {});
+    if (!podeEmpresa(acesso, f.empresa)) throw new ErroHttp(403, 'Esta empresa não está no seu acesso. Fale com um administrador.');
     const chaves = Array.isArray(c.chaves) && c.chaves.length ? listaChaves(c.chaves.map(String).join(' ')) : undefined;
     const registroFiltros = { ...f, termo: f.termo.slice(0, 500), selecionadas: chaves ? chaves.length : undefined };
     if (rota === '/api/xml/excel') {
-      const notasX = await notasParaExcel(db, f, chaves);
+      const notasX = await notasParaExcel(db, f, chaves, escopo);
       if (!notasX.length) throw new ErroHttp(404, 'Nenhuma nota com esses filtros.');
       const erroReg = await registrarDownload(db, { email, tipo: 'excel', empresaId: f.empresa, filtros: registroFiltros, quantidade: notasX.length });
       if (erroReg) log.warn('download sem registro', { erro: erroReg });
@@ -888,7 +967,7 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
       await escreverXlsx(new Zip(res), [abaBuscaXml(notasX, f, !f.empresa)]);
       return void res.end();
     }
-    return baixarZipBusca(res, f, chaves, email, registroFiltros);
+    return baixarZipBusca(res, f, chaves, email, registroFiltros, escopo);
   }
 
   const notas = rota.match(/^\/api\/empresas\/([0-9a-f-]{36})\/(notas|xml|zip)$/);
@@ -1028,8 +1107,7 @@ const opcoesMcp: OpcoesMcpHttp = {
     if (error) throw new Error('E-mail ou senha incorretos.');
     return e;
   },
-  perfilDe: (email) => usuarios.perfilDe(email),
-  podeOperar: (perfil) => (PERMISSOES as Record<string, string[]>)[perfil]?.includes('operar') ?? false,
+  acessoDe: (email) => usuarios.acessoDe(email),
   registrar: async (r) => {
     const { error } = await db.from('mcp_chamadas').insert({ email: r.email, client_id: r.clientId, ferramenta: r.ferramenta, argumentos: r.argumentos ?? null, sucesso: r.sucesso, duracao_ms: r.duracaoMs });
     if (error) log.warn('não registrou chamada do MCP', { erro: error.message });
@@ -1095,8 +1173,8 @@ async function baixarZip(res: http.ServerResponse, id: string, f: FiltroNotas, e
 }
 
 /** ZIP da busca de XML: as chaves marcadas ou tudo o que o filtro achar (até 5.000). No escritório inteiro, uma pasta por empresa. */
-async function baixarZipBusca(res: http.ServerResponse, f: FiltroBusca, chaves: string[] | undefined, email: string, registroFiltros: unknown) {
-  const { notas: lista } = await notasParaZip(db, f, chaves);
+async function baixarZipBusca(res: http.ServerResponse, f: FiltroBusca, chaves: string[] | undefined, email: string, registroFiltros: unknown, escopo?: string[]) {
+  const { notas: lista } = await notasParaZip(db, f, chaves, escopo);
   const comXml = lista.filter((n) => n.xml_path);
   if (!comXml.length) throw new ErroHttp(404, lista.length ? 'As notas encontradas só têm o resumo (sem XML completo).' : 'Nenhuma nota com esses filtros.');
   const porEmpresa = new Set(comXml.map((n) => n.empresa_id)).size > 1 || !f.empresa;

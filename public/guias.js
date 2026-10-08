@@ -128,15 +128,15 @@ if (typeof window !== 'undefined') {
       passo(s.configurado, 'Contrato e chaves do SERPRO', s.configurado
         ? `Chaves cadastradas${s.chaves && s.chaves.origem === 'servidor' ? ' nas variáveis do servidor' : ' no Appura'}${s.ambiente === 'trial' ? ' (ambiente de teste do SERPRO)' : ''}.`
         : 'Contratar o Integra Contador na loja do SERPRO e cadastrar a Consumer Key e a Consumer Secret em Administração › Escritório. Nunca envie as chaves por chat ou e-mail.',
-        !s.configurado && pode('configuracoes') && location.hash !== '#/escritorio' ? h('a', { class: 'botao pequeno gu-passo-acao', href: '#/escritorio' }, 'Cadastrar chaves') : null),
+        !s.configurado && pode('administracao.configuracoes') && location.hash !== '#/escritorio' ? h('a', { class: 'botao pequeno gu-passo-acao', href: '#/escritorio' }, 'Cadastrar chaves') : null),
       passo(certOk, 'e-CNPJ do escritório no Appura', esc
         ? (certOk ? `${esc.razao_social} · ${formatarCnpj(esc.cnpj)} · certificado válido até ${guData(esc.certificadoValidoAte)}.` : `${esc.razao_social}: ${esc.certificadoValidoAte ? 'certificado vencido' : 'sem certificado'}. Cadastre o mesmo e-CNPJ do contrato.`)
         : 'Cadastrar o escritório (CNPJ do contrato) com o certificado e-CNPJ.',
-        !certOk && pode('certificados') && location.hash !== '#/escritorio' ? h('a', { class: 'botao pequeno gu-passo-acao', href: '#/escritorio' }, esc ? 'Trocar certificado do escritório' : 'Cadastrar escritório') : null),
+        !certOk && pode('administracao.empresas') && location.hash !== '#/escritorio' ? h('a', { class: 'botao pequeno gu-passo-acao', href: '#/escritorio' }, esc ? 'Trocar certificado do escritório' : 'Cadastrar escritório') : null),
       passo(false, 'Procuração de cada cliente', 'Cada cliente outorga procuração eletrônica ao CNPJ do escritório no e-CAC (serviços do Simples Nacional e do MEI). O Appura verifica e mostra quem falta.'));
     const conexao = s.configurado ? h('div', { class: 'gu-conexao' },
       h('span', { class: 'meta', text: `Chamadas ao SERPRO neste mês: ${Number(s.chamadasMes.total).toLocaleString('pt-BR')}${s.chamadasMes.comErro ? ` (${s.chamadasMes.comErro} com erro)` : ''}` }),
-      pode('configuracoes') ? h('button', { type: 'button', class: 'botao pequeno', onclick: (ev) => guTestar(ev.currentTarget) }, icone('refresh-cw'), h('span', { text: 'Testar conexão' })) : null) : null;
+      pode('administracao.configuracoes') ? h('button', { type: 'button', class: 'botao pequeno', onclick: (ev) => guTestar(ev.currentTarget) }, icone('refresh-cw'), h('span', { text: 'Testar conexão' })) : null) : null;
     return h('section', { class: 'vg-card gu-integra' }, topo, passos, conexao);
   }
 
@@ -195,7 +195,7 @@ if (typeof window !== 'undefined') {
 
   function guLista(d) {
     const lista = guFiltrar(d.empresas, gu.filtro);
-    const pronto = d.integra.pronto && pode('operar');
+    const pronto = d.integra.pronto && pode('fiscal.operar');
     const podeSel = (e) => pronto && GU_REGIMES.includes(e.regime);
     for (const id of [...gu.selecionados]) if (!lista.some((e) => e.id === id && podeSel(e))) gu.selecionados.delete(id);
     const sel = [...gu.selecionados];
@@ -322,7 +322,7 @@ if (typeof window !== 'undefined') {
           : 'O Appura precisa saber se a empresa é do Simples Nacional ou MEI para gerar o DAS. Informe o regime no cadastro da empresa.' }))));
       return;
     }
-    const pronto = d.integra.pronto; const podeAgir = pronto && pode('operar');
+    const pronto = d.integra.pronto; const podeAgir = pronto && pode('fiscal.operar');
     const hoje = guHoje();
     const guiaMes = (d.guias || []).find((g) => String(g.competencia).slice(0, 7) === mes) || null;
     const p = d.procuracao; const pi = guProcuracao(p);
@@ -394,7 +394,7 @@ if (typeof window !== 'undefined') {
         h('strong', { text: `${guMoeda(g.total)}${g.vencimento ? ` · vence ${guData(g.vencimento)}` : ''}` }),
         h('span', { class: 'meta', text: `${guQuando(g.gerado_em)} · ${g.gerado_por}${g.numero_documento ? ` · nº ${g.numero_documento}` : ''}${g.envio ? ` · ${g.envio.status === 'enviado' ? 'enviada à Acessórias' : 'erro no envio à Acessórias'}` : ''}` }),
         g.caminho ? h('button', { type: 'button', class: 'botao pequeno', onclick: (ev) => guBaixar(g.id, ev.currentTarget) }, h('span', { text: 'Baixar' })) : null)))) : null;
-    const semPermissao = pronto && !pode('operar') ? h('p', { class: 'meta', text: 'Seu perfil só consulta: peça a um analista para verificar procurações e gerar guias.' }) : null;
+    const semPermissao = pronto && !pode('fiscal.operar') ? h('p', { class: 'meta', text: 'Seu perfil só consulta: peça a um analista para verificar procurações e gerar guias.' }) : null;
     alvo.replaceChildren(...[guIntegraCard(d.integra, true), semPermissao, h('div', { class: 'sped-cards' }, cardProc, cardDecl, cardDas), historico].filter(Boolean));
   }
 
@@ -403,7 +403,7 @@ if (typeof window !== 'undefined') {
     const configurada = ac && ac.configurado;
     const info = guEnvio(g.envio, configurada);
     if (!info) return null;
-    const podeEnviar = configurada && pode('operar') && g.caminho;
+    const podeEnviar = configurada && pode('fiscal.operar') && g.caminho;
     const enviar = (forcar) => async () => {
       const r = await chamar(`/api/guias/${g.id}/enviar`, { method: 'POST', body: { forcar } });
       avisar(r.status === 'enviado' ? 'Guia aceita pela Acessórias.' : `A Acessórias não aceitou: ${r.mensagem}`, { tipo: r.status === 'enviado' ? 'ok' : 'erro' });
@@ -487,7 +487,7 @@ if (typeof window !== 'undefined') {
   /** Sistema Acessórias: API Token (cifrado) e envio automático das guias pelo e-Contínuo. */
   function esCardAcessorias(a) {
     if (!a) return null;
-    const podeEditar = pode('configuracoes');
+    const podeEditar = pode('administracao.configuracoes');
     const aberto = es.editandoAcessorias || (!a.configurado && podeEditar);
     const topo = h('div', { class: 'vg-card-topo' },
       h('div', {}, h('h2', { class: 'vg-card-titulo', text: 'Sistema Acessórias' }),
@@ -555,7 +555,7 @@ if (typeof window !== 'undefined') {
     const info = c.origem === 'painel'
       ? `${s.ambiente === 'trial' ? 'Ambiente de teste do SERPRO' : `Consumer Key terminando em ••••${c.finalChave || ''}`} · cadastradas ${guQuando(c.atualizadoEm)} por ${c.atualizadoPor}`
       : c.origem === 'servidor' ? 'O Appura está usando as chaves das variáveis do servidor. Se cadastrar aqui, estas passam a valer.' : 'Copie as duas chaves da área do cliente do SERPRO e cole aqui.';
-    const podeEditar = pode('configuracoes');
+    const podeEditar = pode('administracao.configuracoes');
     const aberto = es.editandoChaves || (!c.origem && podeEditar);
     const topo = h('div', { class: 'vg-card-topo' },
       h('div', {}, h('h2', { class: 'vg-card-titulo', text: 'Chaves do Integra Contador' }),

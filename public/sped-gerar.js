@@ -85,7 +85,7 @@ if (typeof window !== 'undefined') {
   function sgLinha(tipo, versoes, mes, indisponivel) {
     const g = (versoes || [])[0] || null;
     const selo = sgSelo(g);
-    const podeOperar = pode('operar');
+    const podeOperar = pode('fiscal.operar');
     const topo = h('div', { class: 'sg-topo' },
       h('div', {}, h('strong', { text: NOMES[tipo] }),
         h('span', { class: 'meta', text: g ? `Versão ${g.versao} · gerada em ${formatarData(g.gerado_em)} às ${formatarHora(g.gerado_em)} por ${g.gerado_por}${empresaNotas && g.empresa_id !== empresaNotas.id ? ' · pela matriz' : ''}` : indisponivel || 'Ainda não gerado neste mês.' })),

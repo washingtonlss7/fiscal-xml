@@ -58,7 +58,7 @@ if (typeof window !== 'undefined') {
   async function iaCarregar() {
     try { ia.dados = await chamar('/api/mcp/conexoes'); ia.erro = null; } catch (e) { ia.erro = e.message; }
     iaRender();
-    if (pode('usuarios')) iaCarregarUso();
+    if (pode('administracao.usuarios')) iaCarregarUso();
   }
 
   async function iaCarregarUso() {
@@ -116,7 +116,7 @@ if (typeof window !== 'undefined') {
       apps.length + pessoais.length ? h('ul', { class: 'sped-envios ia-lista' }, ...apps, ...pessoais)
         : h('div', { class: 'vg-vazio pequeno' }, h('strong', { text: 'Nenhuma conexão ainda.' }), h('span', { text: 'Conecte um app pelo endereço acima ou crie um token pessoal.' })));
 
-    alvo.replaceChildren(endereco, ia.novoToken ? iaCardNovoToken(d.url) : iaCardCriar(), lista, ...(pode('usuarios') ? [iaCardUso()] : []), como);
+    alvo.replaceChildren(endereco, ia.novoToken ? iaCardNovoToken(d.url) : iaCardCriar(), lista, ...(pode('administracao.usuarios') ? [iaCardUso()] : []), como);
   }
 
   const iaDataHora = (iso) => new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
@@ -164,7 +164,7 @@ if (typeof window !== 'undefined') {
   }
 
   function iaPodeOperar() {
-    return typeof pode === 'function' ? pode('operar') : false;
+    return typeof pode === 'function' ? pode('fiscal.operar') : false;
   }
 
   function iaCardCriar() {

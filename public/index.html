@@ -295,6 +295,26 @@
       <div id="bx-escritorio" class="pilha" aria-live="polite"></div>
      </section>
 
+     <section id="tela-perfis" class="pilha" hidden>
+      <div class="cabecalho-pagina">
+        <div>
+          <h1>Perfis de acesso</h1>
+          <p class="subtitulo">O que cada perfil pode fazer em cada módulo (ver, operar, fechar, transmitir, configurar) e quais módulos o escritório usa.</p>
+        </div>
+      </div>
+      <div id="pf-conteudo" class="pilha" aria-live="polite"></div>
+     </section>
+
+     <section id="tela-responsaveis" class="pilha" hidden>
+      <div class="cabecalho-pagina">
+        <div>
+          <h1>Responsáveis</h1>
+          <p class="subtitulo">Quem cuida de cada empresa em cada módulo. Define a carteira de quem tem o acesso limitado às próprias empresas.</p>
+        </div>
+      </div>
+      <div id="rp-conteudo" class="pilha" aria-live="polite"></div>
+     </section>
+
      <section id="tela-integracoes" class="pilha it" hidden>
       <div class="cabecalho-pagina">
         <div>
@@ -649,6 +669,7 @@
         <select id="gu-perfil"></select>
       </label>
       <p id="gu-perfil-dica" class="dica"></p>
+      <div id="gu-acesso" class="pilha-pequena"></div>
       <label id="gu-ativo-campo" class="marcar" hidden>
         <input id="gu-ativo" type="checkbox"> Acesso ativo
       </label>
@@ -736,5 +757,6 @@
   <script src="/coletores.js?v=__VERSAO__"></script>
   <script src="/captacao.js?v=__VERSAO__"></script>
   <script src="/integracoes.js?v=__VERSAO__"></script>
+  <script src="/acesso.js?v=__VERSAO__"></script>
 </body>
 </html>

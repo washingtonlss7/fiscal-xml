@@ -77,7 +77,7 @@ if (typeof window !== 'undefined') {
   /* Documentos do mês */
   function dcCardDocumentos(d) {
     const ac = d.acessorias || {};
-    const podeOperar = pode('operar');
+    const podeOperar = pode('fiscal.operar');
     const tipo = h('select', { id: 'dc-tipo', onchange: (ev) => { dc.tipo = ev.target.value; } }, ...d.tipos.map((t) => h('option', { value: t.id, text: t.nome, selected: t.id === dc.tipo })));
     const desc = h('input', { id: 'dc-descricao', type: 'text', maxlength: '120', placeholder: 'Ex.: IRPJ 3º trimestre', autocomplete: 'off' });
     const arquivo = h('input', { id: 'dc-arquivo', type: 'file', accept: 'application/pdf,.pdf', multiple: true, hidden: true, onchange: (ev) => dcEnviarArquivos(ev.target.files) });
@@ -221,7 +221,7 @@ if (typeof window !== 'undefined') {
     if (ae.erro && !ae.empresas) { alvo.replaceChildren(h('div', { class: 'vg-erro', role: 'alert' }, h('strong', { text: 'Não foi possível carregar os dados da Acessórias.' }), h('span', { text: ae.erro }))); return; }
     if (!ae.empresas) { alvo.replaceChildren(h('section', { class: 'vg-card' }, h('div', { class: 'vg-skel', 'aria-hidden': 'true' }))); return; }
     const m = ae.empresas; const en = ae.entregas || {};
-    const podeOperar = pode('operar');
+    const podeOperar = pode('fiscal.operar');
     const sincronizar = h('button', { type: 'button', class: `botao pequeno ${m.sincronizadoEm ? '' : 'primario'}`, disabled: !podeOperar, onclick: (ev) => comOcupado(ev.currentTarget, 'Sincronizando…', async () => {
       try { ae.empresas = await chamar('/api/acessorias/empresas/sincronizar', { method: 'POST' }); } catch (e) { avisar(e.message, { tipo: 'erro' }); return; }
       avisar(`${ae.empresas.naAcessorias} empresas lidas da Acessórias.`, { tipo: 'ok' }); aeRender();
