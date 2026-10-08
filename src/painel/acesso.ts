@@ -35,7 +35,7 @@ export const MODULOS: Modulo[] = [
     acoes: [A.ver, { ...A.operar, descricao: 'Sincronizar com a SEFAZ e importar XML' }] },
   { id: 'fiscal', nome: 'Fiscal', descricao: 'Fechamento, auditoria, ICMS-ST, SPED/SINTEGRA, apuração, guias e documentos (Escrita Fiscal).', disponivel: true,
     acoes: [A.ver, A.operar, { ...A.transmitir, descricao: 'Transmitir o PGDAS-D' }, { ...A.configurar, descricao: 'Tabela de ICMS-ST' }] },
-  { id: 'contabil', nome: 'Contábil', descricao: 'Lançamentos, conciliação, balancete, patrimônio e Lalur (Contabilidade).', disponivel: false,
+  { id: 'contabil', nome: 'Contábil', descricao: 'Lançamentos (notas e folha pelas regras do Contábil), plano de contas, conferência e arquivo para o Domínio.', disponivel: true,
     acoes: [A.ver, A.operar, A.fechar, A.transmitir, A.configurar] },
   { id: 'folha', nome: 'Folha', descricao: 'Folha de pagamento, férias, rescisões e eSocial. Dados de salário: acesso restrito.', disponivel: false,
     acoes: [A.ver, A.operar, A.fechar, A.transmitir, A.configurar] },
@@ -131,6 +131,13 @@ export function exigenciaDaRota(metodo: string, rota: string): Exigencia {
   if (re('/api/empresas/:id/(sincronizacao|rejeitadas|notas|xml|zip)').test(rota)) return 'captacao.ver';
   // Busca e download de XML: leitura, mesmo sendo POST
   if (rota === '/api/xml/busca' || rota === '/api/xml/zip' || rota === '/api/xml/excel') return 'captacao.ver';
+
+  // Contábil: ler = ver; regras, empresas, plano e configuração = configurar; processar, lançar e gerar arquivo = operar
+  if (rota.startsWith('/api/contabil/')) {
+    if (le) return 'contabil.ver';
+    if (/^\/api\/contabil\/(config|empresas|periodos|planos|regras)(\/|$)/.test(rota)) return 'contabil.configurar';
+    return 'contabil.operar';
+  }
 
   // Fiscal
   if (/^\/api\/apuracao\/\d+\/transmitir$/.test(rota)) return 'fiscal.transmitir';

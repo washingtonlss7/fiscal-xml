@@ -2,6 +2,48 @@
 
 Lista viva do que ficou em aberto, das divergências e dos erros conhecidos. A mais recente fica no topo.
 
+## 2026-10-08: Contábil, fase 1 (processador de lançamentos conforme a ata)
+
+### Pendências
+
+**Aguardando o escritório:**
+- **Departamento Contábil:**
+  - tabela DE/PARA fiscal (CFOP → débito, crédito e histórico);
+  - DE/PARA da folha (rubrica → débito, crédito e histórico);
+  - relação de empresas: código do Domínio, CNPJ e períodos pendentes;
+  - plano de contas do Domínio novo;
+  - uma empresa modelo do Simples (e uma do Real), já escrituradas, para comparar o resultado.
+- **Departamento Fiscal:** confirmar o campo do valor contábil das notas (Contábil → Processar). Até lá, as notas ficam pendentes.
+- **Arquivo do Domínio:** um export real de lançamentos (Utilitários → Exportação → Lançamentos) para confirmar o cabeçalho do leiaute (o campo do lote e o "1" final) e o código de histórico. Até a confirmação, usar só o arquivo de teste.
+- **Leitura do banco do Domínio:** rodar `scripts/dominio/diagnostico-dominio.ps1` no servidor, uma vez no Domínio novo e outra no antigo, e mandar o relatório. O script não foi executado aqui, porque não há Windows nem banco SQL Anywhere neste ambiente. Pode precisar de ajuste no primeiro uso.
+
+**A construir:**
+- Leitor do banco do Domínio para a folha, só leitura e só SELECT. Depende do diagnóstico.
+- Fontes ainda não cobertas: CT-e, notas de serviço e SPED Fiscal (fase 4 da ata).
+- Contábil como sistema oficial, para substituir o Domínio:
+  - saldos de abertura;
+  - razão, balancete, DRE e balanço;
+  - fechamento do período;
+  - extrato bancário (OFX) e conciliação;
+  - ECD e ECF.
+- Lançamentos de partida múltipla: hoje cada lançamento tem um débito e um crédito.
+
+**Limitações conhecidas:**
+- **Escopo de empresas:** quem tem acesso limitado só vê as empresas do Contábil que estão ligadas à captação do Appura, e não processa a planilha da folha.
+- **Processamento em segundo plano:** o processamento fiscal roda em segundo plano dentro do painel. Se o painel reiniciar no meio, o registro fica "processando". Basta processar de novo, porque nada duplica.
+
+### Divergências em relação à ata
+
+- **Objetivo:** a ata trata o Domínio novo como destino final. Por pedido do Washington, o objetivo é substituir o Domínio no futuro. Por isso o plano de contas e o livro de lançamentos já ficam no Appura, e o Domínio vira um destino opcional.
+- **Ordem das fases:** a ata prioriza a folha. A parte fiscal veio junto porque as notas já estão no Appura, e a folha entrou por planilha enquanto a leitura do banco não fica pronta. Escolha do Washington: "os dois em paralelo".
+- **Regra de inversão:** a regra usa as contas exatamente como foram cadastradas, e a marcação de inversão é só informativa. Falta o Contábil confirmar se é isso, ou se essa marcação deve trocar débito e crédito.
+- **Valor contábil:** em vez de assumir um campo, o Appura oferece três opções e espera a confirmação do Fiscal (item 18 da ata).
+
+### Erros encontrados na implementação (corrigidos)
+
+- Nos testes: uma expectativa de arredondamento entre CFOPs, ids numéricos no banco de teste e um parêntese a mais na tela de plano de contas.
+- Na conferência visual: um texto "null" aparecia na tela de lançamentos, e o período ficava com o layout quebrado.
+
 ## 2026-10-07: permissões por módulo, perfis e escopo de empresas
 
 ### Pendências

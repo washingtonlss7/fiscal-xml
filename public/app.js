@@ -455,7 +455,15 @@ const NAV = [
   { id: 'guias', rotulo: 'Guias', icone: 'receipt', rota: '#/guias', permissao: 'fiscal.ver' },
   { id: 'fechamento', rotulo: 'Fechamento', icone: 'clipboard-check', rota: '#/fechamento', permissao: 'fiscal.ver' },
   // Módulos ainda em construção: "Em breve" para quem terá acesso (e só se o escritório tiver o módulo ligado)
-  { id: 'contabil', rotulo: 'Contábil', icone: 'book-open', permissao: 'contabil.ver', modulo: 'contabil' },
+  { id: 'contabil', rotulo: 'Contábil', icone: 'book-open', modulo: 'contabil', filhos: [
+    { id: 'ct-processar', rotulo: 'Processar', rota: '#/contabil/processar', permissao: 'contabil.ver' },
+    { id: 'ct-pendencias', rotulo: 'Pendências', rota: '#/contabil/pendencias', permissao: 'contabil.ver' },
+    { id: 'ct-lancamentos', rotulo: 'Lançamentos', rota: '#/contabil/lancamentos', permissao: 'contabil.ver' },
+    { id: 'ct-regras', rotulo: 'Regras (DE/PARA)', rota: '#/contabil/regras', permissao: 'contabil.ver' },
+    { id: 'ct-empresas', rotulo: 'Empresas', rota: '#/contabil/empresas', permissao: 'contabil.ver' },
+    { id: 'ct-plano', rotulo: 'Plano de contas', rota: '#/contabil/plano', permissao: 'contabil.ver' },
+    { id: 'ct-historico', rotulo: 'Histórico', rota: '#/contabil/historico', permissao: 'contabil.ver' },
+  ] },
   { id: 'folha', rotulo: 'Folha', icone: 'wallet', permissao: 'folha.ver', modulo: 'folha' },
   { id: 'societario', rotulo: 'Societário', icone: 'landmark', permissao: 'societario.ver', modulo: 'societario' },
   { id: 'financeiro', rotulo: 'Financeiro', icone: 'briefcase', permissao: 'financeiro.ver', modulo: 'financeiro' },
@@ -658,7 +666,7 @@ async function aplicarRota() {
     return;
   }
   const esconderTudo = (menos) => {
-    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias', 'tela-escritorio', 'tela-ia', 'tela-xml', 'tela-coletores', 'tela-captacao', 'tela-integracoes', 'tela-perfis', 'tela-responsaveis']) if (id !== menos) $(id).hidden = true;
+    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias', 'tela-escritorio', 'tela-ia', 'tela-xml', 'tela-coletores', 'tela-captacao', 'tela-integracoes', 'tela-perfis', 'tela-responsaveis', 'tela-contabil']) if (id !== menos) $(id).hidden = true;
   };
   if (rota.tela !== 'empresa') { empresaNotas = null; fecharGavetaUsuario(); }
   if (rota.tela === 'fechamento') {
@@ -679,6 +687,9 @@ async function aplicarRota() {
   } else if (rota.tela === 'integracoes') {
     esconderTudo('tela-integracoes');
     window.itMostrar();
+  } else if (rota.tela === 'contabil') {
+    esconderTudo('tela-contabil');
+    window.ctMostrar(rota.aba);
   } else if (rota.tela === 'perfis') {
     esconderTudo('tela-perfis');
     window.acPerfisMostrar();

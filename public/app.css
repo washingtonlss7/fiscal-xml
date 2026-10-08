@@ -1676,3 +1676,12 @@ a.aba-tela { text-decoration: none; }
   .ac-grade th { width: auto; display: block; border-top: 1px solid var(--linha); }
   .ac-grade td { display: block; border-top: 0; padding-top: 0; }
 }
+
+/* ---------- Contábil ---------- */
+.ct-linha { display: flex; flex-wrap: wrap; gap: var(--esp-3) var(--esp-4); align-items: flex-end; }
+.ct-linha .campo { flex: 1 1 200px; min-width: 0; }
+.ct-resultado { display: flex; flex-wrap: wrap; gap: var(--esp-2) var(--esp-3); align-items: center; padding: var(--esp-3); border: var(--borda); border-radius: var(--raio-m); background: var(--superficie-2); }
+.ct-erros { margin: 0; padding-left: var(--esp-5); color: var(--tinta-2); font-size: var(--t-m); }
+.ct-erros li + li { margin-top: 4px; }
+.ct .notas td .gu-botoes { flex-wrap: nowrap; }
+.ct .notas td.mono { white-space: nowrap; }

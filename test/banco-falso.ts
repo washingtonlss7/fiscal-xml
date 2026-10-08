@@ -19,6 +19,8 @@ export class Consulta {
   eq(c: string, v: any) { this.filtros.push((l) => l[c] === v); return this; }
   in(c: string, v: any[]) { this.filtros.push((l) => v.includes(l[c])); return this; }
   is(c: string, v: any) { this.filtros.push((l) => (l[c] ?? null) === v); return this; }
+  neq(c: string, v: any) { this.filtros.push((l) => l[c] !== v); return this; }
+  not(c: string, op: string, v: any) { if (op === 'is') this.filtros.push((l) => (l[c] ?? null) !== v); else if (op === 'eq') this.filtros.push((l) => l[c] !== v); return this; }
   ilike(c: string, v: string) { const r = new RegExp(`^${String(v).split('%').map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`, 'i'); this.filtros.push((l) => r.test(String(l[c] ?? ''))); return this; }
   like(c: string, v: string) { const r = new RegExp(`^${String(v).split('%').map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`); this.filtros.push((l) => r.test(String(l[c] ?? ''))); return this; }
   gte(c: string, v: any) { this.filtros.push((l) => l[c] >= v); return this; }

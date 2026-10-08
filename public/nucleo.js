@@ -52,6 +52,8 @@ function resolverRota(hash, pode = () => true) {
   if (r === '#/escritorio') return so('administracao.empresas', { tela: 'escritorio', base: '#/escritorio' }, 'Escritório');
   if (r === '#/visao-geral') return pode('fiscal.ver') ? { tela: 'visao', base: '#/visao-geral' } : { redirecionar: inicio };
   if (r === '#/usuarios') return so('administracao.usuarios', { tela: 'usuarios', base: '#/usuarios' }, 'Usuários');
+  const ctb = r.match(/^#\/contabil(?:\/(processar|pendencias|lancamentos|regras|empresas|plano|historico))?$/);
+  if (ctb) return !pode('contabil.ver') ? { redirecionar: inicio, semPermissao: 'Contábil' } : ctb[1] ? { tela: 'contabil', base: `#/contabil/${ctb[1]}`, aba: ctb[1] } : { redirecionar: '#/contabil/processar' };
   if (r === '#/perfis') return so('administracao.usuarios', { tela: 'perfis', base: '#/perfis' }, 'Perfis de acesso');
   if (r === '#/responsaveis') return so('administracao.usuarios', { tela: 'responsaveis', base: '#/responsaveis' }, 'Responsáveis');
   if (r === '#/empresas') return so('algum.ver', { tela: 'empresas', base: '#/empresas' }, 'Empresas');
