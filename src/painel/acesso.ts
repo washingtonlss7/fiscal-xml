@@ -37,12 +37,14 @@ export const MODULOS: Modulo[] = [
     acoes: [A.ver, A.operar, { ...A.transmitir, descricao: 'Transmitir o PGDAS-D' }, { ...A.configurar, descricao: 'Tabela de ICMS-ST' }] },
   { id: 'contabil', nome: 'Contábil', descricao: 'Lançamentos (notas e folha pelas regras do Contábil), plano de contas, conferência e arquivo para o Domínio.', disponivel: true,
     acoes: [A.ver, A.operar, A.fechar, A.transmitir, A.configurar] },
-  { id: 'folha', nome: 'Folha', descricao: 'Folha de pagamento, férias, rescisões e eSocial. Dados de salário: acesso restrito.', disponivel: false,
+  { id: 'folha', nome: 'Folha', descricao: 'Controle da folha do mês por empresa (etapas, eSocial, DCTFWeb, FGTS) e conferência das rubricas. Dados de salário: acesso restrito.', disponivel: true,
     acoes: [A.ver, A.operar, A.fechar, A.transmitir, A.configurar] },
-  { id: 'societario', nome: 'Societário', descricao: 'Abertura, alterações, certidões e alvarás (Registro/Legalização).', disponivel: false,
+  { id: 'societario', nome: 'Societário', descricao: 'Cadastro societário, sócios, processos (abertura, alteração, baixa) e vencimentos de alvarás, licenças e certidões.', disponivel: true,
     acoes: [A.ver, A.operar, A.configurar] },
-  { id: 'financeiro', nome: 'Financeiro do escritório', descricao: 'Honorários, contratos e cobrança dos clientes.', disponivel: false,
+  { id: 'financeiro', nome: 'Financeiro do escritório', descricao: 'Contratos de honorários, cobranças do mês, recebimentos e inadimplência.', disponivel: true,
     acoes: [A.ver, A.operar, A.configurar] },
+  { id: 'atendimento', nome: 'Atendimento', descricao: 'Chamados dos clientes: departamento, responsável, prazo e conversa interna.', disponivel: true,
+    acoes: [A.ver, { ...A.operar, descricao: 'Abrir, responder e encerrar chamados' }, { ...A.configurar, descricao: 'Reatribuir e excluir chamados' }] },
   { id: 'administracao', nome: 'Administração', descricao: 'Administração do Appura.', disponivel: true,
     acoes: [
       { id: 'usuarios', nome: 'Usuários e perfis', descricao: 'Criar usuários, perfis, escopo e responsáveis' },
@@ -57,7 +59,7 @@ export const permissaoValida = (p: string) => VALIDAS.has(p);
 export const moduloDe = (p: string) => p.slice(0, p.indexOf('.'));
 
 /** Módulos que dá para usar como "carteira" (responsável por empresa). */
-export const MODULOS_CARTEIRA = MODULOS.filter((m) => m.id !== 'administracao' && m.id !== 'financeiro').map((m) => m.id);
+export const MODULOS_CARTEIRA = MODULOS.filter((m) => !['administracao', 'financeiro', 'atendimento'].includes(m.id)).map((m) => m.id);
 
 /** Permissões do perfil + extras − removidas, só das válidas e de módulos ativos no escritório. */
 export function permissoesEfetivas(doPerfil: string[], extras: string[] = [], removidas: string[] = [], modulosAtivos?: Set<string>): Set<string> {
@@ -131,6 +133,21 @@ export function exigenciaDaRota(metodo: string, rota: string): Exigencia {
   if (re('/api/empresas/:id/(sincronizacao|rejeitadas|notas|xml|zip)').test(rota)) return 'captacao.ver';
   // Busca e download de XML: leitura, mesmo sendo POST
   if (rota === '/api/xml/busca' || rota === '/api/xml/zip' || rota === '/api/xml/excel') return 'captacao.ver';
+
+  // Escritório: certificados de todas as empresas e cadastro de cliente sem certificado
+  if (rota === '/api/certificados' || rota === '/api/empresas/simples') return 'administracao.empresas';
+  if (rota === '/api/configuracoes/resumo') return 'administracao.configuracoes';
+  // Relatórios: a central é de quem vê algum módulo; cada relatório confere o módulo dele
+  if (rota.startsWith('/api/relatorios')) return 'algum.ver';
+  // Auditoria e ICMS-ST do escritório
+  if (rota.startsWith('/api/auditoria/') || rota.startsWith('/api/st/')) return le ? 'fiscal.ver' : 'fiscal.operar';
+  // Folha: etapas = configurar; controle do mês = operar
+  if (rota.startsWith('/api/folha/')) return le ? 'folha.ver' : rota.startsWith('/api/folha/etapas') ? 'folha.configurar' : 'folha.operar';
+  if (rota.startsWith('/api/societario/')) return le ? 'societario.ver' : 'societario.operar';
+  // Financeiro: contratos = configurar; cobranças e baixas = operar
+  if (rota.startsWith('/api/financeiro/')) return le ? 'financeiro.ver' : rota.startsWith('/api/financeiro/contratos') ? 'financeiro.configurar' : 'financeiro.operar';
+  // Atendimento: excluir chamado = configurar
+  if (rota.startsWith('/api/atendimento/')) return le ? 'atendimento.ver' : rota.match(/^\/api\/atendimento\/chamados\/\d+$/) && metodo === 'DELETE' ? 'atendimento.configurar' : 'atendimento.operar';
 
   // Contábil: ler = ver; regras, empresas, plano e configuração = configurar; processar, lançar e gerar arquivo = operar
   if (rota.startsWith('/api/contabil/')) {
@@ -228,14 +245,14 @@ export function casarResponsavel(nome: string, usuarios: { email: string; nome: 
 }
 
 /** Perfis prontos (os mesmos da migration 0042; o teste confere que não divergem). */
-const MODULOS_DE_TRABALHO = ['captacao', 'fiscal', 'contabil', 'folha', 'societario', 'financeiro'];
+const MODULOS_DE_TRABALHO = ['captacao', 'fiscal', 'contabil', 'folha', 'societario', 'financeiro', 'atendimento'];
 const doTrabalho = TODAS_PERMISSOES.filter((p) => MODULOS_DE_TRABALHO.includes(moduloDe(p)));
 export const PERFIS_PADRAO: Perfil[] = [
   { id: 'administrador', nome: 'Administrador', descricao: 'Tudo: todos os módulos, usuários, perfis, configurações, empresas e certificados.', permissoes: [...TODAS_PERMISSOES], sistema: true, ordem: 10 },
   { id: 'gestor', nome: 'Gestor', descricao: 'Todo o trabalho de todos os módulos (inclusive transmitir e fechar), sem a administração do sistema.', permissoes: doTrabalho, sistema: true, ordem: 20 },
-  { id: 'supervisor_fiscal', nome: 'Supervisor fiscal', descricao: 'Captação e todo o fiscal, inclusive transmitir o PGDAS-D, mais cadastrar empresas e certificados.', permissoes: ['captacao.ver', 'captacao.operar', 'fiscal.ver', 'fiscal.operar', 'fiscal.transmitir', 'administracao.empresas'], sistema: true, ordem: 30 },
-  { id: 'analista_fiscal', nome: 'Analista fiscal', descricao: 'Dia a dia do fiscal: sincronizar, importar, auditar, conferir e calcular. Não transmite.', permissoes: ['captacao.ver', 'captacao.operar', 'fiscal.ver', 'fiscal.operar'], sistema: true, ordem: 40 },
-  { id: 'analista_contabil', nome: 'Analista contábil', descricao: 'Contábil (lançar e fechar), com consulta às notas e ao fiscal.', permissoes: ['captacao.ver', 'fiscal.ver', 'contabil.ver', 'contabil.operar', 'contabil.fechar'], sistema: true, ordem: 50 },
-  { id: 'analista_folha', nome: 'Analista de folha', descricao: 'Folha de pagamento (lançar e fechar). Não vê o fiscal.', permissoes: ['folha.ver', 'folha.operar', 'folha.fechar'], sistema: true, ordem: 60 },
+  { id: 'supervisor_fiscal', nome: 'Supervisor fiscal', descricao: 'Captação e todo o fiscal, inclusive transmitir o PGDAS-D, mais cadastrar empresas e certificados.', permissoes: ['captacao.ver', 'captacao.operar', 'fiscal.ver', 'fiscal.operar', 'fiscal.transmitir', 'atendimento.ver', 'atendimento.operar', 'administracao.empresas'], sistema: true, ordem: 30 },
+  { id: 'analista_fiscal', nome: 'Analista fiscal', descricao: 'Dia a dia do fiscal: sincronizar, importar, auditar, conferir e calcular. Não transmite.', permissoes: ['captacao.ver', 'captacao.operar', 'fiscal.ver', 'fiscal.operar', 'atendimento.ver', 'atendimento.operar'], sistema: true, ordem: 40 },
+  { id: 'analista_contabil', nome: 'Analista contábil', descricao: 'Contábil (lançar e fechar), com consulta às notas e ao fiscal.', permissoes: ['captacao.ver', 'fiscal.ver', 'contabil.ver', 'contabil.operar', 'contabil.fechar', 'atendimento.ver', 'atendimento.operar'], sistema: true, ordem: 50 },
+  { id: 'analista_folha', nome: 'Analista de folha', descricao: 'Folha de pagamento (lançar e fechar). Não vê o fiscal.', permissoes: ['folha.ver', 'folha.operar', 'folha.fechar', 'atendimento.ver', 'atendimento.operar'], sistema: true, ordem: 60 },
   { id: 'consulta', nome: 'Consulta', descricao: 'Só vê e baixa notas e relatórios da captação e do fiscal. Não altera nada.', permissoes: ['captacao.ver', 'fiscal.ver'], sistema: true, ordem: 70 },
 ];

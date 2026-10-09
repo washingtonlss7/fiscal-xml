@@ -17,11 +17,14 @@ O servidor confere tudo em cada chamada. A tela só esconde o que a pessoa não 
 |---|---|---|
 | `captacao` Captação e notas | ver, operar (sincronizar, importar) | no ar |
 | `fiscal` Fiscal | ver, operar, transmitir (PGDAS-D), configurar (tabela ICMS-ST) | no ar |
-| `contabil` Contábil | ver, operar, fechar, transmitir, configurar | em breve |
-| `folha` Folha | ver, operar, fechar, transmitir, configurar | em breve |
-| `societario` Societário | ver, operar, configurar | em breve |
-| `financeiro` Financeiro do escritório | ver, operar, configurar | em breve |
-| `administracao` Administração | usuarios (usuários, perfis, responsáveis), empresas (empresas, certificados, coletor, cadastros), configuracoes (integrações, SERPRO, Acessórias) | no ar |
+| `contabil` Contábil | ver, operar, fechar, transmitir, configurar | no ar (fase 1) |
+| `folha` Folha | ver, operar (marcar etapas, empresas com folha), configurar (etapas) | no ar (controle do mês) |
+| `societario` Societário | ver, operar (cadastro, sócios, documentos, processos) | no ar |
+| `financeiro` Financeiro do escritório | ver, operar (gerar cobranças, avulsa, baixa, cancelar), configurar (contratos) | no ar |
+| `atendimento` Atendimento | ver, operar (abrir, responder, mudar situação), configurar (excluir chamado) | no ar |
+| `administracao` Administração | usuarios (usuários, perfis, responsáveis), empresas (empresas, certificados, coletor, cadastros, cliente sem certificado), configuracoes (integrações, SERPRO, Acessórias, tela Configurações) | no ar |
+
+Auditoria e ICMS-ST do escritório usam `fiscal.ver`. Relatórios: a central exige ver algum módulo, e cada planilha confere a permissão do módulo dela. Financeiro e Atendimento não têm responsável por empresa (não entram na carteira), mas os registros de cada cliente respeitam o escopo de empresas de quem consulta.
 
 As regras de cada rota ficam em `src/painel/acesso.ts` (`exigenciaDaRota`).
 

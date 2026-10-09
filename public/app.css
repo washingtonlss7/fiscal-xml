@@ -1685,3 +1685,33 @@ a.aba-tela { text-decoration: none; }
 .ct-erros li + li { margin-top: 4px; }
 .ct .notas td .gu-botoes { flex-wrap: nowrap; }
 .ct .notas td.mono { white-space: nowrap; }
+
+/* Módulos do escritório (escritorio.js, folha.js, societario.js, financeiro.js, atendimento.js) */
+.acoes-pagina { display: flex; gap: var(--esp-2); flex-wrap: wrap; }
+.es-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--esp-3); }
+.es-grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--esp-3); }
+.es textarea { width: 100%; font: inherit; padding: 10px 12px; border: 1px solid var(--linha-forte); border-radius: var(--raio-m); background: var(--superficie); color: var(--tinta); resize: vertical; }
+.es textarea:focus { border-color: var(--destaque); outline: none; box-shadow: var(--anel-foco); }
+.es .campo textarea { min-height: 72px; }
+.es table.notas td .selo + .selo { margin-left: var(--esp-1); }
+.es table.notas td .gu-botoes { flex-wrap: nowrap; }
+.fo-celula { text-align: center; white-space: nowrap; }
+.fo-marca { border: 0; cursor: pointer; min-width: 34px; font: inherit; font-weight: 700; }
+.fo-marca:focus-visible { outline: none; box-shadow: var(--anel-foco); }
+.fo-num { width: 90px; }
+.so-dados { display: grid; grid-template-columns: max-content 1fr; gap: 6px var(--esp-4); margin: 0; font-size: var(--t-m); }
+.so-dados dt { color: var(--tinta-2); font-weight: 550; }
+.so-dados dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.so-form { padding: var(--esp-3); border: var(--borda); border-radius: var(--raio-m); background: var(--superficie-2); }
+.so-etapas { border: var(--borda); border-radius: var(--raio-m); padding: var(--esp-3); display: flex; flex-direction: column; gap: var(--esp-2); }
+.so-etapas legend { font-size: var(--t-s); font-weight: 600; color: var(--tinta-2); padding: 0 var(--esp-1); }
+.at-conversa { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--esp-2); }
+.at-msg { max-width: 760px; padding: var(--esp-3); border: var(--borda); border-radius: var(--raio-m); background: var(--superficie-2); }
+.at-msg.minha { margin-left: auto; background: var(--destaque-suave); }
+.at-autor { font-size: var(--t-xs); color: var(--tinta-2); margin-bottom: 4px; }
+.at-texto { white-space: pre-wrap; overflow-wrap: anywhere; }
+.at-historico { font-size: var(--t-xs); color: var(--tinta-2); text-align: center; }
+@media (max-width: 1100px) { .es-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .es-kpis { grid-template-columns: 1fr; } .so-dados { grid-template-columns: 1fr; } .so-dados dd { margin-bottom: var(--esp-2); } }
+.es .vg-card > .abas-tela { overflow-x: auto; max-width: 100%; scrollbar-width: thin; }
+.es .vg-card > .abas-tela .aba-tela { white-space: nowrap; flex: none; }

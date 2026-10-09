@@ -54,6 +54,19 @@ function resolverRota(hash, pode = () => true) {
   if (r === '#/usuarios') return so('administracao.usuarios', { tela: 'usuarios', base: '#/usuarios' }, 'Usuários');
   const ctb = r.match(/^#\/contabil(?:\/(processar|pendencias|lancamentos|regras|empresas|plano|historico))?$/);
   if (ctb) return !pode('contabil.ver') ? { redirecionar: inicio, semPermissao: 'Contábil' } : ctb[1] ? { tela: 'contabil', base: `#/contabil/${ctb[1]}`, aba: ctb[1] } : { redirecionar: '#/contabil/processar' };
+  // Módulos do escritório
+  if (r === '#/auditoria') return so('fiscal.ver', { tela: 'auditoria-esc', base: '#/auditoria' }, 'Auditoria');
+  if (r === '#/icms-st') return so('fiscal.ver', { tela: 'st-esc', base: '#/icms-st' }, 'ICMS-ST');
+  if (r === '#/folha') return so('folha.ver', { tela: 'folha', base: '#/folha' }, 'Folha');
+  const soc = r.match(/^#\/societario(?:\/(clientes|vencimentos|processos)(?:\/([0-9a-f-]{36}))?)?$/);
+  if (soc) return !pode('societario.ver') ? { redirecionar: inicio, semPermissao: 'Societário' } : soc[1] ? { tela: 'societario', base: '#/societario', aba: soc[1], id: soc[2] || null } : { redirecionar: '#/societario/clientes' };
+  const fin = r.match(/^#\/financeiro(?:\/(resumo|cobrancas|contratos))?$/);
+  if (fin) return !pode('financeiro.ver') ? { redirecionar: inicio, semPermissao: 'Financeiro' } : fin[1] ? { tela: 'financeiro', base: '#/financeiro', aba: fin[1] } : { redirecionar: '#/financeiro/resumo' };
+  const atd = r.match(/^#\/atendimento(?:\/(\d+))?$/);
+  if (atd) return so('atendimento.ver', { tela: 'atendimento', base: '#/atendimento', id: atd[1] ? Number(atd[1]) : null }, 'Atendimento');
+  if (r === '#/relatorios') return so('algum.ver', { tela: 'relatorios', base: '#/relatorios' }, 'Relatórios');
+  if (r === '#/certificados') return so('administracao.empresas', { tela: 'certificados', base: '#/certificados' }, 'Certificados');
+  if (r === '#/configuracoes') return so('administracao.configuracoes', { tela: 'configuracoes', base: '#/configuracoes' }, 'Configurações');
   if (r === '#/perfis') return so('administracao.usuarios', { tela: 'perfis', base: '#/perfis' }, 'Perfis de acesso');
   if (r === '#/responsaveis') return so('administracao.usuarios', { tela: 'responsaveis', base: '#/responsaveis' }, 'Responsáveis');
   if (r === '#/empresas') return so('algum.ver', { tela: 'empresas', base: '#/empresas' }, 'Empresas');

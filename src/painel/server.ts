@@ -37,6 +37,12 @@ import { ErroColetor, LOTE_MAX_BYTES, ServicoColetor } from '../coletor/servico'
 import { ErroIntegracao, ServicoIntegracao } from '../integracao/servico';
 import { ErroContabil, ServicoContabil } from '../contabil/servico';
 import { ErroPlanilha } from '../contabil/planilha';
+import { ErroModulo, Escopo } from '../modulos/comum';
+import { ServicoFolha } from '../modulos/folha';
+import { CANAIS as ATD_CANAIS, DEPARTAMENTOS as ATD_DEPARTAMENTOS, PRIORIDADES as ATD_PRIORIDADES, STATUS_CHAMADO as ATD_STATUS, ServicoAtendimento } from '../modulos/atendimento';
+import { ETAPAS_PADRAO as SOC_ETAPAS, QUALIFICACOES as SOC_QUALIFICACOES, ServicoSocietario, STATUS_PROCESSO as SOC_STATUS, TIPOS_DOCUMENTO as SOC_TIPOS_DOC, TIPOS_PROCESSO as SOC_TIPOS_PROC } from '../modulos/societario';
+import { FORMAS as FIN_FORMAS, ServicoFinanceiro } from '../modulos/financeiro';
+import { auditoriaEscritorio, certificados as certificadosEscritorio, gerarRelatorio, RELATORIOS, stEscritorio } from '../modulos/escritorio';
 import { authDoSupabase, ErroUsuario, GestaoUsuarios } from './usuarios';
 import { Acesso, algumVer, empresaDaRota, exigenciaDaRota, idsDoEscopo, MODULOS, noEscopo, pode, podeEmpresa } from './acesso';
 
@@ -85,6 +91,11 @@ const ARQUIVOS: Record<string, [string, string]> = {
   '/integracoes.js': ['integracoes.js', 'text/javascript; charset=utf-8'],
   '/acesso.js': ['acesso.js', 'text/javascript; charset=utf-8'],
   '/contabil.js': ['contabil.js', 'text/javascript; charset=utf-8'],
+  '/escritorio.js': ['escritorio.js', 'text/javascript; charset=utf-8'],
+  '/folha.js': ['folha.js', 'text/javascript; charset=utf-8'],
+  '/societario.js': ['societario.js', 'text/javascript; charset=utf-8'],
+  '/financeiro.js': ['financeiro.js', 'text/javascript; charset=utf-8'],
+  '/atendimento.js': ['atendimento.js', 'text/javascript; charset=utf-8'],
   '/nucleo.js': ['nucleo.js', 'text/javascript; charset=utf-8'],
   '/app.css': ['app.css', 'text/css; charset=utf-8'],
   '/manifest.webmanifest': ['manifest.webmanifest', 'application/manifest+json; charset=utf-8'],
@@ -388,6 +399,9 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
 
   // Contábil: processador de lançamentos (regras do Contábil) e livro
   if (rota.startsWith('/api/contabil/')) return rotaContabil(req, res, url, metodo, rota, email, acesso);
+
+  // Módulos do escritório (Auditoria/ICMS-ST do escritório, Folha, Societário, Financeiro, Atendimento, Relatórios, Certificados, Configurações)
+  if (/^\/api\/(auditoria\/resumo|st\/resumo|folha\/|societario\/|financeiro\/|atendimento\/|relatorios|certificados$|configuracoes\/resumo$|empresas\/simples$)/.test(rota)) return rotaModulos(req, res, url, metodo, rota, email, acesso);
 
   // Avisos em tempo real para a tela (stream de texto). O navegador recarrega a lista quando chega "mudou".
   if (metodo === 'GET' && rota === '/api/eventos') return abrirEventos(req, res);
@@ -1096,6 +1110,146 @@ async function rotaContabil(req: http.IncomingMessage, res: http.ServerResponse,
   throw new ErroHttp(404, 'Rota não encontrada.');
 }
 
+/** Planilha xlsx como download. */
+async function enviarXlsx(res: http.ServerResponse, nome: string, abas: Aba[]) {
+  res.writeHead(200, { ...CABECALHOS_SEGURANCA, 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': `attachment; filename="${nome}"`, 'Cache-Control': 'no-store' });
+  await escreverXlsx(new Zip(res), abas);
+  res.end();
+}
+
+async function rotaModulos(req: http.IncomingMessage, res: http.ServerResponse, url: URL, metodo: string, rota: string, email: string, acesso: Acesso) {
+  const q = (k: string) => url.searchParams.get(k) ?? '';
+  const escopo: Escopo = acesso.empresas;
+  const le = metodo === 'GET';
+  const id = (re: RegExp) => { const m = rota.match(re); return m ? Number(m[1]) : null; };
+  const mesAtual = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }).slice(0, 7);
+  const mes = () => q('mes') || mesAtual();
+
+  /* Auditoria e ICMS-ST do escritório */
+  if (le && rota === '/api/auditoria/resumo') return responder(res, 200, await auditoriaEscritorio(db, escopo, mes()));
+  if (le && rota === '/api/st/resumo') return responder(res, 200, { ...(await stEscritorio(db, escopo, mes())), podeConfigurar: pode(acesso, 'fiscal.configurar') });
+
+  /* Certificados e configurações */
+  if (le && rota === '/api/certificados') return responder(res, 200, await certificadosEscritorio(db, escopo));
+  if (rota === '/api/empresas/simples' && metodo === 'POST') {
+    if (escopo) throw new ErroHttp(403, 'Só quem vê todas as empresas pode cadastrar cliente novo.');
+    const r = await servicoSocietario.criarCliente(email, await lerCorpo(req));
+    log.info('cliente cadastrado sem certificado', { por: email });
+    return responder(res, 200, r);
+  }
+  if (le && rota === '/api/configuracoes/resumo') {
+    const tenta = async <T>(f: () => Promise<T>): Promise<T | { erro: string }> => { try { return await f(); } catch (e) { return { erro: (e as Error).message }; } };
+    const [integra, acessorias, integracoes, st, ctb, modulos, coletores, usuariosAtivos] = await Promise.all([
+      tenta(() => servicoGuias.situacao()), tenta(() => servicoAcessorias.situacao()), tenta(() => servicoIntegracao.listar()),
+      db.from('st_es_regras').select('id', { count: 'exact', head: true }), tenta(() => servicoContabil.config()), usuarios.modulos(),
+      db.from('coletor_instalacoes').select('id', { count: 'exact', head: true }), usuarios.listar(),
+    ]);
+    const ints = (integracoes as any).integracoes as any[] | undefined;
+    return responder(res, 200, {
+      integra: 'erro' in (integra as any) ? integra : { configurado: (integra as any).configurado, ambiente: (integra as any).ambiente, escritorio: (integra as any).escritorio ? { razao_social: (integra as any).escritorio.razao_social, certificadoValidoAte: (integra as any).escritorio.certificadoValidoAte } : null, pendencias: (integra as any).pendencias ?? [] },
+      acessorias: 'erro' in (acessorias as any) ? acessorias : { configurado: (acessorias as any).configurado, envioAutomatico: (acessorias as any).envioAutomatico, envios30d: (acessorias as any).envios30d },
+      integracoes: ints ? { total: ints.length, ativas: ints.filter((i) => i.ativo && !i.revogado_em).length } : integracoes,
+      st: { regras: st.count ?? 0 },
+      contabil: ctb,
+      coletores: coletores.count ?? null,
+      usuarios: usuariosAtivos.filter((u) => u.ativo).length,
+      modulos,
+    });
+  }
+
+  /* Relatórios */
+  if (le && rota === '/api/relatorios') {
+    const pode2 = (p: string) => (p === 'algum.ver' ? algumVer(acesso) : pode(acesso, p));
+    return responder(res, 200, { relatorios: RELATORIOS.filter((r) => pode2(r.permissao)) });
+  }
+  const rel = rota.match(/^\/api\/relatorios\/([a-z_]+)$/);
+  if (le && rel) {
+    const r = RELATORIOS.find((x) => x.id === rel[1]);
+    if (!r) throw new ErroHttp(404, 'Relatório não encontrado.');
+    if (r.permissao === 'algum.ver' ? !algumVer(acesso) : !pode(acesso, r.permissao)) throw new ErroHttp(403, 'Seu perfil não permite este relatório.');
+    const g = await gerarRelatorio(db, { folha: servicoFolha, societario: servicoSocietario, financeiro: servicoFinanceiro, atendimento: servicoAtendimento }, r.id, escopo, r.porMes ? mes() : null);
+    log.info('relatório gerado', { relatorio: r.id, por: email });
+    return enviarXlsx(res, g.nome, g.abas);
+  }
+
+  /* Folha */
+  if (rota.startsWith('/api/folha/')) {
+    if (le && rota === '/api/folha/painel') return responder(res, 200, { ...(await servicoFolha.painel(mes(), escopo)), pode: { operar: pode(acesso, 'folha.operar'), configurar: pode(acesso, 'folha.configurar') } });
+    if (le && rota === '/api/folha/empresas') return responder(res, 200, { empresas: await servicoFolha.empresas(escopo) });
+    if (metodo === 'POST' && rota === '/api/folha/empresas') { await servicoFolha.definirEmpresa(email, escopo, await lerCorpo(req)); return responder(res, 200, { ok: true }); }
+    if (metodo === 'POST' && rota === '/api/folha/marcar') { await servicoFolha.marcar(email, escopo, await lerCorpo(req)); return responder(res, 200, { ok: true }); }
+    if (le && rota === '/api/folha/etapas') return responder(res, 200, { etapas: await servicoFolha.etapas(true) });
+    if (metodo === 'POST' && rota === '/api/folha/etapas') return responder(res, 200, await servicoFolha.salvarEtapa(await lerCorpo(req)));
+    const rb = rota.match(/^\/api\/folha\/rubricas\/([0-9a-f-]{36})$/);
+    if (le && rb) return responder(res, 200, await servicoFolha.rubricas(rb[1], mes(), escopo));
+  }
+
+  /* Societário */
+  if (rota.startsWith('/api/societario/')) {
+    if (le && rota === '/api/societario/clientes') return responder(res, 200, { clientes: await servicoSocietario.clientes(escopo), tipos: { documentos: SOC_TIPOS_DOC, qualificacoes: SOC_QUALIFICACOES, processos: SOC_TIPOS_PROC, status: SOC_STATUS, etapas: SOC_ETAPAS }, pode: { operar: pode(acesso, 'societario.operar'), novoCliente: !escopo && pode(acesso, 'administracao.empresas') } });
+    const fc = rota.match(/^\/api\/societario\/clientes\/([0-9a-f-]{36})$/);
+    if (le && fc) return responder(res, 200, await servicoSocietario.ficha(fc[1], escopo));
+    const cad = rota.match(/^\/api\/societario\/clientes\/([0-9a-f-]{36})\/cadastro$/);
+    if (metodo === 'PUT' && cad) { await servicoSocietario.salvarCadastro(email, escopo, cad[1], await lerCorpo(req, 100_000)); return responder(res, 200, { ok: true }); }
+    if (metodo === 'POST' && rota === '/api/societario/socios') return responder(res, 200, await servicoSocietario.salvarSocio(email, escopo, await lerCorpo(req)));
+    const sc = id(/^\/api\/societario\/socios\/(\d+)$/);
+    if (metodo === 'DELETE' && sc) { await servicoSocietario.excluirSocio(escopo, sc); return responder(res, 200, { ok: true }); }
+    if (metodo === 'POST' && rota === '/api/societario/documentos') {
+      // Dados no endereço (?dados=JSON) e o arquivo (opcional) no corpo, como nos outros envios do painel
+      let dados: Record<string, unknown>;
+      try { dados = JSON.parse(q('dados') || '{}'); } catch { throw new ErroHttp(400, 'Dados inválidos.'); }
+      const corpo = await lerBruto(req, 16 * 1024 * 1024);
+      return responder(res, 200, await servicoSocietario.salvarDocumento(email, escopo, dados, corpo.length ? { nome: (q('nome') || 'documento.pdf').slice(0, 200), conteudo: corpo } : undefined));
+    }
+    const dc = id(/^\/api\/societario\/documentos\/(\d+)$/);
+    if (metodo === 'DELETE' && dc) { await servicoSocietario.excluirDocumento(escopo, dc); return responder(res, 200, { ok: true }); }
+    const db2 = id(/^\/api\/societario\/documentos\/(\d+)\/arquivo$/);
+    if (le && db2) {
+      const a = await servicoSocietario.baixarDocumento(escopo, db2);
+      const tipo = /\.png$/i.test(a.nome) ? 'image/png' : /\.jpe?g$/i.test(a.nome) ? 'image/jpeg' : 'application/pdf';
+      res.writeHead(200, { ...CABECALHOS_SEGURANCA, 'Content-Type': tipo, 'Content-Disposition': `attachment; filename="${a.nome.replace(/[^\w.\- ]+/g, '_')}"`, 'Cache-Control': 'no-store' });
+      return void res.end(a.conteudo);
+    }
+    if (le && rota === '/api/societario/vencimentos') return responder(res, 200, { documentos: await servicoSocietario.vencimentos(escopo, Number(q('dias')) || 60) });
+    if (le && rota === '/api/societario/processos') return responder(res, 200, { processos: await servicoSocietario.processos(escopo, q('todos') !== '1') });
+    if (metodo === 'POST' && rota === '/api/societario/processos') return responder(res, 200, await servicoSocietario.salvarProcesso(email, escopo, await lerCorpo(req, 200_000)));
+  }
+
+  /* Financeiro */
+  if (rota.startsWith('/api/financeiro/')) {
+    if (le && rota === '/api/financeiro/resumo') return responder(res, 200, { ...(await servicoFinanceiro.resumo(escopo, mes())), formas: FIN_FORMAS, pode: { operar: pode(acesso, 'financeiro.operar'), configurar: pode(acesso, 'financeiro.configurar') } });
+    if (le && rota === '/api/financeiro/contratos') return responder(res, 200, { contratos: await servicoFinanceiro.contratos(escopo) });
+    if (metodo === 'POST' && rota === '/api/financeiro/contratos') return responder(res, 200, await servicoFinanceiro.salvarContrato(email, escopo, await lerCorpo(req)));
+    if (le && rota === '/api/financeiro/titulos') return responder(res, 200, { titulos: await servicoFinanceiro.titulos(escopo, { mes: q('mes') || null, status: q('status') || null, empresa: q('empresa') || null }) });
+    if (metodo === 'POST' && rota === '/api/financeiro/gerar') { const c = await lerCorpo(req); return responder(res, 200, await servicoFinanceiro.gerarCobrancas(email, escopo, String(c.mes ?? ''))); }
+    if (metodo === 'POST' && rota === '/api/financeiro/titulos') return responder(res, 200, await servicoFinanceiro.criarAvulso(email, escopo, await lerCorpo(req)));
+    const bx = id(/^\/api\/financeiro\/titulos\/(\d+)\/baixa$/);
+    if (metodo === 'POST' && bx) return responder(res, 200, await servicoFinanceiro.baixar(email, escopo, bx, await lerCorpo(req)));
+    const stt = id(/^\/api\/financeiro\/titulos\/(\d+)\/status$/);
+    if (metodo === 'POST' && stt) {
+      const c = await lerCorpo(req);
+      if (c.status !== 'aberto' && c.status !== 'cancelado') throw new ErroHttp(400, 'Situação inválida.');
+      await servicoFinanceiro.alterarStatus(escopo, stt, c.status);
+      log.info('cobrança alterada', { id: stt, status: c.status, por: email });
+      return responder(res, 200, { ok: true });
+    }
+  }
+
+  /* Atendimento */
+  if (rota.startsWith('/api/atendimento/')) {
+    if (le && rota === '/api/atendimento/resumo') return responder(res, 200, { ...(await servicoAtendimento.resumo(escopo, email)), tipos: { departamentos: ATD_DEPARTAMENTOS, prioridades: ATD_PRIORIDADES, status: ATD_STATUS, canais: ATD_CANAIS }, equipe: (await usuarios.listar()).filter((u) => u.ativo).map((u) => ({ email: u.email, nome: u.nome })), eu: email, pode: { operar: pode(acesso, 'atendimento.operar'), excluir: pode(acesso, 'atendimento.configurar') } });
+    if (le && rota === '/api/atendimento/chamados') return responder(res, 200, { chamados: await servicoAtendimento.listar(escopo, { status: q('status') || 'ativos', departamento: q('departamento') || null, responsavel: q('responsavel') || null, empresa: q('empresa') || null, busca: q('busca').slice(0, 80) || null }) });
+    if (metodo === 'POST' && rota === '/api/atendimento/chamados') return responder(res, 200, await servicoAtendimento.criar(email, escopo, await lerCorpo(req, 100_000)));
+    const ch = id(/^\/api\/atendimento\/chamados\/(\d+)$/);
+    if (le && ch) return responder(res, 200, await servicoAtendimento.detalhe(escopo, ch));
+    if (metodo === 'PATCH' && ch) return responder(res, 200, await servicoAtendimento.atualizar(email, escopo, ch, await lerCorpo(req)));
+    if (metodo === 'DELETE' && ch) { await servicoAtendimento.excluir(escopo, ch); log.info('chamado excluído', { id: ch, por: email }); return responder(res, 200, { ok: true }); }
+    const rp = id(/^\/api\/atendimento\/chamados\/(\d+)\/mensagens$/);
+    if (metodo === 'POST' && rp) { await servicoAtendimento.responder(email, escopo, rp, (await lerCorpo(req, 100_000)).texto); return responder(res, 200, { ok: true }); }
+  }
+  throw new ErroHttp(404, 'Rota não encontrada.');
+}
+
 /* ---------- auditoria ---------- */
 
 async function listarAuditoria(res: http.ServerResponse, id: string, f: FiltroNotas) {
@@ -1182,6 +1336,10 @@ const servicoSped = new ServicoSped(db, arm);
 const servicoColetor = new ServicoColetor(db, arm);
 const servicoIntegracao = new ServicoIntegracao(db, arm, cfg.masterKey);
 const servicoContabil = new ServicoContabil(db, arm);
+const servicoFolha = new ServicoFolha(db);
+const servicoSocietario = new ServicoSocietario(db, arm);
+const servicoFinanceiro = new ServicoFinanceiro(db);
+const servicoAtendimento = new ServicoAtendimento(db);
 // Webhook das integrações: a cada 15 s transforma as mudanças das notas em avisos e entrega os pendentes
 let webhookRodando = false;
 setInterval(async () => {
@@ -1445,7 +1603,7 @@ const servidor = http.createServer(async (req, res) => {
     }
     if (e instanceof ErroIntegra) return responder(res, e.status, { erro: e.message, ...(e.codigo ? { codigo: e.codigo } : {}) });
     if (e instanceof ErroAcessorias) return responder(res, e.status, { erro: e.message });
-    if (e instanceof ErroOAuth || e instanceof ErroColetor || e instanceof ErroIntegracao || e instanceof ErroContabil) return responder(res, e.status, { erro: e.message });
+    if (e instanceof ErroOAuth || e instanceof ErroColetor || e instanceof ErroIntegracao || e instanceof ErroContabil || e instanceof ErroModulo) return responder(res, e.status, { erro: e.message });
     if (e instanceof ErroPlanilha) return responder(res, 422, { erro: e.message });
     if (e instanceof ErroHttp || e instanceof ErroUsuario || e instanceof ErroSped || e instanceof ErroApontamento || e instanceof ErroApuracao || e instanceof ErroGerarSped || e instanceof ErroDocumento || e instanceof ErroBusca || e instanceof ErroCadastro) return responder(res, e.status, { erro: e.message });
     log.error('erro no painel', { rota: url.pathname, erro: (e as Error).message });

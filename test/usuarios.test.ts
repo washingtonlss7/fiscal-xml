@@ -41,7 +41,7 @@ const E3 = '33333333-3333-3333-3333-333333333333';
 (async () => {
   // 0) Perfis prontos do código = os da migration (sem divergência)
   {
-    const sql = fs.readFileSync(path.resolve(__dirname, '../supabase/migrations/0042_acesso_modulos.sql'), 'utf8');
+    const sql = fs.readFileSync(path.resolve(__dirname, '../supabase/migrations/0044_modulos_escritorio.sql'), 'utf8');
     for (const p of PERFIS_PADRAO) {
       const m = sql.match(new RegExp(`\\('${p.id}', '([^']+)',[\\s\\S]*?array\\[([^\\]]*)\\]`));
       assert.ok(m, `perfil ${p.id} na migration`);

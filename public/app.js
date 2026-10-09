@@ -449,12 +449,12 @@ const NAV = [
     { id: 'coletores', rotulo: 'Appura Coletor', rota: '#/coletores', permissao: 'captacao.ver' },
   ] },
   { id: 'notas', rotulo: 'Notas Fiscais', icone: 'file-text', rota: '#/notas', permissao: 'captacao.ver' },
-  { id: 'auditoria', rotulo: 'Auditoria', icone: 'shield-check', permissao: 'fiscal.ver' },
-  { id: 'icms-st', rotulo: 'ICMS-ST', icone: 'calculator', permissao: 'fiscal.ver' },
+  { id: 'auditoria', rotulo: 'Auditoria', icone: 'shield-check', rota: '#/auditoria', permissao: 'fiscal.ver' },
+  { id: 'icms-st', rotulo: 'ICMS-ST', icone: 'calculator', rota: '#/icms-st', permissao: 'fiscal.ver' },
   { id: 'sped', rotulo: 'SPED e cadastro', icone: 'file-spreadsheet', rota: '#/sped', permissao: 'fiscal.ver' },
   { id: 'guias', rotulo: 'Guias', icone: 'receipt', rota: '#/guias', permissao: 'fiscal.ver' },
   { id: 'fechamento', rotulo: 'Fechamento', icone: 'clipboard-check', rota: '#/fechamento', permissao: 'fiscal.ver' },
-  // Módulos ainda em construção: "Em breve" para quem terá acesso (e só se o escritório tiver o módulo ligado)
+  // Módulos do escritório (só aparecem se o escritório tiver o módulo ligado)
   { id: 'contabil', rotulo: 'Contábil', icone: 'book-open', modulo: 'contabil', filhos: [
     { id: 'ct-processar', rotulo: 'Processar', rota: '#/contabil/processar', permissao: 'contabil.ver' },
     { id: 'ct-pendencias', rotulo: 'Pendências', rota: '#/contabil/pendencias', permissao: 'contabil.ver' },
@@ -464,11 +464,19 @@ const NAV = [
     { id: 'ct-plano', rotulo: 'Plano de contas', rota: '#/contabil/plano', permissao: 'contabil.ver' },
     { id: 'ct-historico', rotulo: 'Histórico', rota: '#/contabil/historico', permissao: 'contabil.ver' },
   ] },
-  { id: 'folha', rotulo: 'Folha', icone: 'wallet', permissao: 'folha.ver', modulo: 'folha' },
-  { id: 'societario', rotulo: 'Societário', icone: 'landmark', permissao: 'societario.ver', modulo: 'societario' },
-  { id: 'financeiro', rotulo: 'Financeiro', icone: 'briefcase', permissao: 'financeiro.ver', modulo: 'financeiro' },
-  { id: 'atendimento', rotulo: 'Atendimento', icone: 'message-circle' },
-  { id: 'relatorios', rotulo: 'Relatórios', icone: 'chart-column', permissao: 'algum.ver' },
+  { id: 'folha', rotulo: 'Folha', icone: 'wallet', rota: '#/folha', permissao: 'folha.ver', modulo: 'folha' },
+  { id: 'societario', rotulo: 'Societário', icone: 'landmark', modulo: 'societario', filhos: [
+    { id: 'sc-clientes', rotulo: 'Clientes', rota: '#/societario/clientes', permissao: 'societario.ver' },
+    { id: 'sc-vencimentos', rotulo: 'Vencimentos', rota: '#/societario/vencimentos', permissao: 'societario.ver' },
+    { id: 'sc-processos', rotulo: 'Processos', rota: '#/societario/processos', permissao: 'societario.ver' },
+  ] },
+  { id: 'financeiro', rotulo: 'Financeiro', icone: 'briefcase', modulo: 'financeiro', filhos: [
+    { id: 'fn-resumo', rotulo: 'Resumo do mês', rota: '#/financeiro/resumo', permissao: 'financeiro.ver' },
+    { id: 'fn-cobrancas', rotulo: 'Cobranças', rota: '#/financeiro/cobrancas', permissao: 'financeiro.ver' },
+    { id: 'fn-contratos', rotulo: 'Contratos', rota: '#/financeiro/contratos', permissao: 'financeiro.ver' },
+  ] },
+  { id: 'atendimento', rotulo: 'Atendimento', icone: 'message-circle', rota: '#/atendimento', permissao: 'atendimento.ver', modulo: 'atendimento' },
+  { id: 'relatorios', rotulo: 'Relatórios', icone: 'chart-column', rota: '#/relatorios', permissao: 'algum.ver' },
   { id: 'administracao', rotulo: 'Administração', icone: 'settings', filhos: [
     { id: 'usuarios', rotulo: 'Usuários', rota: '#/usuarios', permissao: 'administracao.usuarios' },
     { id: 'perfis', rotulo: 'Perfis de acesso', rota: '#/perfis', permissao: 'administracao.usuarios' },
@@ -476,9 +484,12 @@ const NAV = [
     { id: 'escritorio', rotulo: 'Escritório', rota: '#/escritorio', permissao: 'administracao.empresas' },
     { id: 'ia', rotulo: 'Conexões de IA', rota: '#/ia' },
     { id: 'integracoes', rotulo: 'Integrações (API)', rota: '#/integracoes', permissao: 'administracao.configuracoes' },
-    { rotulo: 'Certificados', permissao: 'administracao.empresas' }, { rotulo: 'Configurações', permissao: 'administracao.configuracoes' },
+    { id: 'certificados', rotulo: 'Certificados', rota: '#/certificados', permissao: 'administracao.empresas' },
+    { id: 'configuracoes', rotulo: 'Configurações', rota: '#/configuracoes', permissao: 'administracao.configuracoes' },
   ] },
 ];
+/** Telas dos módulos do escritório: tela (id sem "tela-") → função global que abre a tela. */
+const MODULOS_ESCRITORIO = { 'auditoria-esc': 'auMostrar', 'st-esc': 'seMostrar', folha: 'foMostrar', societario: 'soMostrar', financeiro: 'fnMostrar', atendimento: 'atMostrar', relatorios: 'reMostrar', certificados: 'ceMostrar', configuracoes: 'cfMostrar' };
 const NAV_RODAPE = [{ id: 'ajuda', rotulo: 'Ajuda', icone: 'circle-help' }];
 
 let gruposAbertos = new Set(['administracao']);
@@ -666,7 +677,7 @@ async function aplicarRota() {
     return;
   }
   const esconderTudo = (menos) => {
-    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias', 'tela-escritorio', 'tela-ia', 'tela-xml', 'tela-coletores', 'tela-captacao', 'tela-integracoes', 'tela-perfis', 'tela-responsaveis', 'tela-contabil']) if (id !== menos) $(id).hidden = true;
+    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias', 'tela-escritorio', 'tela-ia', 'tela-xml', 'tela-coletores', 'tela-captacao', 'tela-integracoes', 'tela-perfis', 'tela-responsaveis', 'tela-contabil', 'tela-auditoria-esc', 'tela-st-esc', 'tela-folha', 'tela-societario', 'tela-financeiro', 'tela-atendimento', 'tela-relatorios', 'tela-certificados', 'tela-configuracoes']) if (id !== menos) $(id).hidden = true;
   };
   if (rota.tela !== 'empresa') { empresaNotas = null; fecharGavetaUsuario(); }
   if (rota.tela === 'fechamento') {
@@ -690,6 +701,9 @@ async function aplicarRota() {
   } else if (rota.tela === 'contabil') {
     esconderTudo('tela-contabil');
     window.ctMostrar(rota.aba);
+  } else if (MODULOS_ESCRITORIO[rota.tela]) {
+    esconderTudo(`tela-${rota.tela}`);
+    window[MODULOS_ESCRITORIO[rota.tela]](rota);
   } else if (rota.tela === 'perfis') {
     esconderTudo('tela-perfis');
     window.acPerfisMostrar();

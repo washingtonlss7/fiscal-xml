@@ -2,6 +2,43 @@
 
 Lista viva do que ficou em aberto, das divergências e dos erros conhecidos. A mais recente fica no topo.
 
+## 2026-10-09: módulos do escritório (tudo que estava "Em breve" no menu)
+
+Telas novas: Auditoria e ICMS-ST do escritório, Folha, Societário, Financeiro, Atendimento, Relatórios, Certificados e Configurações. Detalhes em `docs/modulos-escritorio.md`.
+
+### Pendências
+
+**A construir:**
+- **Folha:** o cálculo da folha, o eSocial e as guias continuam no Domínio. Hoje o Appura faz o controle das etapas do mês e mostra as rubricas que vieram pela planilha do Contábil. As etapas são marcadas à mão, exceto "Contabilizada". Não há leitura automática de recibo do eSocial nem de DCTFWeb transmitida.
+- **Financeiro:** não emite boleto nem PIX, não concilia com o extrato bancário e não emite nota de serviço dos honorários. O reajuste anual é só informativo: o índice e o mês ficam no contrato, mas o valor não muda sozinho.
+- **Atendimento:** não há integração com WhatsApp ou e-mail. O chamado é aberto à mão, a conversa é só interna (o cliente não vê) e não há aviso por e-mail ao responsável.
+- **Societário:** não consulta a Receita (CNPJ, QSA) nem a Junta Comercial. O cadastro e os sócios são digitados. Não há aviso automático de documento vencendo, só a tela de vencimentos e o relatório.
+- **ICMS-ST do escritório:** é um indicador (entradas de fora do estado e ST destacado). O valor a recolher continua sendo calculado empresa por empresa, na aba ICMS-ST.
+- **Relatórios:** só em xlsx. Não há PDF nem envio agendado.
+
+**Decisão do escritório:**
+- **Cliente sem certificado:** quem é cadastrado por "Novo cliente" no Societário aparece na lista de Empresas e no sino como "Sem certificado" (problema), e no monitor da Captação com o aviso de que a SEFAZ não é consultada. A captação fica desligada nesses clientes (`captar_nfe` e `captar_cte` desligados), então nada é consultado na SEFAZ. Falta decidir se esses clientes saem da contagem de problemas.
+- **Etapas padrão da folha:** são seis (folha fechada, eSocial, DCTFWeb, FGTS Digital, guias ao cliente, contabilizada). O Departamento Pessoal confirma ou ajusta em Folha → Empresas e etapas.
+
+### Divergências em relação ao pedido
+
+- "Auditoria" e "ICMS-ST" já existiam por empresa (Empresa 360°). O item do menu virou uma visão do escritório inteiro com atalho para a aba da empresa. Não é uma segunda auditoria.
+- "Certificados" mostra a validade e manda para o cadastro da empresa para trocar o arquivo. O envio do certificado continua no cadastro, que é o caminho cifrado que já existe. A tela não recebe o .pfx.
+- "Configurações" é um painel de situação com atalhos. Os ajustes continuam nas telas que já existiam (Escritório, Integrações, Perfis, Contábil, ICMS-ST).
+- Financeiro e Atendimento não têm responsável por empresa (não entram na carteira). Quem tem escopo por carteira ou lista vê só os registros das suas empresas. Chamado sem cliente (interno) aparece para todos com acesso ao Atendimento.
+- Processo societário sem empresa (abertura de empresa que ainda não existe) só aparece para quem vê todas as empresas.
+
+### Verificação
+
+- `npm test` passou, com 2 suítes novas: `test/modulos.test.ts` e `test/escritorio-tela.test.ts`. O tsc não acusou erros.
+- As telas foram conferidas num ambiente de teste local, com dados fictícios e no navegador, em desktop e em celular, sem erro no console. Num celular, a tela Certificados rolava para o lado por causa dos filtros; isso foi corrigido. Não houve conferência com dados reais: as tabelas novas começam vazias em produção.
+
+### Erros encontrados na implementação (corrigidos)
+
+- No componente de campo, o `onchange` do filtro era sobrescrito pelo padrão, e os filtros não recarregavam a lista. A ordem foi corrigida.
+- A barra de progresso dos processos usava `style` inline, que é bloqueado pela política de segurança (CSP). Agora a largura é definida pelo DOM.
+- O botão "Novo cliente" exigia a permissão errada (`societario.operar`). A rota exige `administracao.empresas`, e o botão agora segue a rota.
+
 ## 2026-10-08: Contábil, fase 1 (processador de lançamentos conforme a ata)
 
 ### Pendências
@@ -48,7 +85,7 @@ Lista viva do que ficou em aberto, das divergências e dos erros conhecidos. A m
 
 ### Pendências
 
-- **Primeiro módulo do Domínio:** não foi definido qual vem primeiro, provavelmente o Contábil. Os módulos Contábil, Folha, Societário e Financeiro estão no catálogo, nos perfis e no menu, mas ainda como "Em breve".
+- **Primeiro módulo do Domínio:** resolvido. O Contábil veio primeiro (2026-10-08), e Folha, Societário, Financeiro e Atendimento entraram em 2026-10-09.
 - **Sugestões do Acessórias sem dados:** hoje a tabela `acessorias_entregas` não tem departamento nem responsável preenchidos (1 linha, entregas vazias). As sugestões vão aparecer depois de atualizar as entregas do mês com a Acessórias configurada.
 - **Equipes:** falta a ideia de "supervisor vê a carteira da sua equipe". Hoje o supervisor usa o escopo "todas" ou uma lista.
 - **Carteira por módulo:** a carteira vale para todos os módulos. Quem é responsável por uma empresa no Fiscal também a vê na Captação. Falta separar a carteira por módulo, se o escritório precisar.
