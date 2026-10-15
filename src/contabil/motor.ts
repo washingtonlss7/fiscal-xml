@@ -117,7 +117,7 @@ export function montarHistorico(modelo: string, m: Movimento): string {
   const valores: Record<string, string> = {
     '{numero}': m.documento ?? '', '{serie}': String((m.dados as any)?.serie ?? ''), '{participante}': participante,
     '{cfop}': m.cfop ?? '', '{data}': dataBr(m.data), '{competencia}': compBr(m.competencia), '{chave}': m.chave_nfe ?? '',
-    '{modelo}': m.modelo === '65' ? 'NFC-e' : m.modelo === '55' ? 'NF-e' : m.modelo ?? '',
+    '{modelo}': m.modelo === '65' ? 'NFC-e' : m.modelo === '55' ? 'NF-e' : m.modelo === 'nfse' ? 'NFS-e' : m.modelo ?? '',
     '{rubrica}': m.rubrica ?? '', '{descricao}': m.descricao ?? '',
   };
   return modelo.replace(/\{[a-z]+\}/g, (v) => (v in valores ? valores[v] : v)).replace(/\s+/g, ' ').trim();
@@ -241,6 +241,41 @@ export function movimentosDaNota(nota: NotaFonte, itens: ItemFonte[], como: Valo
     if (dif) { const maior = [...porCfop.entries()].sort((a, b) => b[1] - a[1])[0][0]; porCfop.set(maior, porCfop.get(maior)! + dif); }
   }
   return [...porCfop.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([c, v]) => mov(c, v));
+}
+
+/* ---------- fonte fiscal: NFS-e nacional → movimento pelo CFOP de serviço ---------- */
+
+export interface NfseFonte {
+  chave: string; empresa_cnpj: string; papel: 'prestador' | 'tomador' | 'intermediario'; numero: string | null; emitida_em: string; situacao: string;
+  valor_servico: number | null; prestador_doc: string | null; prestador_nome: string | null; prestador_mun: string | null;
+  tomador_doc: string | null; tomador_nome: string | null; tomador_mun: string | null; cod_trib_nac?: string | null; descricao?: string | null;
+}
+
+/**
+ * CFOP usado para achar a regra da NFS-e (a nota de serviço não tem CFOP): os CFOP de serviço tributado pelo ISS.
+ * Emitida (prestador): 5933 no mesmo estado do tomador, 6933 em outro. Recebida (tomador): 1933 / 2933.
+ * O estado vem dos 2 primeiros dígitos do código IBGE do município; sem município, considera o mesmo estado.
+ */
+export function cfopDaNfse(n: Pick<NfseFonte, 'papel' | 'prestador_mun' | 'tomador_mun'>): string | null {
+  if (n.papel === 'intermediario') return null;
+  const ufP = String(n.prestador_mun ?? '').slice(0, 2); const ufT = String(n.tomador_mun ?? '').slice(0, 2);
+  const fora = !!ufP && !!ufT && ufP !== ufT;
+  return n.papel === 'prestador' ? (fora ? '6933' : '5933') : (fora ? '2933' : '1933');
+}
+
+/** Uma NFS-e vira um movimento (valor do serviço). Cancelada, substituída ou só como intermediário: nada. */
+export function movimentosDaNfse(n: NfseFonte): Movimento[] {
+  if (n.situacao !== 'autorizada' || n.papel === 'intermediario') return [];
+  const saida = n.papel === 'prestador';
+  const cfop = cfopDaNfse(n);
+  const data = dataSemHora(n.emitida_em);
+  const base = {
+    origem: 'fiscal' as const, ctb_empresa_id: null, cnpj: so(n.empresa_cnpj), documento: n.numero, chave_nfe: n.chave, modelo: 'nfse',
+    direcao: (saida ? 'saida' : 'entrada') as 'saida' | 'entrada', participante_nome: saida ? n.tomador_nome : n.prestador_nome, participante_doc: saida ? n.tomador_doc : n.prestador_doc,
+    descricao: n.descricao ?? null, dados: { serie: '', chave: n.chave, cod_trib_nac: n.cod_trib_nac ?? null },
+  };
+  if (!data) return [{ ...base, chave_unica: chaveUnica('nfse', n.chave, 'data'), competencia: '1900-01-01', data: '', cfop, valor: null, erro: { codigo: 'DATA_INVALIDA', detalhe: n.emitida_em } }];
+  return [{ ...base, chave_unica: chaveUnica('nfse', so(n.empresa_cnpj), n.chave), competencia: competenciaDe(data), data, cfop, valor: n.valor_servico == null ? null : r2(Number(n.valor_servico)), erro: null }];
 }
 
 /** NFC-e agrupadas por empresa + dia + CFOP (opcional, ctb_config.agrupar_nfce_por_dia). */

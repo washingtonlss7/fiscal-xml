@@ -38,6 +38,7 @@ import { ErroIntegracao, ServicoIntegracao } from '../integracao/servico';
 import { ErroContabil, ServicoContabil } from '../contabil/servico';
 import { ErroPlanilha } from '../contabil/planilha';
 import { ErroModulo, Escopo } from '../modulos/comum';
+import { ErroNfse, PAPEIS as NFSE_PAPEIS, ServicoNfsePainel, SITUACOES_NFSE } from './nfse';
 import { ServicoFolha } from '../modulos/folha';
 import { CANAIS as ATD_CANAIS, DEPARTAMENTOS as ATD_DEPARTAMENTOS, PRIORIDADES as ATD_PRIORIDADES, STATUS_CHAMADO as ATD_STATUS, ServicoAtendimento } from '../modulos/atendimento';
 import { ETAPAS_PADRAO as SOC_ETAPAS, QUALIFICACOES as SOC_QUALIFICACOES, ServicoSocietario, STATUS_PROCESSO as SOC_STATUS, TIPOS_DOCUMENTO as SOC_TIPOS_DOC, TIPOS_PROCESSO as SOC_TIPOS_PROC } from '../modulos/societario';
@@ -96,6 +97,7 @@ const ARQUIVOS: Record<string, [string, string]> = {
   '/societario.js': ['societario.js', 'text/javascript; charset=utf-8'],
   '/financeiro.js': ['financeiro.js', 'text/javascript; charset=utf-8'],
   '/atendimento.js': ['atendimento.js', 'text/javascript; charset=utf-8'],
+  '/nfse.js': ['nfse.js', 'text/javascript; charset=utf-8'],
   '/nucleo.js': ['nucleo.js', 'text/javascript; charset=utf-8'],
   '/app.css': ['app.css', 'text/css; charset=utf-8'],
   '/manifest.webmanifest': ['manifest.webmanifest', 'application/manifest+json; charset=utf-8'],
@@ -401,6 +403,9 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
   if (rota.startsWith('/api/contabil/')) return rotaContabil(req, res, url, metodo, rota, email, acesso);
 
   // Módulos do escritório (Auditoria/ICMS-ST do escritório, Folha, Societário, Financeiro, Atendimento, Relatórios, Certificados, Configurações)
+  // NFS-e Nacional (ADN): captação por empresa e consulta das notas
+  if (rota.startsWith('/api/nfse/')) return rotaNfse(req, res, url, metodo, rota, email, acesso);
+
   if (/^\/api\/(auditoria\/resumo|st\/resumo|folha\/|societario\/|financeiro\/|atendimento\/|relatorios|certificados$|configuracoes\/resumo$|empresas\/simples$)/.test(rota)) return rotaModulos(req, res, url, metodo, rota, email, acesso);
 
   // Avisos em tempo real para a tela (stream de texto). O navegador recarrega a lista quando chega "mudou".
@@ -1117,6 +1122,51 @@ async function enviarXlsx(res: http.ServerResponse, nome: string, abas: Aba[]) {
   res.end();
 }
 
+async function rotaNfse(req: http.IncomingMessage, res: http.ServerResponse, url: URL, metodo: string, rota: string, email: string, acesso: Acesso) {
+  const escopo: Escopo = acesso.empresas;
+  const filtro = () => ({ mes: url.searchParams.get('mes') || null, empresa: url.searchParams.get('empresa') || null, papel: url.searchParams.get('papel') || null, situacao: url.searchParams.get('situacao') || null, busca: (url.searchParams.get('busca') ?? '').slice(0, 80) || null });
+  if (metodo === 'GET' && rota === '/api/nfse/captacao') return responder(res, 200, { ...(await servicoNfse.captacao(escopo)), pode: { ligar: pode(acesso, 'administracao.empresas') } });
+  if (metodo === 'POST' && rota === '/api/nfse/captacao') {
+    const c = await lerCorpo(req, 500_000);
+    const ids = (Array.isArray(c.empresas) ? c.empresas : [c.empresa_id]).map(String).filter((x: string) => /^[0-9a-f-]{36}$/.test(x)).slice(0, 2000);
+    const r = await servicoNfse.definirCaptacao(email, escopo, ids, c.ativo === true);
+    log.info('captação de NFS-e alterada', { empresas: ids.length, ativo: c.ativo === true, por: email });
+    return responder(res, 200, r);
+  }
+  if (metodo === 'GET' && rota === '/api/nfse/notas') return responder(res, 200, { ...(await servicoNfse.listar(escopo, filtro())), papeis: NFSE_PAPEIS, situacoes: SITUACOES_NFSE });
+  const xm = rota.match(/^\/api\/nfse\/notas\/(\d+)\/xml$/);
+  if (metodo === 'GET' && xm) {
+    const x = await servicoNfse.xml(escopo, Number(xm[1]));
+    const erroReg = await registrarDownload(db, { email, tipo: 'xml', empresaId: null, filtros: { nfse: Number(xm[1]) }, quantidade: 1 });
+    if (erroReg) log.warn('download sem registro', { erro: erroReg });
+    res.writeHead(200, { ...CABECALHOS_SEGURANCA, 'Content-Type': 'application/xml; charset=utf-8', 'Content-Disposition': `attachment; filename="${x.nome}"`, 'Cache-Control': 'no-store' });
+    return void res.end(x.conteudo);
+  }
+  if (metodo === 'GET' && rota === '/api/nfse/zip') {
+    const f = filtro();
+    const arquivos = await servicoNfse.paraZip(escopo, f);
+    const erroReg = await registrarDownload(db, { email, tipo: 'zip', empresaId: f.empresa, filtros: { nfse: true, ...f }, quantidade: arquivos.length });
+    if (erroReg) log.warn('download sem registro', { erro: erroReg });
+    res.writeHead(200, { ...CABECALHOS_SEGURANCA, 'Content-Type': 'application/zip', 'Content-Disposition': `attachment; filename="nfse_${f.mes ?? 'busca'}.zip"`, 'Cache-Control': 'no-store' });
+    const zip = new Zip(res);
+    for (let i = 0; i < arquivos.length; i += 8) {
+      const bloco = arquivos.slice(i, i + 8);
+      const conteudos = await Promise.all(bloco.map((a) => lerXmlStorage(a.caminho).catch(() => null)));
+      for (let j = 0; j < bloco.length; j++) if (conteudos[j]) await zip.adicionar(bloco[j].nome, conteudos[j]!);
+    }
+    await zip.finalizar();
+    return void res.end();
+  }
+  if (metodo === 'GET' && rota === '/api/nfse/excel') {
+    const f = filtro();
+    const p = await servicoNfse.planilha(escopo, f);
+    const erroReg = await registrarDownload(db, { email, tipo: 'excel', empresaId: f.empresa, filtros: { nfse: true, ...f }, quantidade: p.abas[0].linhas.length });
+    if (erroReg) log.warn('download sem registro', { erro: erroReg });
+    return enviarXlsx(res, p.nome, p.abas);
+  }
+  throw new ErroHttp(404, 'Rota não encontrada.');
+}
+
 async function rotaModulos(req: http.IncomingMessage, res: http.ServerResponse, url: URL, metodo: string, rota: string, email: string, acesso: Acesso) {
   const q = (k: string) => url.searchParams.get(k) ?? '';
   const escopo: Escopo = acesso.empresas;
@@ -1337,6 +1387,7 @@ const servicoColetor = new ServicoColetor(db, arm);
 const servicoIntegracao = new ServicoIntegracao(db, arm, cfg.masterKey);
 const servicoContabil = new ServicoContabil(db, arm);
 const servicoFolha = new ServicoFolha(db);
+const servicoNfse = new ServicoNfsePainel(db, (c) => arm.ler(c));
 const servicoSocietario = new ServicoSocietario(db, arm);
 const servicoFinanceiro = new ServicoFinanceiro(db);
 const servicoAtendimento = new ServicoAtendimento(db);
@@ -1603,7 +1654,7 @@ const servidor = http.createServer(async (req, res) => {
     }
     if (e instanceof ErroIntegra) return responder(res, e.status, { erro: e.message, ...(e.codigo ? { codigo: e.codigo } : {}) });
     if (e instanceof ErroAcessorias) return responder(res, e.status, { erro: e.message });
-    if (e instanceof ErroOAuth || e instanceof ErroColetor || e instanceof ErroIntegracao || e instanceof ErroContabil || e instanceof ErroModulo) return responder(res, e.status, { erro: e.message });
+    if (e instanceof ErroOAuth || e instanceof ErroColetor || e instanceof ErroIntegracao || e instanceof ErroContabil || e instanceof ErroModulo || e instanceof ErroNfse) return responder(res, e.status, { erro: e.message });
     if (e instanceof ErroPlanilha) return responder(res, 422, { erro: e.message });
     if (e instanceof ErroHttp || e instanceof ErroUsuario || e instanceof ErroSped || e instanceof ErroApontamento || e instanceof ErroApuracao || e instanceof ErroGerarSped || e instanceof ErroDocumento || e instanceof ErroBusca || e instanceof ErroCadastro) return responder(res, e.status, { erro: e.message });
     log.error('erro no painel', { rota: url.pathname, erro: (e as Error).message });

@@ -127,6 +127,10 @@ export function exigenciaDaRota(metodo: string, rota: string): Exigencia {
   // Comuns
   if (re('/api/empresas/:id/360').test(rota)) return 'algum.ver';
 
+  // NFS-e Nacional: consultar = captação; ligar/desligar por empresa = administração das empresas
+  if (rota === '/api/nfse/captacao' && !le) return 'administracao.empresas';
+  if (rota.startsWith('/api/nfse/')) return le ? 'captacao.ver' : 'captacao.operar';
+
   // Captação e notas
   if (rota.startsWith('/api/captacao/')) return le ? 'captacao.ver' : 'captacao.operar';
   if (re('/api/empresas/:id/(sincronizar|importar)').test(rota)) return 'captacao.operar';

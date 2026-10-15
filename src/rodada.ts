@@ -9,6 +9,7 @@ import { manifestarPendentes } from './manifestacao';
 import { Modelo } from './sefaz/distDFe';
 import { ContextoSync, ResultadoSync, sincronizarModelo } from './sync';
 import { dentroDaJanela, emParalelo } from './util';
+import { ResultadoNfse, sincronizarNfse } from './nfse/sync';
 
 export interface EmpresaRow {
   id: string;
@@ -106,9 +107,38 @@ export async function garantirSyncState(db: Db, empresas: EmpresaRow[]): Promise
 }
 
 export type ResultadoEmpresa =
-  | { situacao: 'ocupada' | 'sem_certificado' | 'vencido' }
-  | { situacao: 'ok'; resultados: ResultadoSync[]; documentos: number }
-  | { situacao: 'erro'; mensagem: string };
+  | { situacao: 'ocupada' | 'sem_certificado' | 'vencido'; nfse?: ResultadoNfse }
+  | { situacao: 'ok'; resultados: ResultadoSync[]; documentos: number; nfse?: ResultadoNfse }
+  | { situacao: 'erro'; mensagem: string; nfse?: ResultadoNfse };
+
+/** Empresas com a captação de NFS-e em andamento (agendador próprio, separado do da NF-e). */
+export const nfseEmAndamento = new Set<string>();
+
+/** Captação de NFS-e (ADN) de uma empresa, com o certificado dela. */
+export async function sincronizarNfseEmpresa(
+  db: Db, cfg: ConfigWorker, arm: Armazenamento, empresa: Pick<EmpresaRow, 'id' | 'cnpj'>, cert: CertRow | undefined, manual = false,
+): Promise<ResultadoNfse> {
+  if (nfseEmAndamento.has(empresa.id)) return { status: 'aguardando', chamadas: 0, documentos: 0, mensagem: 'captação de NFS-e já em andamento' };
+  if (!cert) return { status: 'erro', chamadas: 0, documentos: 0, mensagem: 'Empresa sem certificado ativo.' };
+  if (new Date(cert.valido_ate).getTime() < Date.now()) return { status: 'erro', chamadas: 0, documentos: 0, mensagem: 'Certificado vencido.' };
+  nfseEmAndamento.add(empresa.id);
+  let agente: https.Agent | undefined;
+  try {
+    agente = criarAgente(abrirCertificado(cert, cfg.masterKey));
+    return await sincronizarNfse({
+      db, arm, tpAmb: cfg.tpAmb, maxChamadas: cfg.maxChamadasPorRodada, intervaloMs: cfg.intervaloHoras * 3600_000, manual,
+      podeConsultar: manual ? () => true : () => dentroDaJanela(cfg.janela),
+    }, empresa, agente);
+  } catch (e) {
+    certsAbertos.delete(cert.id);
+    const mensagem = (e as Error).message;
+    log.error('falha na captação de NFS-e', { cnpj: empresa.cnpj, erro: mensagem });
+    return { status: 'erro', chamadas: 0, documentos: 0, mensagem };
+  } finally {
+    agente?.destroy();
+    nfseEmAndamento.delete(empresa.id);
+  }
+}
 
 /** Sincroniza uma empresa: NF-e, CT-e e, se for o caso, ciência das notas que chegaram só como resumo. */
 export async function sincronizarEmpresa(
@@ -173,8 +203,10 @@ export async function executarRodada(
   await garantirSyncState(db, empresas);
   const ctx = { ...novoContexto(db, cfg, arm, await mapaClientes(db), true), progresso };
   const saida: Record<string, ResultadoEmpresa> = {};
+  const comNfse = new Set((ok(await db.from('nfse_captacao').select('empresa_id').eq('ativo', true).in('empresa_id', empresas.map((e) => e.id)), 'empresas com NFS-e') as { empresa_id: string }[]).map((x) => x.empresa_id));
   await emParalelo(empresas, cfg.concorrencia, async (e) => {
     saida[e.id] = await sincronizarEmpresa(ctx, cfg, e, certs.get(e.id));
+    if (comNfse.has(e.id)) saida[e.id].nfse = await sincronizarNfseEmpresa(db, cfg, arm, e, certs.get(e.id), true);
   });
   return saida;
 }

@@ -2,6 +2,45 @@
 
 Lista viva do que ficou em aberto, das divergências e dos erros conhecidos. A mais recente fica no topo.
 
+## 2026-10-14: NFS-e Nacional (captação no ADN)
+
+Detalhes em `docs/nfse.md`.
+
+### Pendências
+
+**A conferir em produção (primeira execução):**
+- **Formato da resposta do ADN:** o manual oficial não descreve os campos. A leitura segue o Swagger e os relatos públicos (`LoteDFe`, `NSU`, `ChaveAcesso`, `TipoDocumento`, `ArquivoXml` em gzip e base64, `StatusProcessamento`, `Erros`) e aceita PascalCase e camelCase. Daqui não dá para chamar o ADN, porque o ambiente não alcança o site. Ligue a captação em uma empresa e confira em Captação → NFS-e Nacional → Captação por empresa, e no log do coletor (`nfse_logs`).
+- **NSU inicial:** a consulta começa no NSU 0 e traz todo o histórico disponível no ADN. Empresa com muitas notas pode levar algumas rodadas (até o limite de chamadas por rodada) para ficar em dia.
+- **Semântica do NSU:** se o ADN devolver a partir do NSU informado, inclusive ou não, os dois casos funcionam, porque o NSU repetido é ignorado. Se devolver só o próprio NSU (sem lote), a captação anda de um em um. Conferir na primeira execução.
+
+**A construir:**
+- **Filial com o certificado da matriz:** o ADN aceita um CNPJ de consulta com a mesma raiz do certificado, mas o manual não dá o nome do parâmetro. Hoje cada empresa consulta só o próprio CNPJ. Filial sem certificado próprio fica sem NFS-e.
+- **Municípios fora do padrão nacional:** notas emitidas só no sistema próprio da prefeitura não chegam ao ADN. Seria preciso integrar prefeitura por prefeitura, ou usar o Coletor.
+- **Manifestação da NFS-e** (confirmação ou rejeição pelo tomador): não é feita. Os eventos de manifestação de terceiros são só guardados.
+- **Auditoria fiscal da NFS-e** (ISS, retenções, código de tributação) e **relatórios de serviços** (ranking de prestadores e tomadores): não feitos.
+- **Busca de XML e API de integração:** as NFS-e ficam na tela própria, não na busca de XML das NF-e nem na API de integração (`/api/v1`).
+
+**Decisão do escritório:**
+- **Departamento Contábil:** criar as regras dos CFOP de serviço 5933, 6933, 1933 e 2933 em Contábil → Regras. Sem regra, as NFS-e ficam em Pendências (CFOP sem regra).
+- **Data e valor:** a NFS-e entra pela data de emissão e pelo valor do serviço (bruto). Se o escritório preferir a competência da nota ou o valor líquido, é uma troca simples.
+
+### Divergências em relação ao proposto
+
+- As NFS-e não entraram na lista de Notas Fiscais nem na busca de XML existentes. A chave da NFS-e nacional tem 50 dígitos, e a tabela das notas é de chave com 44. Mudar a tabela existente em produção exigiria apresentar a migração antes. Por isso foram criadas tabelas novas e uma tela própria, Captação → NFS-e Nacional, com lista, filtros, XML, ZIP e planilha.
+- A situação da captação de NFS-e fica na aba "Captação por empresa" da tela da NFS-e, e não no Monitor da Captação, que é da NF-e e do CT-e.
+- A opção de captar NFS-e fica na tela da NFS-e, e não no cadastro da empresa, para não alterar a tabela de empresas.
+- No Contábil, a NFS-e usa os CFOP de serviço (5933, 6933, 1933, 2933) para achar a regra, porque a nota de serviço não tem CFOP.
+
+### Verificação
+
+- `npm test` passou, com a suíte nova `test/nfse.test.ts`. O tsc não acusou erros.
+- As telas foram conferidas num ambiente de teste local, com dados fictícios, em desktop e em celular, sem erro no console.
+
+### Erros encontrados na implementação (corrigidos)
+
+- O teste do Contábil usa um banco em memória sem a tabela `nfse_documentos`, e passaria a falhar com a NFS-e entrando no processamento. A tabela foi incluída.
+- Na busca, o filtro por número quebraria a consulta com texto que não fosse número. Agora o filtro por número só entra quando o texto é só de dígitos.
+
 ## 2026-10-09: módulos do escritório (tudo que estava "Em breve" no menu)
 
 Telas novas: Auditoria e ICMS-ST do escritório, Folha, Societário, Financeiro, Atendimento, Relatórios, Certificados e Configurações. Detalhes em `docs/modulos-escritorio.md`.

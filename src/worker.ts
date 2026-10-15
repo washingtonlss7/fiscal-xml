@@ -7,7 +7,7 @@ import { extrairPendentes } from './extrator';
 import { fazerBackup, migrarParaR2 } from './migracao';
 import { log } from './log';
 import { Agendador } from './agendador';
-import { carregarEmpresas, emAndamento, executarRodada, garantirSyncState, mapaClientes, novoContexto, sincronizarEmpresa } from './rodada';
+import { carregarEmpresas, emAndamento, executarRodada, garantirSyncState, mapaClientes, nfseEmAndamento, novoContexto, sincronizarEmpresa, sincronizarNfseEmpresa } from './rodada';
 import { dentroDaJanela } from './util';
 import { registrarStatus } from './status';
 import type { ProgressoSync } from './sync';
@@ -93,6 +93,39 @@ async function manutencao() {
   }
 }
 
+/** NFS-e (ADN): agendador próprio. Pega as empresas com a captação ligada e a consulta vencida. */
+const agendadorNfse = new Agendador(
+  Math.max(1, Math.ceil(cfg.concorrencia / 2)),
+  async (limite, excluir) => {
+    if (!dentroDaJanela(cfg.janela)) return [];
+    let q = db.from('nfse_captacao').select('empresa_id').eq('ativo', true).lte('proxima_consulta_em', new Date().toISOString())
+      .order('proxima_consulta_em').limit(limite);
+    if (excluir.length) q = q.not('empresa_id', 'in', `(${excluir.join(',')})`);
+    const devidas = ok(await q, 'NFS-e para captar') as { empresa_id: string }[];
+    if (!devidas.length) return [];
+    const { empresas, certs } = await carregarEmpresas(db, devidas.map((d) => d.empresa_id));
+    // Empresa inativa (ou sem linha em empresas): adia para não voltar na fila a cada 15 s
+    const ativas = new Set(empresas.map((e) => e.id));
+    const fora = devidas.map((d) => d.empresa_id).filter((id) => !ativas.has(id));
+    if (fora.length) await db.from('nfse_captacao').update({ proxima_consulta_em: new Date(Date.now() + 6 * 3600_000).toISOString(), ultimo_status: 'empresa_inativa' }).in('empresa_id', fora);
+    return empresas.map((e) => ({
+      id: e.id,
+      rodar: async () => {
+        const r = await sincronizarNfseEmpresa(db, cfg, arm, e, certs.get(e.id));
+        estat.documentos += r.documentos;
+        if (r.status === 'erro') {
+          estat.erros++;
+          // Sem certificado ou falha antes de consultar: tenta de novo em 6 horas (não fica girando)
+          if (!r.chamadas) await db.from('nfse_captacao').update({ proxima_consulta_em: new Date(Date.now() + 6 * 3600_000).toISOString(), ultimo_status: 'erro', ultimo_motivo: r.mensagem ?? null }).eq('empresa_id', e.id);
+        }
+      },
+    }));
+  },
+  (e) => log.error('erro no agendador de NFS-e', { erro: (e as Error).message }),
+  60_000,
+  () => nfseEmAndamento,
+);
+
 /** Atende o botão "Sincronizar agora" do painel (tabela sync_requests). */
 async function atenderPedidosManuais() {
   // Pedido manual vale a qualquer horário: só a busca automática respeita a janela (JANELA_SINCRONIZACAO, padrão 23h às 6h).
@@ -154,6 +187,10 @@ async function atenderPedidosManuais() {
           mensagem = `${docs} documento(s) recebido(s)${parcial ? '; o restante continua automaticamente' : ''}.`;
         }
       }
+      if (res?.nfse && res.nfse.status !== 'desligada') {
+        const n = res.nfse;
+        mensagem += ` NFS-e: ${n.status === 'erro' ? `erro (${n.mensagem})` : n.status === 'aguardando' ? 'consulta recente, tenta de novo em alguns minutos' : `${n.documentos} documento(s)`}.`;
+      }
       await db.from('sync_requests').update({ status, processado_em: new Date().toISOString(), mensagem,
         progresso: { modelos: estado.get(p.empresa_id) ?? {}, atualizado_em: new Date().toISOString() } }).eq('id', p.id);
     }
@@ -213,7 +250,7 @@ async function iniciar() {
   await db.from('sync_requests').update({ status: 'pendente' }).eq('status', 'processando');
 
   // Consultas à SEFAZ: vagas liberadas são preenchidas na hora; a cada 15 s confere se venceu alguma.
-  const abastecer = setInterval(() => void agendador.abastecer(), 15_000);
+  const abastecer = setInterval(() => { void agendador.abastecer(); void agendadorNfse.abastecer(); }, 15_000);
   const manut = setInterval(() => void manutencao(), 10 * 60_000);
   void manutencao().then(() => agendador.abastecer());
 
@@ -245,7 +282,7 @@ async function iniciar() {
     clearInterval(abastecer);
     clearInterval(manut);
     for (const t of cron.getTasks().values()) t.stop();
-    await agendador.parar();
+    await Promise.all([agendador.parar(), agendadorNfse.parar()]);
     process.exit(0);
   };
   process.on('SIGTERM', () => void parar('SIGTERM'));

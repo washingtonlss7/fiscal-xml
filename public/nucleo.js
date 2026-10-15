@@ -54,6 +54,8 @@ function resolverRota(hash, pode = () => true) {
   if (r === '#/usuarios') return so('administracao.usuarios', { tela: 'usuarios', base: '#/usuarios' }, 'Usuários');
   const ctb = r.match(/^#\/contabil(?:\/(processar|pendencias|lancamentos|regras|empresas|plano|historico))?$/);
   if (ctb) return !pode('contabil.ver') ? { redirecionar: inicio, semPermissao: 'Contábil' } : ctb[1] ? { tela: 'contabil', base: `#/contabil/${ctb[1]}`, aba: ctb[1] } : { redirecionar: '#/contabil/processar' };
+  const nfse = r.match(/^#\/nfse(?:\/(notas|captacao))?$/);
+  if (nfse) return !pode('captacao.ver') ? { redirecionar: inicio, semPermissao: 'NFS-e' } : nfse[1] ? { tela: 'nfse', base: '#/nfse/notas', aba: nfse[1] } : { redirecionar: '#/nfse/notas' };
   // Módulos do escritório
   if (r === '#/auditoria') return so('fiscal.ver', { tela: 'auditoria-esc', base: '#/auditoria' }, 'Auditoria');
   if (r === '#/icms-st') return so('fiscal.ver', { tela: 'st-esc', base: '#/icms-st' }, 'ICMS-ST');

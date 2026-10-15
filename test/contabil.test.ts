@@ -173,7 +173,7 @@ const item = (cfop: string, v_prod: number, extra: any = {}) => ({ cfop, v_prod,
 
   // 8) Serviço: processamento fiscal ponta a ponta, idempotência, pendências, reprocessamento e arquivo definitivo
   {
-    const b = bancoFalso(['ctb_empresas', 'ctb_empresa_periodos', 'ctb_regras_fiscais', 'ctb_regras_folha', 'ctb_config', 'ctb_processamentos', 'ctb_raw_folha', 'ctb_movimentos', 'ctb_lancamentos', 'ctb_arquivos', 'ctb_planos', 'ctb_contas', 'empresas', 'documentos', 'documento_itens']);
+    const b = bancoFalso(['ctb_empresas', 'ctb_empresa_periodos', 'ctb_regras_fiscais', 'ctb_regras_folha', 'ctb_config', 'ctb_processamentos', 'ctb_raw_folha', 'ctb_movimentos', 'ctb_lancamentos', 'ctb_arquivos', 'ctb_planos', 'ctb_contas', 'empresas', 'documentos', 'documento_itens', 'nfse_documentos']);
     const salvos: string[] = [];
     const arm = { salvar: async (c: string) => { salvos.push(c); return c; }, ler: async () => Buffer.from('') } as any;
     const s = new ServicoContabil(b.db, arm);

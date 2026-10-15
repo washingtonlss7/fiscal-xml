@@ -447,6 +447,7 @@ const NAV = [
     { id: 'cp-monitor', rotulo: 'Monitor', rota: '#/captacao/monitor', permissao: 'captacao.ver' }, { id: 'cp-lacunas', rotulo: 'Lacunas / NSU', rota: '#/captacao/lacunas', permissao: 'captacao.ver' },
     { id: 'cp-importacoes', rotulo: 'Importações', rota: '#/captacao/importacoes', permissao: 'captacao.ver' }, { id: 'cp-historico', rotulo: 'Histórico', rota: '#/captacao/historico', permissao: 'captacao.ver' },
     { id: 'coletores', rotulo: 'Appura Coletor', rota: '#/coletores', permissao: 'captacao.ver' },
+    { id: 'nfse-notas', rotulo: 'NFS-e Nacional', rota: '#/nfse/notas', permissao: 'captacao.ver' },
   ] },
   { id: 'notas', rotulo: 'Notas Fiscais', icone: 'file-text', rota: '#/notas', permissao: 'captacao.ver' },
   { id: 'auditoria', rotulo: 'Auditoria', icone: 'shield-check', rota: '#/auditoria', permissao: 'fiscal.ver' },
@@ -489,7 +490,7 @@ const NAV = [
   ] },
 ];
 /** Telas dos módulos do escritório: tela (id sem "tela-") → função global que abre a tela. */
-const MODULOS_ESCRITORIO = { 'auditoria-esc': 'auMostrar', 'st-esc': 'seMostrar', folha: 'foMostrar', societario: 'soMostrar', financeiro: 'fnMostrar', atendimento: 'atMostrar', relatorios: 'reMostrar', certificados: 'ceMostrar', configuracoes: 'cfMostrar' };
+const MODULOS_ESCRITORIO = { nfse: 'nfMostrar', 'auditoria-esc': 'auMostrar', 'st-esc': 'seMostrar', folha: 'foMostrar', societario: 'soMostrar', financeiro: 'fnMostrar', atendimento: 'atMostrar', relatorios: 'reMostrar', certificados: 'ceMostrar', configuracoes: 'cfMostrar' };
 const NAV_RODAPE = [{ id: 'ajuda', rotulo: 'Ajuda', icone: 'circle-help' }];
 
 let gruposAbertos = new Set(['administracao']);
@@ -677,7 +678,7 @@ async function aplicarRota() {
     return;
   }
   const esconderTudo = (menos) => {
-    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias', 'tela-escritorio', 'tela-ia', 'tela-xml', 'tela-coletores', 'tela-captacao', 'tela-integracoes', 'tela-perfis', 'tela-responsaveis', 'tela-contabil', 'tela-auditoria-esc', 'tela-st-esc', 'tela-folha', 'tela-societario', 'tela-financeiro', 'tela-atendimento', 'tela-relatorios', 'tela-certificados', 'tela-configuracoes']) if (id !== menos) $(id).hidden = true;
+    for (const id of ['tela-visao', 'tela-fechamento', 'tela-empresas', 'tela-notas', 'tela-usuarios', 'tela-sped', 'tela-guias', 'tela-escritorio', 'tela-ia', 'tela-xml', 'tela-coletores', 'tela-captacao', 'tela-integracoes', 'tela-perfis', 'tela-responsaveis', 'tela-contabil', 'tela-auditoria-esc', 'tela-st-esc', 'tela-folha', 'tela-societario', 'tela-financeiro', 'tela-atendimento', 'tela-relatorios', 'tela-certificados', 'tela-configuracoes', 'tela-nfse']) if (id !== menos) $(id).hidden = true;
   };
   if (rota.tela !== 'empresa') { empresaNotas = null; fecharGavetaUsuario(); }
   if (rota.tela === 'fechamento') {

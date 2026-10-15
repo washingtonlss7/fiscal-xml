@@ -11,7 +11,7 @@ import { Armazenamento } from '../armazenamento';
 import { log } from '../log';
 import {
   aplicar, agruparNfcePorDia, chaveUnica, CodigoErro, Conta, EmpresaCtb, ERROS, ItemFonte, Lancamento, Movimento, movimentoDaFolha,
-  movimentosDaNota, NotaFonte, r2, RegraFiscal, RegraFolha, ValorFiscal, cnpjValido, lerCompetencia, ultimoDia,
+  movimentosDaNota, movimentosDaNfse, NotaFonte, r2, RegraFiscal, RegraFolha, ValorFiscal, cnpjValido, lerCompetencia, ultimoDia,
 } from './motor';
 import { arquivoDominio, abasConferencia, ErroDominio, LancamentoSaida } from './dominio';
 import { coluna, lerPlanilha } from './planilha';
@@ -444,6 +444,21 @@ export class ServicoContabil {
             for (const m of movimentosDaNota(nota, porChave.get(nota.chave) ?? [], cfg.valor_fiscal as ValorFiscal | null)) movs.push({ ...m, ctb_empresa_id: emp.id });
           }
         }
+        // NFS-e nacional (captada no ADN): um movimento por nota, pelo CFOP de serviço (5933/6933 emitidas, 1933/2933 recebidas)
+        const nfses = await buscarTodos<any>((a, b) => this.db.from('nfse_documentos')
+          .select('chave,papel,numero,emitida_em,situacao,valor_servico,prestador_doc,prestador_nome,prestador_mun,tomador_doc,tomador_nome,tomador_mun,cod_trib_nac,descricao')
+          .eq('empresa_id', ligada).gte('emitida_em', de).lt('emitida_em', ate).order('emitida_em').range(a, b), 'NFS-e');
+        c.recebidos += nfses.length;
+        const nfseFora = nfses.filter((x) => x.situacao !== 'autorizada').map((x) => x.chave);
+        for (let i = 0; i < nfseFora.length; i += 300) {
+          const mv = ok(await this.db.from('ctb_movimentos').select('id').in('chave_nfe', nfseFora.slice(i, i + 300)).eq('ctb_empresa_id', emp.id), 'movimentos de NFS-e canceladas') as any[];
+          if (!mv.length) continue;
+          const trav = await this.travados(mv.map((m) => Number(m.id)));
+          const soltos = mv.map((m) => Number(m.id)).filter((x) => !trav.has(x));
+          if (soltos.length) { ok(await this.db.from('ctb_movimentos').delete().in('id', soltos), 'retirar NFS-e canceladas'); canceladasRetiradas += soltos.length; }
+          if (trav.size) avisos.push(`${emp.razao_social}: ${trav.size} NFS-e cancelada(s) depois de exportada(s) ao Domínio — estornar manualmente.`);
+        }
+        for (const x of nfses) for (const m of movimentosDaNfse({ ...x, empresa_cnpj: emp.cnpj })) movs.push({ ...m, ctb_empresa_id: emp.id });
         const finais = cfg.agrupar_nfce_por_dia ? agruparNfcePorDia(movs) : movs;
         await this.gravarMovimentos(id, finais, ctx, c, pend);
       }
