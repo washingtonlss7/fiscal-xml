@@ -9,3 +9,6 @@ certificados/
 *.p12
 *.pem
 *.log
+
+# Cadeia pública da ICP-Brasil (só certificados de AC, sem chave privada)
+!dados/icp-brasil.pem

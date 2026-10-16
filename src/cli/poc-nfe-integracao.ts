@@ -15,6 +15,7 @@ import 'dotenv/config';
 import { execFileSync } from 'child_process';
 import fs from 'fs';
 import https from 'https';
+import tls from 'tls';
 import path from 'path';
 import { criarAgente, lerPfx } from '../cert';
 import { decifrar } from '../cripto';
@@ -165,7 +166,10 @@ async function main() {
   let zip: Buffer;
   if (typeof a.pacote === 'string') zip = fs.readFileSync(a.pacote);
   else {
-    const r = await requisitar(PACOTE_OFICIAL, undefined, 'GET');
+    // Sem certificado do cliente (é só um download público), mas com as raízes ICP-Brasil
+    const caFile = process.env.SEFAZ_CA_FILE;
+    const ca = caFile && fs.existsSync(caFile) && fs.statSync(caFile).size ? [...tls.rootCertificates, fs.readFileSync(caFile, 'utf8')] : undefined;
+    const r = await requisitar(PACOTE_OFICIAL, ca ? new https.Agent({ ca }) : undefined, 'GET');
     if (r.status !== 200) return concluir('Teste inconclusivo por problema técnico', `Pacote oficial respondeu HTTP ${r.status}. Baixe-o e use --pacote.`);
     zip = r.corpo;
   }

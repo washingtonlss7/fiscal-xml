@@ -24,6 +24,11 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY public ./public
 COPY dados ./dados
+# Cadeia ICP-Brasil: o pacote oficial do ITI (ACcompactado.zip) já convertido para PEM fica no projeto
+# (dados/icp-brasil.pem). Se o download do build falhar (arquivo vazio), usa o do projeto; se der certo, junta os dois.
+RUN if [ -s /app/certs/icp-brasil.pem ]; then cat /app/dados/icp-brasil.pem >> /app/certs/icp-brasil.pem; \
+    else cp /app/dados/icp-brasil.pem /app/certs/icp-brasil.pem; fi \
+ && echo "Cadeia ICP-Brasil: $(grep -c 'BEGIN CERTIFICATE' /app/certs/icp-brasil.pem) certificados"
 COPY package.json ./
 
 USER node
