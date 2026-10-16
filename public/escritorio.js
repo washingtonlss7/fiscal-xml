@@ -248,7 +248,24 @@ if (typeof window !== 'undefined') {
     alvo.replaceChildren(h('div', { class: 'es-grade' }, ...blocos),
       kit.cartao(kit.topo('Módulos do escritório', 'Módulo desligado some do menu de todos. Ligar e desligar fica em Perfis de acesso.'),
         kit.tabela(['Módulo', 'Situação'], (d.modulos || []).map((m) => h('tr', {}, h('td', { text: m.nome }), h('td', {}, kit.selo(m.ativo ? 'Ligado' : 'Desligado', m.ativo ? 'ok' : 'neutro'))))),
-        kit.botoes(h('a', { class: 'botao pequeno', href: '#/perfis' }, 'Perfis de acesso'))));
+        kit.botoes(h('a', { class: 'botao pequeno', href: '#/perfis' }, 'Perfis de acesso'))),
+      typeof euAcesso !== 'undefined' && euAcesso && euAcesso.fixo ? cfPoc() : null);
+  }
+
+  /* Prova de conceito NFeIntegracao (SVRS) — só para o administrador principal */
+  const poc = { saida: null, modo: null };
+  function cfPoc() {
+    const rodar = async (modo) => {
+      if (modo === 'executar' && !kit.confirmar('Fazer o teste real? Serão no máximo 3 consultas à SVRS com o certificado da FARMA DIGITAL STORE. O teste para sozinho se houver rejeição.')) return;
+      poc.modo = modo; poc.saida = 'Rodando… pode levar alguns minutos.'; cfRender();
+      try { const r = await chamar('/api/poc/nfe-integracao', { method: 'POST', body: { modo } }); poc.saida = r.saida || '(sem saída)'; }
+      catch (e) { poc.saida = `Erro: ${e.message}`; }
+      cfRender();
+    };
+    return kit.cartao(
+      kit.topo('Prova de conceito: NFC-e pela SVRS (NFeIntegracao)', 'Teste isolado com a FARMA DIGITAL STORE. Não mexe na captação. "Preparar" só confere o contrato e monta a consulta, sem chamar a SVRS. "Executar" faz no máximo 3 consultas.'),
+      kit.botoes(kit.btn('1. Preparar (sem chamadas)', () => rodar('preparar'), 'botao pequeno'), kit.btn('2. Executar teste', () => rodar('executar'), 'botao primario pequeno')),
+      poc.saida ? h('pre', { class: 'poc-saida', text: poc.saida }) : null);
   }
   window.cfMostrar = cfMostrar;
 }

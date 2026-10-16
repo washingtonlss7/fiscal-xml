@@ -1715,3 +1715,4 @@ a.aba-tela { text-decoration: none; }
 @media (max-width: 760px) { .es-kpis { grid-template-columns: 1fr; } .so-dados { grid-template-columns: 1fr; } .so-dados dd { margin-bottom: var(--esp-2); } }
 .es .vg-card > .abas-tela { overflow-x: auto; max-width: 100%; scrollbar-width: thin; }
 .es .vg-card > .abas-tela .aba-tela { white-space: nowrap; flex: none; }
+.poc-saida { margin: 0; max-height: 520px; overflow: auto; padding: var(--esp-3); border: var(--borda); border-radius: var(--raio-m); background: var(--superficie-2); font-family: var(--mono); font-size: var(--t-xs); white-space: pre-wrap; overflow-wrap: anywhere; }

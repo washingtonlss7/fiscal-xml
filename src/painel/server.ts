@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import crypto from 'crypto';
+import { spawn } from 'child_process';
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
@@ -405,6 +406,28 @@ async function rotaApi(req: http.IncomingMessage, res: http.ServerResponse, url:
   // Módulos do escritório (Auditoria/ICMS-ST do escritório, Folha, Societário, Financeiro, Atendimento, Relatórios, Certificados, Configurações)
   // NFS-e Nacional (ADN): captação por empresa e consulta das notas
   if (rota.startsWith('/api/nfse/')) return rotaNfse(req, res, url, metodo, rota, email, acesso);
+
+  // Prova de conceito isolada (NFeIntegracao/nfeIntegracaoContab da SVRS): roda o mesmo comando do console
+  if (rota === '/api/poc/nfe-integracao' && metodo === 'POST') {
+    if (!acesso.fixo) throw new ErroHttp(403, 'Só o administrador principal pode rodar esta prova de conceito.');
+    if (pocRodando) throw new ErroHttp(409, 'A prova de conceito já está rodando. Aguarde terminar.');
+    const c = await lerCorpo(req);
+    const preparar = c.modo !== 'executar';
+    const args = ['dist/cli/poc-nfe-integracao.js', '--empresa', POC_EMPRESA, ...(preparar ? ['--so-preparar'] : [])];
+    pocRodando = true;
+    log.info('prova de conceito NFeIntegracao iniciada', { por: email, modo: preparar ? 'preparar' : 'executar' });
+    try {
+      const saida = await new Promise<{ codigo: number | null; texto: string }>((resolve) => {
+        const p = spawn(process.execPath, args, { cwd: path.resolve(__dirname, '../..'), env: process.env, timeout: 5 * 60_000 });
+        let texto = '';
+        p.stdout.on('data', (d) => { texto += d.toString(); });
+        p.stderr.on('data', (d) => { texto += d.toString(); });
+        p.on('close', (codigo) => resolve({ codigo, texto }));
+        p.on('error', (e) => resolve({ codigo: -1, texto: `Não foi possível iniciar: ${e.message}` }));
+      });
+      return responder(res, 200, { modo: preparar ? 'preparar' : 'executar', codigo: saida.codigo, saida: saida.texto.slice(-200_000) });
+    } finally { pocRodando = false; }
+  }
 
   if (/^\/api\/(auditoria\/resumo|st\/resumo|folha\/|societario\/|financeiro\/|atendimento\/|relatorios|certificados$|configuracoes\/resumo$|empresas\/simples$)/.test(rota)) return rotaModulos(req, res, url, metodo, rota, email, acesso);
 
@@ -1386,6 +1409,9 @@ const servicoSped = new ServicoSped(db, arm);
 const servicoColetor = new ServicoColetor(db, arm);
 const servicoIntegracao = new ServicoIntegracao(db, arm, cfg.masterKey);
 const servicoContabil = new ServicoContabil(db, arm);
+/** Prova de conceito NFeIntegracao: empresa escolhida para o teste (FARMA DIGITAL STORE). */
+const POC_EMPRESA = '76f50d4e-7d56-4a8a-8723-5f32a910ecba';
+let pocRodando = false;
 const servicoFolha = new ServicoFolha(db);
 const servicoNfse = new ServicoNfsePainel(db, (c) => arm.ler(c));
 const servicoSocietario = new ServicoSocietario(db, arm);
