@@ -141,6 +141,8 @@ export function exigenciaDaRota(metodo: string, rota: string): Exigencia {
   // Escritório: certificados de todas as empresas e cadastro de cliente sem certificado
   if (rota === '/api/certificados' || rota === '/api/empresas/simples') return 'administracao.empresas';
   if (rota === '/api/configuracoes/resumo') return 'administracao.configuracoes';
+  // Prova de conceito NFeIntegracao (SVRS): só administrador; o servidor confere também se é o administrador fixo
+  if (rota === '/api/poc/nfe-integracao') return 'administracao.configuracoes';
   // Relatórios: a central é de quem vê algum módulo; cada relatório confere o módulo dele
   if (rota.startsWith('/api/relatorios')) return 'algum.ver';
   // Auditoria e ICMS-ST do escritório
