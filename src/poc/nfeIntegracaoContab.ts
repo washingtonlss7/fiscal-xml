@@ -259,6 +259,8 @@ export interface DadosSolicitacao {
   cnpjConsultado: string; // CNPJ da empresa (emitente)
   docSolicitante: string; // CNPJ ou CPF do certificado usado
   versao: string;
+  /** Identificação do sistema que pede (verAplic). */
+  verAplic: string;
   modo: { tipo: 'solDFe'; chave: string } | { tipo: 'solRel'; indXML: '1'; indEmit: '1'; indDest: '0'; ultNSU: string };
 }
 
@@ -280,6 +282,7 @@ export function montarSolicitacao(e: EstruturaXsd, d: DadosSolicitacao): { xml: 
   const preencherFolha = (no: NoXsd, ctx: string): string | null => {
     const nome = no.nome!;
     if (nome === 'tpAmb') return d.tpAmb;
+    if (nome === 'verAplic') return d.verAplic;
     if (nome === 'cUF') return d.cUF;
     if (nome === 'mod') return d.modelo;
     if (nome === 'chAcesso' || nome === 'chNFe') return d.modo.tipo === 'solDFe' ? d.modo.chave : null;

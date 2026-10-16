@@ -30,6 +30,8 @@ const WSDL = `${ENDPOINT}?WSDL`;
 const PACOTE_OFICIAL = 'https://atendimento.receita.rs.gov.br/upload/arquivos/202608/18134028-cte-bt-rs2015-001-v1-00-integracao-contabilista.zip';
 const OPERACAO = 'nfeIntegracaoContab';
 const MAX_SOAP = 3;
+/** Identificação do sistema no campo verAplic (texto curto, sem dado do cliente). */
+const VER_APLIC = 'Appura-PoC-1.0';
 const TIMEOUT_MS = 60_000;
 
 /* ---------- argumentos ---------- */
@@ -212,7 +214,7 @@ async function main() {
 
   /* 4. Primeira consulta: a chave */
   const docSolicitante = tipo.documento ?? '';
-  const sol = montarSolicitacao(estrutura, { tpAmb, cUF: '43', modelo: '65', cnpjConsultado: empresa.cnpj, docSolicitante, versao, modo: { tipo: 'solDFe', chave } });
+  const sol = montarSolicitacao(estrutura, { tpAmb, cUF: '43', modelo: '65', cnpjConsultado: empresa.cnpj, docSolicitante, versao, verAplic: VER_APLIC, modo: { tipo: 'solDFe', chave } });
   if ('erro' in sol) { registrar('4a. Solicitação por chave', { erro: sol.erro, detalhes: sol.detalhes }); return concluir('Teste inconclusivo por problema técnico', `${sol.erro} ${sol.detalhes.join(' ')}`); }
   let validacao: string;
   try { validacao = validarXsd(sol.xml, 'solicitacao-1-chave.xml'); } catch (e) { registrar('4a. Solicitação por chave', { validacao: (e as Error).message }); return concluir('Teste inconclusivo por problema técnico', (e as Error).message); }
@@ -275,7 +277,7 @@ async function main() {
   }
   let paginas = 0; let docsDist = 0;
   while (paginas < 2 && estado.chamadasSoap < MAX_SOAP) {
-    const s2 = montarSolicitacao(estrutura, { tpAmb, cUF: '43', modelo: '65', cnpjConsultado: empresa.cnpj, docSolicitante, versao, modo: { tipo: 'solRel', indXML: '1', indEmit: '1', indDest: '0', ultNSU: estado.ultNSU } });
+    const s2 = montarSolicitacao(estrutura, { tpAmb, cUF: '43', modelo: '65', cnpjConsultado: empresa.cnpj, docSolicitante, versao, verAplic: VER_APLIC, modo: { tipo: 'solRel', indXML: '1', indEmit: '1', indDest: '0', ultNSU: estado.ultNSU } });
     if ('erro' in s2) { registrar('5. Distribuição', { erro: s2.erro, detalhes: s2.detalhes }); break; }
     try { registrar(`5.${paginas + 1}a Solicitação de distribuição`, { ultNSU: estado.ultNSU, validacao: validarXsd(s2.xml, `solicitacao-${estado.chamadasSoap + 1}-distribuicao.xml`) }); } catch (e) { registrar('5. Distribuição', { validacao: (e as Error).message }); break; }
     let ret;

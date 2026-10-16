@@ -57,7 +57,7 @@ assert.ok(montarEnvelope({ ...c, conteudo: 'texto' }, '<a/>').includes('&lt;a/&g
 // XSD fictício: ordem, escolhas e documentação
 const xsd = `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns="http://www.portalfiscal.inf.br/nfe" targetNamespace="http://www.portalfiscal.inf.br/nfe">
 <xs:element name="distNFeRS"><xs:complexType><xs:sequence>
- <xs:element name="tpAmb"/><xs:element name="cUF"/>
+ <xs:element name="tpAmb"/><xs:element name="verAplic"/><xs:element name="cUF"/>
  <xs:choice><xs:annotation><xs:documentation>Identificação do contribuinte consultado</xs:documentation></xs:annotation><xs:element name="CNPJ"/><xs:element name="CPF"/></xs:choice>
  <xs:element name="mod"><xs:simpleType><xs:restriction base="xs:string"><xs:enumeration value="55"/><xs:enumeration value="65"/></xs:restriction></xs:simpleType></xs:element>
  <xs:choice>
@@ -67,11 +67,11 @@ const xsd = `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns="http:
 </xs:sequence><xs:attribute name="versao" fixed="1.00"/></xs:complexType></xs:element></xs:schema>`;
 const e = lerEstruturaXsd({ 'ficticio.xsd': xsd }, 'distNFeRS');
 assert.equal(e.versao, '1.00');
-assert.deepEqual(e.filhos.map((f) => f.nome ?? `choice(${f.filhos.map((x) => x.nome).join('|')})`), ['tpAmb', 'cUF', 'choice(CNPJ|CPF)', 'mod', 'choice(solRel|solDFe)']);
-const dados = { tpAmb: '1' as const, cUF: '43', modelo: '65', cnpjConsultado: CNPJ, docSolicitante: '12345678909', versao: '1.00' };
+assert.deepEqual(e.filhos.map((f) => f.nome ?? `choice(${f.filhos.map((x) => x.nome).join('|')})`), ['tpAmb', 'verAplic', 'cUF', 'choice(CNPJ|CPF)', 'mod', 'choice(solRel|solDFe)']);
+const dados = { tpAmb: '1' as const, cUF: '43', modelo: '65', cnpjConsultado: CNPJ, docSolicitante: '12345678909', versao: '1.00', verAplic: 'Appura-PoC-1.0' };
 const s1 = montarSolicitacao(e, { ...dados, modo: { tipo: 'solDFe', chave: CHAVE } });
 assert.ok('xml' in s1);
-if ('xml' in s1) assert.equal(s1.xml, `<distNFeRS xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.00"><tpAmb>1</tpAmb><cUF>43</cUF><CNPJ>${CNPJ}</CNPJ><mod>65</mod><solDFe><chAcesso>${CHAVE}</chAcesso></solDFe></distNFeRS>`);
+if ('xml' in s1) assert.equal(s1.xml, `<distNFeRS xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.00"><tpAmb>1</tpAmb><verAplic>Appura-PoC-1.0</verAplic><cUF>43</cUF><CNPJ>${CNPJ}</CNPJ><mod>65</mod><solDFe><chAcesso>${CHAVE}</chAcesso></solDFe></distNFeRS>`);
 const s2 = montarSolicitacao(e, { ...dados, modo: { tipo: 'solRel', indXML: '1', indEmit: '1', indDest: '0', ultNSU: '0' } });
 if ('xml' in s2) { assert.ok(s2.xml.includes('<solRel><indXML>1</indXML><indEmit>1</indEmit><indDest>0</indDest><ultNSU>0</ultNSU></solRel>')); assert.ok(!s2.xml.includes('solDFe')); } else assert.fail(s2.erro);
 // Identidade sem documentação: não adivinha
