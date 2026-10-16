@@ -13,7 +13,7 @@ ENV NODE_ENV=production \
     SEFAZ_CA_FILE=/app/certs/icp-brasil.pem
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl unzip openssl tzdata \
+ && apt-get install -y --no-install-recommends ca-certificates curl unzip openssl tzdata libxml2-utils \
  && rm -rf /var/lib/apt/lists/*
 
 COPY scripts ./scripts
